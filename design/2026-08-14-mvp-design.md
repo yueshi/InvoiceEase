@@ -86,7 +86,7 @@ test/                # 测试代码与样例 fixture（遵循项目目录约定�
 - `created_at`、`updated_at`
 
 **invoices** — 发票主表
-- 标识/归属：`id`、`tenant_id`(default `'default'`)、`mailbox_id`、`email_message_id`、`email_subject`
+- 标识/归属：`id`、`tenant_id`(default `'default'`)、`user_id`（归属人，nullable；MVP 统一收票邮箱场景为空，Phase 2 按发件人归属）、`mailbox_id`、`email_message_id`、`email_subject`
 - 发票字段：`invoice_code`、`invoice_number`、`issue_date`、`amount_without_tax`、`tax_amount`、`total_amount`、`total_amount_cn`、`seller_name`、`seller_tax_id`、`buyer_name`、`buyer_tax_id`、`invoice_type`
 - 金额一律 `NUMERIC(14,2)`；时间为 `timestamptz`
 - 解析：`parse_source`（`XML` / `OFD_XBRL` / `PDF_XBRL` / `PDF_UNSTRUCTURED`）、`confidence_score`、`validation_errors`(JSONB)
