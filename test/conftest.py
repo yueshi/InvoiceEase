@@ -10,7 +10,6 @@ os.environ.setdefault("INVOICING_ADMIN_PASSWORD", "admin123")
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 
 from invoicing.config import settings
 from invoicing.db import Base, SessionLocal
