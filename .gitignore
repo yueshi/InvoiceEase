@@ -79,3 +79,4 @@ tmp/
 # Object storage / data dumps
 data/
 *.dump
+*.db
