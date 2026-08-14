@@ -5,7 +5,7 @@ os.environ.setdefault("INVOICING_STORAGE_BACKEND", "local")
 os.environ.setdefault("INVOICING_STORAGE_ROOT", "./data/test-originals")
 os.environ.setdefault("INVOICING_QUEUE_BACKEND", "local")
 os.environ.setdefault("INVOICING_SCHEDULER_ENABLED", "false")
-os.environ.setdefault("INVOICING_JWT_SECRET", "test-secret")
+os.environ.setdefault("INVOICING_JWT_SECRET", "test-secret-0123456789-0123456789-0123456789")
 os.environ.setdefault("INVOICING_ADMIN_PASSWORD", "admin123")
 
 import pytest
