@@ -1,7 +1,6 @@
 import io
 import zipfile
 
-from lxml import etree
 from pypdf import PdfReader
 
 from invoicing.parse.xml_parser import parse_invoice_xml
@@ -26,13 +25,13 @@ def extract_xml_from_ofd(data: bytes) -> bytes | None:
     """OFD 是 zip 容器，遍历其中 XML 文件，返回第一个可解析为数电票的 XML 原文。"""
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
+        candidates = [
+            zf.read(name)
+            for name in zf.namelist()
+            if name.lower().endswith(".xml") and not name.endswith("/")
+        ]
     except zipfile.BadZipFile:
         return None
-    candidates = [
-        zf.read(name)
-        for name in zf.namelist()
-        if name.lower().endswith(".xml") and not name.endswith("/")
-    ]
     return _find_invoice_xml(candidates)
 
 

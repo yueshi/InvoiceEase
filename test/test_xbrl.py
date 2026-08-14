@@ -60,3 +60,11 @@ def test_extracted_xml_is_parseable():
 
     parsed = parse_invoice_xml(extract_xml_from_ofd(_build_ofd_bytes()))
     assert parsed.invoice_number == "24312000000012345678"
+
+
+def test_extract_xml_from_ofd_corrupt_returns_none():
+    assert extract_xml_from_ofd(b"this is not a zip at all") is None
+
+
+def test_extract_xml_from_pdf_corrupt_returns_none():
+    assert extract_xml_from_pdf(b"%PDF-1.4 garbage garbage") is None
