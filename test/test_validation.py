@@ -1,7 +1,7 @@
+import pytest
 from decimal import Decimal
 from pathlib import Path
 
-from invoicing.parse.schemas import ParseError
 from invoicing.parse.validation import amount_to_cn, validate
 from invoicing.parse.xml_parser import parse_invoice_xml
 
@@ -31,3 +31,8 @@ def test_validate_cn_mismatch():
     parsed = parse_invoice_xml((FIXTURES / "dianzi_bad_cn.xml").read_bytes())
     errors = validate(parsed)
     assert any(e.code == "CN_MISMATCH" for e in errors)
+
+
+def test_amount_to_cn_negative_raises():
+    with pytest.raises(ValueError):
+        amount_to_cn(Decimal("-1.00"))
