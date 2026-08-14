@@ -72,7 +72,7 @@ test/                # 测试代码与样例 fixture（遵循项目目录约定�
 
 ## 三、数据模型（PostgreSQL）
 
-### 表结构（5 张表，Alembic 管理迁移）
+### 表结构（4 张表：users / mailboxes / invoices / audit_logs，Alembic 管理迁移）
 
 **users** — 轻量用户表（4 角色）
 - `id`、`username`(unique)、`password_hash`（bcrypt）、`role`、`created_at`、`updated_at`
