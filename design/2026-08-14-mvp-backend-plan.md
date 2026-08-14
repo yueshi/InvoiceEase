@@ -302,9 +302,7 @@ os.environ.setdefault("INVOICING_ADMIN_PASSWORD", "admin123")
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 
-import invoicing.models  # noqa: F401  确保模型注册进 Base.metadata
 from invoicing.config import settings
 from invoicing.db import Base, SessionLocal
 
