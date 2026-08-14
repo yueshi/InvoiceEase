@@ -79,3 +79,6 @@ tmp/
 # Object storage / data dumps
 data/
 *.dump
+
+# Claude Code worktrees
+.claude/
