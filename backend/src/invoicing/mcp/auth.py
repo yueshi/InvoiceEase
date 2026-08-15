@@ -15,7 +15,8 @@ class MCPAuthMiddleware:
         if scope["type"] == "http" and scope["path"].startswith("/mcp"):
             headers = dict(scope.get("headers", []))
             auth = headers.get(b"authorization", b"").decode("latin-1")
-            expected = f"Bearer {settings.mcp_token}".encode()
+            # 与 header 的 latin-1 解码往返一致（token 为 ASCII 配置值）
+            expected = f"Bearer {settings.mcp_token}".encode("latin-1")
             if not hmac.compare_digest(auth.encode(), expected):
                 response = JSONResponse(
                     {"code": "unauthorized", "message": "MCP token 无效"}, status_code=401

@@ -2,6 +2,8 @@
 """MCP 工具实现：薄适配器，直接调用 workflow service 层。"""
 from datetime import date
 
+from fastapi import HTTPException
+
 from invoicing.audit import write_audit
 from invoicing.db import SessionLocal
 from invoicing.fetch.service import poll_mailbox
@@ -56,6 +58,9 @@ def list_invoices_mcp(
 
 def get_invoice_mcp(invoice_id: int) -> InvoiceOut:
     with SessionLocal() as db:
-        return InvoiceOut.model_validate(
-            services.get_invoice(db, _mcp_admin_user(), invoice_id), from_attributes=True
-        )
+        try:
+            inv = services.get_invoice(db, _mcp_admin_user(), invoice_id)
+        except HTTPException as e:
+            # service 层 404 泄漏到 MCP 层，映射为协议友好的错误信息
+            raise ValueError(f"发票不存在或无权访问: {invoice_id}") from e
+        return InvoiceOut.model_validate(inv, from_attributes=True)
