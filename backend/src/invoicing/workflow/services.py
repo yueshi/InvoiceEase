@@ -101,4 +101,6 @@ def re_verify_invoice(db: Session, current_user: User, invoice_id: int) -> Invoi
     )
     db.commit()
     enqueue_verify_sync(inv.id)
+    # 本地队列模式内联完成验真：刷新会话后再返回，响应反映验真后状态（redis 模式为尽力读取当前值）
+    db.refresh(inv)
     return inv

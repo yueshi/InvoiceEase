@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 发票易（InvoiceEase）—— 面向企业级市场的电子发票自动化处理 AI Agent 产品，实现电子发票从「邮箱收取 → 智能解析 → 验真查重 → 归档提交」的全流程自动化，通过 MCP 协议接入 WorkBuddy 等 Agent 平台。
 
-**当前处于需求阶段：仓库内仅有需求文档，尚无任何代码。**
+**当前状态：MVP 后端已实现（FastAPI + SQLite 开发模式，见「构建与测试」），需求文档 `frd/` 仍为权威基线。**
 
 ## 关键文档
 
@@ -45,7 +45,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 构建与测试
 
-尚未有代码，因此不存在构建、lint、测试命令。开始实现时按 FRD 第五章技术选型搭建工程，并将实际可用的命令补充到本节。
+```bash
+cd backend && uv sync                             # 安装依赖
+cd backend && uv run alembic upgrade head         # 初始化数据库（默认 SQLite，无需外部服务）
+cd backend && uv run pytest ../test -v            # 运行全部测试
+cd backend && uv run uvicorn invoicing.main:app --reload   # 启动 API（本地模式收取后同步解析/验真）
+cd backend && uv run arq invoicing.workers.queue.WorkerSettings  # 任务 worker（仅 queue_backend=redis 时需要）
+```
 
 ## 工作约定
 
