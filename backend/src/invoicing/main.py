@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from invoicing.api import api_router
+from invoicing import scheduler as scheduler_mod
 from invoicing.bootstrap import ensure_admin_user
 from invoicing.db import SessionLocal
 
@@ -11,7 +12,11 @@ from invoicing.db import SessionLocal
 async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         ensure_admin_user(db)
+    scheduler_mod.setup_scheduler(app)
     yield
+    sched = getattr(app.state, "scheduler", None)
+    if sched is not None:
+        sched.shutdown(wait=False)
 
 
 def create_app() -> FastAPI:
