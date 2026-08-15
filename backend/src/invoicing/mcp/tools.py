@@ -73,15 +73,13 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
     from uuid import uuid4
 
     from invoicing.fetch.filters import classify_attachment
-    from invoicing.mcp.extract import IMAGE_REJECT
+    from invoicing.mcp.extract import IMAGE_REJECT, _read_file
     from invoicing.models import AuditAction, Invoice, InvoiceStatus
     from invoicing.storage import get_storage
     from invoicing.workers.queue import enqueue_parse_sync
 
     path = Path(file_path)
-    if not path.is_file():
-        raise ValueError(f"文件不存在: {file_path}")
-    data = path.read_bytes()
+    data = _read_file(file_path)
     kind = classify_attachment(path.name, "", data)
     if kind == "IMAGE":
         raise ValueError(IMAGE_REJECT)

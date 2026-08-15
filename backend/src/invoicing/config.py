@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480
     mcp_token: str = "change-me"
+    workbuddy_inbox_dir: str = ""  # WorkBuddy 附件目录信任边界；为空表示不限制，生产建议配置
     fernet_key: str = "change-me-32bytes-base64-key!!!"  # 生产环境必须覆盖
     admin_username: str = "admin"
     admin_password: str = "admin123"

@@ -91,7 +91,7 @@ WorkBuddy Agent
   "mcpServers": {
     "invoice-ease": {
       "type": "streamable-http",
-      "url": "http://127.0.0.1:8001/mcp",
+      "url": "http://127.0.0.1:8000/mcp",
       "headers": { "Authorization": "Bearer <MCP_TOKEN>" }
     }
   }

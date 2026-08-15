@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from invoicing.config import settings
 from invoicing.fetch.filters import classify_attachment
 from invoicing.models.enums import FileType
 from invoicing.parse.router import parse_file
@@ -33,6 +34,10 @@ def _read_file(file_path: str) -> bytes:
     path = Path(file_path)
     if not path.is_file():
         raise ValueError(f"文件不存在: {file_path}")
+    if settings.workbuddy_inbox_dir:
+        root = Path(settings.workbuddy_inbox_dir).resolve()
+        if root not in path.resolve().parents and path.resolve() != root:
+            raise ValueError(f"文件不在允许目录内: {settings.workbuddy_inbox_dir}")
     return path.read_bytes()
 
 
@@ -47,6 +52,7 @@ def _map_data(parsed: ParsedInvoice, source_file: str) -> ExtractInvoiceData:
         taxAmount=str(parsed.tax_amount),
         totalWithTax=str(parsed.total_amount),
         totalWithTaxCN=parsed.total_amount_cn,
+        invoiceType=parsed.invoice_type,
         sourceFile=source_file,
         extractedAt=datetime.now(timezone.utc).isoformat(),
     )
@@ -59,18 +65,21 @@ def extract_invoice_file(file_path: str) -> ExtractResult:
         return ExtractResult(success=False, error=IMAGE_REJECT)
     if kind not in _SUPPORTED:
         return ExtractResult(success=False, error=f"不支持的格式: {kind or '未知'}")
-    outcome = parse_file(kind, data)
-    if outcome.parsed is None:
-        if outcome.source == "PDF_UNSTRUCTURED":
-            return ExtractResult(success=False, error=UNSTRUCTURED)
-        detail = outcome.errors[0].message if outcome.errors else "解析失败"
-        return ExtractResult(success=False, error=f"解析失败: {detail}")
-    validation_errors = [{"code": e.code, "message": e.message} for e in outcome.errors]
-    return ExtractResult(
-        success=True,
-        data=_map_data(outcome.parsed, file_path),
-        validation=ValidationResult(valid=not validation_errors, errors=validation_errors),
-    )
+    try:
+        outcome = parse_file(kind, data)
+        if outcome.parsed is None:
+            if outcome.source == "PDF_UNSTRUCTURED":
+                return ExtractResult(success=False, error=UNSTRUCTURED)
+            detail = outcome.errors[0].message if outcome.errors else "解析失败"
+            return ExtractResult(success=False, error=f"解析失败: {detail}")
+        validation_errors = [{"code": e.code, "message": e.message} for e in outcome.errors]
+        return ExtractResult(
+            success=True,
+            data=_map_data(outcome.parsed, file_path),
+            validation=ValidationResult(valid=not validation_errors, errors=validation_errors),
+        )
+    except Exception as e:
+        return ExtractResult(success=False, error=f"解析失败: {e}")
 
 
 def batch_extract_invoice_files(file_paths: list[str]) -> list[ExtractResult]:
@@ -78,7 +87,7 @@ def batch_extract_invoice_files(file_paths: list[str]) -> list[ExtractResult]:
     for p in file_paths:
         try:
             results.append(extract_invoice_file(p))
-        except ValueError as e:  # 缺失文件等：单条失败不影响其他条目
+        except Exception as e:  # 单条任何异常都不影响其他条目（契约：逐条 success/error）
             results.append(ExtractResult(success=False, error=str(e)))
     return results
 
@@ -109,7 +118,7 @@ def validate_invoice_data(invoice_data: dict) -> ValidationResult:
             confidence_score=1.0,
             parse_source="workbuddy",
         )
+        core_errors = [{"code": e.code, "message": e.message} for e in core_validate(parsed)]
     except (ValueError, InvalidOperation) as e:
         return ValidationResult(valid=False, errors=[{"code": "INVALID_FIELD", "message": str(e)}])
-    core_errors = [{"code": e.code, "message": e.message} for e in core_validate(parsed)]
     return ValidationResult(valid=not core_errors, errors=core_errors)

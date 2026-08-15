@@ -61,6 +61,16 @@ def test_batch_extract_mixed(tmp_path):
     assert results[1].success is False
 
 
+def test_extract_runtime_error_caught(tmp_path, monkeypatch):
+    # 非 ValueError 异常（如磁盘错误）也应转 success=False 而非中断
+    from invoicing.mcp import extract as extract_mod
+
+    monkeypatch.setattr(extract_mod, "parse_file", lambda kind, data: (_ for _ in ()).throw(RuntimeError("boom")))
+    result = extract_invoice_file(str(FIXTURES / "dianzi.xml"))
+    assert result.success is False
+    assert "解析失败" in result.error
+
+
 def test_batch_extract_with_missing_file(tmp_path):
     ok = FIXTURES / "dianzi.xml"
     results = batch_extract_invoice_files([str(ok), "/nonexistent/x.xml"])
