@@ -11,6 +11,8 @@ from lxml import etree
 from invoicing.parse.schemas import ParsedInvoice
 
 XBRL_NS = "http://www.xbrl.org/2003/instance"
+# 铁路电子客票开票主体统一为国铁集团（rai XML 不含开票方字段）；可配置化留 Phase 2
+RAILWAY_SELLER = "中国国家铁路集团有限公司"
 RAI_NS = "http://xbrl.mof.gov.cn/taxonomy/2021-11-30/rai"
 
 
@@ -39,7 +41,7 @@ def parse_rai_xbrl(root: etree._Element) -> ParsedInvoice:
         tax_amount=Decimal(_rai_text(root, "TaxAmount") or "0"),
         total_amount=Decimal(_rai_text(root, "Fare") or "0"),
         total_amount_cn="",
-        seller_name=_rai_text(root, "IssueParty") or "",
+        seller_name=_rai_text(root, "IssueParty") or RAILWAY_SELLER,
         seller_tax_id=_rai_text(root, "IssuePartyCode") or "",
         buyer_name=_rai_text(root, "NameOfPurchaser") or "",
         buyer_tax_id=_rai_text(root, "UnifiedSocialCreditCodeOfPurchaser") or "",

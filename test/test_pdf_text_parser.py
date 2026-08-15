@@ -35,6 +35,8 @@ def test_broken_layout():
     assert parsed.total_amount == Decimal("129.42")
     assert parsed.buyer_tax_id == "91310000MA1FL0B000"
     assert parsed.seller_tax_id == "91310000MA1FL0A000"
+    assert parsed.buyer_name == "测试采购有限公司"
+    assert parsed.seller_name == "示例出行科技有限公司"
 
 
 def test_missing_key_fields_returns_none():

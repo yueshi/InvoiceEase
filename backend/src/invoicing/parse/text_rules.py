@@ -27,6 +27,8 @@ _AMOUNTS = re.compile(r"\d+\.\d{2}")
 _GENERIC_NO = re.compile(r"(\d{20,})")  # 20 位票号；粘连场景（票号+日期）取前 20 位
 _GENERIC_DATE_CN = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
 _GENERIC_TAX_IDS = re.compile(r"[0-9A-Z]{18}")
+# 非贪婪到第一个「公司」结尾；(?<![0-9]) 防「09日澜铮鸿欣…」把日期尾字吞进名称
+_COMPANY = re.compile(r"(?<![0-9])[\u4e00-\u9fa5（()）·]{2,30}?公司")
 
 
 def _to_date(m) -> str | None:
@@ -108,7 +110,8 @@ def extract_fields_from_text(text: str, confidence: float = TEXT_CONFIDENCE) -> 
         return None
 
     buyer_name = seller_name = buyer_tax_id = seller_tax_id = None
-    names = _LABEL_NAME.findall(text)
+    # 过滤「名称：」标签后紧跟「统一社会信用代码/…」标签的误捕（破碎布局标签连排）
+    names = [n for n in _LABEL_NAME.findall(text) if "统一社会信用代码" not in n]
     tax_ids = _LABEL_TAX_ID.findall(text)
     if names and tax_ids and len(names) >= 2 and len(tax_ids) >= 2:
         buyer_name, seller_name = names[0], names[1]
@@ -118,6 +121,11 @@ def extract_fields_from_text(text: str, confidence: float = TEXT_CONFIDENCE) -> 
         generic_ids = [t for t in _GENERIC_TAX_IDS.findall(text) if not (number and t in number)]
         if len(generic_ids) >= 2:
             buyer_tax_id, seller_tax_id = generic_ids[0], generic_ids[1]
+            # 公司名兜底：文本中「…公司」按出现序配对（购买方在前、销售方在后，
+            # 真机实测与版式惯例一致；提取不到仍允许留空，置信度已表达不确定性）
+            companies = _COMPANY.findall(text)
+            if len(companies) >= 2:
+                buyer_name, seller_name = companies[0], companies[1]
 
     total_cn = None
     m = _LABEL_CN.search(text)
