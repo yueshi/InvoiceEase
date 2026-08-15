@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<EInvoice>
+  <Header>
+    <EIid>26617000000309516967</EIid>
+    <EInvoiceTag>SWEI16100</EInvoiceTag>
+    <Version>0.36</Version>
+    <InherentLabel>
+      <EInvoiceType><LabelCode>01</LabelCode><LabelName>电子发票</LabelName></EInvoiceType>
+      <GeneralOrSpecialVAT><LabelCode>02</LabelCode><LabelName>普通发票</LabelName></GeneralOrSpecialVAT>
+    </InherentLabel>
+  </Header>
+  <EInvoiceData>
+    <SellerInformation>
+      <SellerIdNum>91310000MA1FL0A000</SellerIdNum>
+      <SellerName>示例出行科技有限公司</SellerName>
+    </SellerInformation>
+    <BuyerInformation>
+      <BuyerIdNum>91310000MA1FL0B000</BuyerIdNum>
+      <BuyerName>测试采购有限公司</BuyerName>
+    </BuyerInformation>
+    <BasicInformation>
+      <TotalAmWithoutTax>65.48</TotalAmWithoutTax>
+      <TotalTaxAm>1.96</TotalTaxAm>
+      <TotalTax-includedAmount>67.44</TotalTax-includedAmount>
+      <TotalTax-includedAmountInChinese>陆拾柒元肆角肆分</TotalTax-includedAmountInChinese>
+      <Drawer>陈珊珊</Drawer>
+      <RequestTime>2026-07-09 09:52:29</RequestTime>
+    </BasicInformation>
+    <IssuItemInformation>
+      <ItemName>*交通运输服务*客运服务费</ItemName>
+      <Quantity>1</Quantity>
+      <UnPrice>65.48</UnPrice>
+      <Amount>65.48</Amount>
+      <TaxRate>0.03</TaxRate>
+      <ComTaxAm>1.96</ComTaxAm>
+      <TotaltaxIncludedAmount>67.44</TotaltaxIncludedAmount>
+    </IssuItemInformation>
+  </EInvoiceData>
+</EInvoice>

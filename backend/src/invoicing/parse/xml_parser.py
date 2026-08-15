@@ -25,9 +25,13 @@ def parse_invoice_xml(data: bytes) -> ParsedInvoice:
     except etree.XMLSyntaxError as e:
         raise ValueError(f"XML_PARSE_ERROR: {e}")
 
-    # 变体分流：铁路电子客票 rai XBRL（数电票 schema 优先，其余按 xbrl+rai 判定）
+    # 变体分流（数电票 schema 为主，变体按结构判别）：
+    # 传统增值税电子普通发票（EInvoiceData）→ 铁路客票 rai XBRL → 数电票
     from invoicing.parse.rai_parser import is_rai_xbrl, parse_rai_xbrl
+    from invoicing.parse.traditional_parser import is_traditional_einvoice, parse_traditional_einvoice
 
+    if is_traditional_einvoice(root):
+        return parse_traditional_einvoice(root)
     if is_rai_xbrl(root):
         return parse_rai_xbrl(root)
 
