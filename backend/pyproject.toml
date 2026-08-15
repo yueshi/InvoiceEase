@@ -25,7 +25,8 @@ dependencies = [
 
 [project.optional-dependencies]
 ocr = [
-    "paddleocr>=3.7.0",
+    "paddleocr>=2.8,<3",
+    "setuptools>=68",
     "paddlepaddle>=2.5,<3",
     "pymupdf>=1.28.2",
 ]

@@ -82,7 +82,7 @@ def validate(parsed: ParsedInvoice) -> list[ParseError]:
         )
     if parsed.total_amount_cn:
         # 圆/元 等价归一（真实发票常见「圆」写法）
-        cn = parsed.total_amount_cn.replace(" ", "").replace("　", "").replace("圆", "元")
+        cn = parsed.total_amount_cn.replace(" ", "").replace("　", "").replace("圆", "元").replace("元零", "元")
         if amount_to_cn(parsed.total_amount) != cn:
             errors.append(
                 ParseError(

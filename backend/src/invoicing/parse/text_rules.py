@@ -23,9 +23,8 @@ _LABEL_NAME = re.compile(r"名称\s*[:：]\s*([^\s:：，,]+)")
 _LABEL_TAX_ID = re.compile(r"统一社会信用代码/纳税人识别号\s*[:：]\s*([0-9A-Z]{18})")
 _LABEL_TOTAL = re.compile(r"合\s*计.*?¥\s*([\d.]+)\s*¥\s*([\d.]+)", re.S)
 _LABEL_CN = re.compile(r"价税合计\s*[（(]大写[)）]\s*([零壹贰叁肆伍陆柒捌玖拾佰仟万亿元圆整角分]+)")
-_RATE_TAX = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%\D{0,4}(\d+\.\d{2})")
 _AMOUNTS = re.compile(r"\d+\.\d{2}")
-_GENERIC_NO = re.compile(r"\b(\d{20})\b")
+_GENERIC_NO = re.compile(r"(\d{20,})")  # 20 位票号；粘连场景（票号+日期）取前 20 位
 _GENERIC_DATE_CN = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
 _GENERIC_TAX_IDS = re.compile(r"[0-9A-Z]{18}")
 
@@ -49,7 +48,7 @@ def extract_fields_from_text(text: str, confidence: float = TEXT_CONFIDENCE) -> 
     else:
         m = _GENERIC_NO.search(text)
         if m:
-            number = m.group(1)
+            number = m.group(1)[:20]
 
     issue_date = None
     for m in (_LABEL_DATE_CN.search(text), _LABEL_DATE_ISO.search(text), _GENERIC_DATE_CN.search(text)):
@@ -67,19 +66,40 @@ def extract_fields_from_text(text: str, confidence: float = TEXT_CONFIDENCE) -> 
         except InvalidOperation:
             amount_without_tax = tax_amount = total_amount = None
     if total_amount is None:
-        # 兜底：无 ¥ 符号的合计行——先锚定「税率% 税额」，再向左找满足
-        # 税率自洽（税额 ≈ 金额 × 税率）的金额（破碎布局中数字粘连，需逐个尝试）
-        for fm in _RATE_TAX.finditer(text):
+        # 兜底：无 ¥ 符号的合计行——% 锚定：右侧取税额，紧邻 % 的数字串逐后缀
+        # 试税率（如 "126.883%3.81" 粘连场景中税率是最后一个数字 "3"），
+        # 再向左找满足税率自洽（税额 ≈ 金额 × 税率）的金额
+        for m in re.finditer("%", text):
+            before = text[: m.start()]
+            after = text[m.end():]
+            tax_m = re.search(r"(\d+\.\d{2})", after)
+            if not tax_m:
+                continue
             try:
-                rate = Decimal(fm.group(1))
-                tax = Decimal(fm.group(2))
+                tax = Decimal(tax_m.group(1))
             except InvalidOperation:
                 continue
-            prefix = text[: fm.start()]
-            for am in reversed(_AMOUNTS.findall(prefix)):
-                amt = Decimal(am)
-                if rate > 0 and abs(tax - amt * rate / Decimal(100)) <= Decimal("0.05"):
-                    amount_without_tax, tax_amount, total_amount = amt, tax, amt + tax
+            run_m = re.search(r"(\d+(?:\.\d+)?)$", before)
+            if not run_m:
+                continue
+            run = run_m.group(1)
+            for i in range(1, len(run) + 1):
+                cand = run[-i:]
+                if cand.startswith("."):
+                    continue
+                try:
+                    rate = Decimal(cand)
+                except InvalidOperation:
+                    continue
+                if not (0 < rate < 100):
+                    continue
+                prefix = before[: len(before) - i]
+                for am in reversed(_AMOUNTS.findall(prefix)):
+                    amt = Decimal(am)
+                    if abs(tax - amt * rate / Decimal(100)) <= Decimal("0.05"):
+                        amount_without_tax, tax_amount, total_amount = amt, tax, amt + tax
+                        break
+                if total_amount is not None:
                     break
             if total_amount is not None:
                 break

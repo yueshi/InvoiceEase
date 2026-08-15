@@ -78,7 +78,7 @@ def extract_invoice_file(file_path: str) -> ExtractResult:
         if parsed is None:
             return ExtractResult(success=False, error=UNSTRUCTURED)
         parsed.parse_source = "IMAGE_OCR"
-        errors = validate(parsed)
+        errors = [{"code": e.code, "message": e.message} for e in validate(parsed)]
         return ExtractResult(
             success=True,
             data=_map_data(parsed, file_path),

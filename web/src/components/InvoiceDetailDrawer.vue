@@ -26,7 +26,9 @@ function onDownload(kind: "file" | "xml") {
           <a-tag>{{ INVOICE_STATUS_LABELS[invoice.status] || invoice.status }}</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="验真">{{ VERIFY_STATUS_LABELS[invoice.verify_status] || invoice.verify_status }}</a-descriptions-item>
-        <a-descriptions-item label="解析来源">{{ invoice.parse_source || "—" }}（置信度 {{ invoice.confidence_score ?? "—" }}）</a-descriptions-item>
+        <a-descriptions-item label="解析来源">{{ invoice.parse_source || "—" }}（置信度 {{ invoice.confidence_score ?? "—" }}）
+          <a-tag v-if="invoice.confidence_score !== null && invoice.confidence_score < 0.8" color="orange">需人工核对</a-tag>
+        </a-descriptions-item>
         <a-descriptions-item label="来源邮件">{{ invoice.email_subject || "—" }}</a-descriptions-item>
         <a-descriptions-item label="重复标记">{{ invoice.duplicate_flag ? "是" : "否" }}</a-descriptions-item>
         <a-descriptions-item v-if="invoice.validation_errors && invoice.validation_errors.length" label="校验/解析问题">

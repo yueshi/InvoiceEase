@@ -62,3 +62,17 @@ def test_no_yen_total_fallback():
     assert parsed.amount_without_tax == Decimal("126.88")
     assert parsed.tax_amount == Decimal("3.81")
     assert parsed.total_amount == Decimal("130.69")
+
+
+def test_squashed_invoice_number_and_date():
+    """票号与日期粘连（真实曹操 OFD 文本层）：20 位票号取前 20 位。"""
+    text = (
+        "合计开票人：263270000012515945572026年07月09日\n"
+        "合 计\n"
+        "¥126.88¥3.81\n"
+    )
+    parsed = extract_fields_from_text(text)
+    assert parsed is not None
+    assert parsed.invoice_number == "26327000001251594557"
+    assert parsed.issue_date.isoformat() == "2026-07-09"
+    assert parsed.total_amount == Decimal("130.69")

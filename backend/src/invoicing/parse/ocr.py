@@ -40,13 +40,28 @@ class PaddleOcrProvider(OcrProvider):
         if engine is None:
             return None
         try:
-            result = engine.predict(image_bytes)
+            import numpy as np
+            from PIL import Image
+
+            img = np.array(Image.open(io.BytesIO(image_bytes)).convert("RGB"))
+            result = engine.predict(img) if hasattr(engine, "predict") else engine.ocr(img)
         except Exception:
             return None
         texts, scores = [], []
-        for page in result:
-            texts.extend(page.get("rec_texts") or [])
-            scores.extend(page.get("rec_scores") or [])
+        if hasattr(engine, "predict"):
+            # paddleocr 3.x：list[dict]，rec_texts/rec_scores
+            for page in result:
+                texts.extend(page.get("rec_texts") or [])
+                scores.extend(page.get("rec_scores") or [])
+        else:
+            # paddleocr 2.x：list[list[[box, (text, score)], ...]]
+            for page in result:
+                if not page:
+                    continue
+                for item in page:
+                    text, score = item[1]
+                    texts.append(text)
+                    scores.append(score)
         if not texts:
             return None
         conf = sum(float(s) for s in scores) / len(scores) if scores else 0.0
