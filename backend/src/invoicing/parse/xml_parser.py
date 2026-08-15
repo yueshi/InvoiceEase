@@ -25,6 +25,12 @@ def parse_invoice_xml(data: bytes) -> ParsedInvoice:
     except etree.XMLSyntaxError as e:
         raise ValueError(f"XML_PARSE_ERROR: {e}")
 
+    # 变体分流：铁路电子客票 rai XBRL（数电票 schema 优先，其余按 xbrl+rai 判定）
+    from invoicing.parse.rai_parser import is_rai_xbrl, parse_rai_xbrl
+
+    if is_rai_xbrl(root):
+        return parse_rai_xbrl(root)
+
     number = _first_text(root, "EInvoiceNumber", "InvoiceNumber")
     issue_date = _first_text(root, "IssueDate")
     if not number or not issue_date:

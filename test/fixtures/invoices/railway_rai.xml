@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xbrl xmlns="http://www.xbrl.org/2003/instance"
+      xmlns:rai="http://xbrl.mof.gov.cn/taxonomy/2021-11-30/rai">
+  <context id="As_Of_2026_07_11">
+    <entity>
+      <identifier scheme="http://xbrl.mof.gov.cn">26419122537000504214</identifier>
+    </entity>
+    <period>
+      <instant>2026-07-11</instant>
+    </period>
+  </context>
+  <unit id="CNY"><measure>iso4217:CNY</measure></unit>
+  <rai:TypeOfVoucher contextRef="As_Of_2026_07_11">电子发票（铁路电子客票）</rai:TypeOfVoucher>
+  <rai:ElectronicInvoiceRailwayETicketNumber contextRef="As_Of_2026_07_11">26419122537000504214</rai:ElectronicInvoiceRailwayETicketNumber>
+  <rai:DateOfIssue contextRef="As_Of_2026_07_11">2026-07-11</rai:DateOfIssue>
+  <rai:TrainNumber contextRef="As_Of_2026_07_11">G1281</rai:TrainNumber>
+  <rai:TravelDate contextRef="As_Of_2026_07_11">2026-07-02</rai:TravelDate>
+  <rai:Fare contextRef="As_Of_2026_07_11">272.50</rai:Fare>
+  <rai:TotalAmountExcludingTax contextRef="As_Of_2026_07_11">250.00</rai:TotalAmountExcludingTax>
+  <rai:TaxRate contextRef="As_Of_2026_07_11">0.09</rai:TaxRate>
+  <rai:TaxAmount contextRef="As_Of_2026_07_11">22.50</rai:TaxAmount>
+  <rai:NameOfPurchaser contextRef="As_Of_2026_07_11">测试采购有限公司</rai:NameOfPurchaser>
+  <rai:UnifiedSocialCreditCodeOfPurchaser contextRef="As_Of_2026_07_11">91310000MA1FL0B000</rai:UnifiedSocialCreditCodeOfPurchaser>
+  <rai:IssueParty contextRef="As_Of_2026_07_11"></rai:IssueParty>
+</xbrl>
