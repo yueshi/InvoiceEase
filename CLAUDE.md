@@ -54,6 +54,7 @@ cd backend && uv run uvicorn invoicing.main:app --reload   # 启动 API（本地
 cd backend && uv run arq invoicing.workers.queue.WorkerSettings  # 任务 worker（仅 queue_backend=redis 时需要）
 cd web && npm install && npm run dev   # Web 管理后台（Vue 3，端口 5173，代理 /api → 8000）
 cd web && npm run test                 # 前端冒烟测试
+agently-cli auth login                              # Agently 邮箱接入（一次性授权，需 node/npm）
 ```
 
 ## 工作约定

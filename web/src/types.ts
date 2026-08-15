@@ -88,13 +88,14 @@ export interface AuditOut {
 export interface AuditListResponse { items: AuditOut[]; total: number; page: number; page_size: number; }
 
 export interface MailboxOut {
-  id: number; name: string; imap_host: string; imap_port: number; use_ssl: boolean;
+  id: number; name: string; mailbox_type: string; imap_host: string; imap_port: number; use_ssl: boolean;
   username: string; folder: string; keywords: string; poll_interval_seconds: number;
   smtp_host: string | null; smtp_port: number | null; smtp_username: string | null;
+  agently_workspace: string | null;
   enabled: boolean; last_polled_at: string | null; last_uid: number;
   created_at: string; updated_at: string;
 }
-export interface MailboxCreate { name: string; imap_host: string; imap_port?: number; use_ssl?: boolean; username: string; password: string; folder?: string; keywords?: string; poll_interval_seconds?: number; smtp_host?: string | null; smtp_port?: number | null; smtp_username?: string | null; smtp_password?: string | null; }
+export interface MailboxCreate { name: string; mailbox_type?: string; imap_host: string; imap_port?: number; use_ssl?: boolean; username: string; password: string; folder?: string; keywords?: string; poll_interval_seconds?: number; smtp_host?: string | null; smtp_port?: number | null; smtp_username?: string | null; smtp_password?: string | null; agently_workspace?: string | null; agently_token?: string | null; }
 export type MailboxUpdate = Partial<MailboxCreate>;
 export interface PollResultOut { received: number; rejected_images: number; ignored: number; duplicates: number; errors: number; }
 
