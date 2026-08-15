@@ -27,6 +27,7 @@ class InvoiceOut(BaseModel):
     buyer_tax_id: str | None
     invoice_type: str | None
     file_type: str
+    xml_url: str | None = None  # 合规硬约束：含数字签名的 XML 原件存档地址（财会〔2025〕9 号）
     parse_source: str | None
     confidence_score: float | None
     validation_errors: dict | None

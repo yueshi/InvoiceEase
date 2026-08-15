@@ -64,3 +64,50 @@ def get_invoice_mcp(invoice_id: int) -> InvoiceOut:
             # service 层 404 泄漏到 MCP 层，映射为协议友好的错误信息
             raise ValueError(f"发票不存在或无权访问: {invoice_id}") from e
         return InvoiceOut.model_validate(inv, from_attributes=True)
+
+
+def ingest_invoice(file_path: str) -> InvoiceOut:
+    """WorkBuddy 归档闭环：原件入存储 → 解析 → 验真（本地模式内联）→ 返回发票记录。"""
+    from pathlib import Path
+    from uuid import uuid4
+
+    from invoicing.fetch.filters import classify_attachment
+    from invoicing.mcp.extract import IMAGE_REJECT
+    from invoicing.models import AuditAction, Invoice, InvoiceStatus
+    from invoicing.storage import get_storage
+    from invoicing.workers.queue import enqueue_parse_sync
+
+    path = Path(file_path)
+    if not path.is_file():
+        raise ValueError(f"文件不存在: {file_path}")
+    data = path.read_bytes()
+    kind = classify_attachment(path.name, "", data)
+    if kind == "IMAGE":
+        raise ValueError(IMAGE_REJECT)
+    if kind not in ("PDF", "OFD", "XML"):
+        raise ValueError(f"不支持的格式: {kind or '未知'}")
+
+    key = f"tenant-default/workbuddy/{uuid4().hex}-{path.name}"
+    get_storage().put(key, data, "application/octet-stream")
+
+    with SessionLocal() as db:
+        inv = Invoice(
+            file_url=key,
+            file_type=kind,
+            status=InvoiceStatus.parsing.value,
+            email_subject="WorkBuddy 导入",
+        )
+        db.add(inv)
+        db.commit()
+        invoice_id = inv.id
+        write_audit(
+            db, action=AuditAction.INGEST.value, invoice_id=invoice_id, channel="mcp",
+            detail={"source_file": file_path, "file_type": kind},
+        )
+        db.commit()
+
+    enqueue_parse_sync(invoice_id)  # 本地模式内联执行 parse+verify；redis 模式入队
+
+    with SessionLocal() as db:
+        inv = db.get(Invoice, invoice_id)
+        return InvoiceOut.model_validate(inv, from_attributes=True)

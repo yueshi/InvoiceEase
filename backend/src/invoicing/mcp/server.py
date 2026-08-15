@@ -50,6 +50,10 @@ def build_server() -> MCPServer:
     def validate_invoice(invoice_data: dict) -> ValidationResult:
         return mcp_extract.validate_invoice_data(invoice_data)
 
+    @server.tool(description="导入本地发票原件入库：原件归档 → 解析 → 验真，返回发票记录（重复发票返回已拦截状态）。")
+    def invoice_ingest(file_path: str) -> InvoiceOut:
+        return mcp_tools.ingest_invoice(file_path)
+
     return server
 
 

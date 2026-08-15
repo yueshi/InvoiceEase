@@ -51,3 +51,4 @@ class AuditAction(str, Enum):
     REJECT_REPLY = "REJECT_REPLY"
     CONFIG_CHANGE = "CONFIG_CHANGE"
     REVERIFY = "REVERIFY"
+    INGEST = "INGEST"
