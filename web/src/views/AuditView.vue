@@ -16,7 +16,7 @@ async function load() {
     data.value = await listAuditLogs({
       action: filters.action,
       date_from: filters.dateRange?.[0]?.format("YYYY-MM-DD"),
-      date_to: filters.dateRange?.[1]?.format("YYYY-MM-DD"),
+      date_to: filters.dateRange?.[1]?.format("YYYY-MM-DDT23:59:59"),
       page: data.value.page,
       page_size: data.value.page_size,
     });
