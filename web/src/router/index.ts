@@ -1,5 +1,6 @@
 // 路由表与全局守卫：无 token 必跳 login，adminOnly 路由非 admin 必挡
 import { createRouter, createWebHistory } from "vue-router";
+import { TOKEN_KEY } from "../api/client";
 import { useAuthStore } from "../stores/auth";
 
 const routes = [
@@ -22,7 +23,7 @@ router.beforeEach(async (to) => {
       await auth.loadMe();
     } catch {
       auth.token = null;
-      localStorage.removeItem("invoicing_token");
+      localStorage.removeItem(TOKEN_KEY);
       return { path: "/login" };
     }
   }

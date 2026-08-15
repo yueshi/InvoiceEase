@@ -1,6 +1,7 @@
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryHistory, createRouter } from "vue-router";
 import LoginView from "../../views/LoginView.vue";
 import { useAuthStore } from "../../stores/auth";
 
@@ -23,14 +24,17 @@ describe("LoginView", () => {
     expect(wrapper.text()).toContain("发票易");
   });
 
-  it("登录成功后写入 auth store 并跳转", async () => {
-    const wrapper = mount(LoginView, {
-      global: { plugins: [], stubs: { routerLink: true, routerView: true } },
-    });
+  it("登录成功后写入 auth store 并跳转首页", async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { template: "<div />" } }, { path: "/login", component: LoginView }] });
+    await router.push("/login");
+    await router.isReady();
+    const wrapper = mount(LoginView, { global: { plugins: [router], stubs: { routerLink: true, routerView: true } } });
     const auth = useAuthStore();
     const { login } = await import("../../api/auth");
     await (wrapper.vm as any).onSubmit("admin", "pass123");
+    await flushPromises(); // onSubmit 内 router.push 未 await，需冲刷导航微任务后再断言
     expect(login).toHaveBeenCalledWith("admin", "pass123");
     expect(auth.token).toBe("test-token");
+    expect(router.currentRoute.value.path).toBe("/");
   });
 });
