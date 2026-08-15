@@ -1,6 +1,7 @@
 <!-- 发票列表：筛选 / 分页 / 详情 / 复核 / 重验 -->
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
+import type { Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
 import { listInvoices, reVerify, reviewInvoice } from "../api/invoices";
@@ -11,7 +12,7 @@ import InvoiceDetailDrawer from "../components/InvoiceDetailDrawer.vue";
 const auth = useAuthStore();
 const data = ref<InvoiceListResponse>({ items: [], total: 0, page: 1, page_size: 20 });
 const loading = ref(false);
-const filters = reactive({ status: undefined as string | undefined, keyword: "", dateRange: undefined as [string, string] | undefined });
+const filters = reactive({ status: undefined as string | undefined, keyword: "", dateRange: undefined as [Dayjs, Dayjs] | undefined });
 const drawerOpen = ref(false);
 const current = ref<InvoiceOut | null>(null);
 
@@ -23,8 +24,8 @@ async function load() {
     data.value = await listInvoices({
       status: filters.status,
       keyword: filters.keyword || undefined,
-      date_from: filters.dateRange?.[0],
-      date_to: filters.dateRange?.[1],
+      date_from: filters.dateRange?.[0]?.format("YYYY-MM-DD"),
+      date_to: filters.dateRange?.[1]?.format("YYYY-MM-DD"),
       page: data.value.page,
       page_size: data.value.page_size,
     });

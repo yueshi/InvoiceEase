@@ -102,7 +102,7 @@ const userColumns = [
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'actions'">
               <a-space>
-                <a @click="editingMailbox = record; Object.assign(mailboxForm, { name: record.name, imap_host: record.imap_host, username: record.username, password: '' }); mailboxModalOpen = true">编辑</a>
+                <a @click="editingMailbox = record; Object.assign(mailboxForm, { name: record.name, imap_host: record.imap_host, imap_port: record.imap_port, username: record.username, password: '', keywords: record.keywords }); mailboxModalOpen = true">编辑</a>
                 <a @click="onTestMailbox(record)">测试连接</a>
                 <a @click="onPoll(record)">手动收取</a>
               </a-space>
