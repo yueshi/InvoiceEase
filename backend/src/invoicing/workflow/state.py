@@ -4,7 +4,7 @@ from invoicing.models import Invoice
 TRANSITIONS: dict[str, set[str]] = {
     "receiving": {"received"},
     "received": {"parsing"},
-    "parsing": {"parsed", "pending_review"},
+    "parsing": {"parsed", "pending_review", "blocked"},
     "parsed": {"verifying"},
     "verifying": {"pending_submit", "pending_review", "blocked"},
     "pending_review": {"pending_submit", "rejected", "verifying"},

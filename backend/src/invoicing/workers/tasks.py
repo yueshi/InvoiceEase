@@ -43,6 +43,7 @@ def _save_xml_original(storage, inv: Invoice, xml_data: bytes) -> None:
 
 
 def _parse_invoice(invoice_id: int) -> None:
+    parsed_code = parsed_number = None  # 查重探针值：解析成功后捕获，回滚后 inv 属性失效仍可用
     db = SessionLocal()
     try:
         inv = db.get(Invoice, invoice_id)
@@ -54,6 +55,8 @@ def _parse_invoice(invoice_id: int) -> None:
         outcome = parse_file(inv.file_type, data)
 
         if outcome.parsed is not None and not outcome.errors:
+            parsed_code = outcome.parsed.invoice_code
+            parsed_number = outcome.parsed.invoice_number
             _apply_parsed_fields(inv, outcome.parsed)
             _save_xml_original(storage, inv, outcome.xml_data)
             transition(inv, InvoiceStatus.parsed.value)
@@ -86,8 +89,8 @@ def _parse_invoice(invoice_id: int) -> None:
             db,
             Invoice(
                 tenant_id=inv.tenant_id,
-                invoice_code=inv.invoice_code,
-                invoice_number=inv.invoice_number,
+                invoice_code=parsed_code,
+                invoice_number=parsed_number,
             ),
         )
         if existing is not None:

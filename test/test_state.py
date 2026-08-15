@@ -7,6 +7,7 @@ from invoicing.workflow.state import TRANSITIONS, can_transition, transition
 def test_legal_transitions():
     assert can_transition("received", "parsing")
     assert can_transition("parsing", "pending_review")
+    assert can_transition("parsing", "blocked")  # 解析冲突→查重拦截
     assert can_transition("verifying", "pending_submit")
     assert can_transition("verifying", "blocked")
     assert can_transition("pending_review", "rejected")
