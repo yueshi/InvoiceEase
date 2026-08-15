@@ -1,5 +1,6 @@
 # api/invoices.py
 from datetime import date
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
@@ -13,6 +14,12 @@ from invoicing.storage import get_storage
 from invoicing.workflow import services
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+
+def _content_disposition(filename: str) -> str:
+    """RFC 6266：ASCII 兜底文件名 + UTF-8 filename*（中文原件名不触发 latin-1 编码错误）。"""
+    ascii_name = filename.encode("ascii", "ignore").decode().strip() or "download"
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(filename)}'
 
 
 @router.get("", response_model=InvoiceListResponse)
@@ -57,7 +64,7 @@ def download_file(
     return Response(
         content=data,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 

@@ -2,9 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from invoicing.db import get_db
-from invoicing.models import User
+from invoicing.models import Role, User
 from invoicing.schemas.user import UserCreate, UserOut, UserUpdate
 from invoicing.security import hash_password, require_role
+
+
+def _validate_role(role: str) -> None:
+    if role not in Role.__members__:
+        raise HTTPException(422, f"非法角色: {role}")
+
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -16,6 +22,7 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(require_role("ad
 
 @router.post("", response_model=UserOut)
 def create_user(body: UserCreate, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    _validate_role(body.role)
     if db.query(User).filter(User.username == body.username).first():
         raise HTTPException(409, "用户名已存在")
     user = User(username=body.username, password_hash=hash_password(body.password), role=body.role)
@@ -37,6 +44,7 @@ def update_user(
     if body.password:
         user.password_hash = hash_password(body.password)
     if body.role:
+        _validate_role(body.role)
         user.role = body.role
     db.commit()
     return user

@@ -30,9 +30,12 @@ async def enqueue_verify(invoice_id: int) -> None:
 def enqueue_parse_sync(invoice_id: int) -> None:
     if settings.queue_backend == "local":
         # 本地模式：同步内联执行（开发确定性优先；生产 redis 模式走 arq worker）
-        from invoicing.workers.tasks import _parse_invoice
+        try:
+            from invoicing.workers.tasks import _parse_invoice
 
-        _parse_invoice(invoice_id)
+            _parse_invoice(invoice_id)
+        except Exception:
+            logger.exception("内联解析执行失败 invoice_id=%s", invoice_id)
         return
     try:
         asyncio.run(enqueue_parse(invoice_id))

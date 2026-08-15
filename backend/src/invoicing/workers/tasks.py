@@ -107,9 +107,23 @@ def _parse_invoice(invoice_id: int) -> None:
             db.commit()
         else:
             raise
-    except Exception:
+    except Exception as exc:
         db.rollback()
         logger.exception("解析任务异常 invoice_id=%s", invoice_id)
+        # 兜底：发票绝不丢——异常后仍停留在 parsing 的发票转入人工复核并留痕
+        try:
+            inv = db.get(Invoice, invoice_id)
+            if inv is not None and inv.status == InvoiceStatus.parsing.value:
+                err_detail = {"result": "error", "error": str(exc)}
+                inv.validation_errors = list(inv.validation_errors or []) + [err_detail]
+                transition(inv, InvoiceStatus.pending_review.value)
+                write_audit(
+                    db, action="PARSE", invoice_id=inv.id, channel="system", detail=err_detail
+                )
+                db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("解析失败兜底异常 invoice_id=%s", invoice_id)
         raise
     finally:
         db.close()
@@ -156,9 +170,26 @@ def _verify_invoice(invoice_id: int) -> None:
             detail={"result": result.status, "provider": "mock"},
         )
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
         logger.exception("验真任务异常 invoice_id=%s", invoice_id)
+        # 兜底：验真异常时发票转入人工复核并留痕。注意 rollback 会撤销入口处
+        # parsed→verifying 的未提交转换，重载后状态可能仍是 parsed，需先补回该转换。
+        try:
+            inv = db.get(Invoice, invoice_id)
+            if inv is not None:
+                if inv.status == InvoiceStatus.parsed.value:
+                    transition(inv, InvoiceStatus.verifying.value)
+                if inv.status == InvoiceStatus.verifying.value:
+                    transition(inv, InvoiceStatus.pending_review.value)
+                    write_audit(
+                        db, action="VERIFY", invoice_id=inv.id, channel="system",
+                        detail={"result": "error", "error": str(exc)},
+                    )
+                    db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("验真失败兜底异常 invoice_id=%s", invoice_id)
         raise
     finally:
         db.close()

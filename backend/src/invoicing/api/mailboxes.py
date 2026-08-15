@@ -50,9 +50,12 @@ def update_mailbox(
         raise HTTPException(404, "邮箱配置不存在")
     for field, value in body.model_dump(exclude_unset=True).items():
         if field == "password":
-            mb.password_encrypted = encrypt_secret(value) if value else None
+            # 非空才加密写入；null/空串表示「不修改」，避免写 None 触发 NOT NULL 约束
+            if value:
+                mb.password_encrypted = encrypt_secret(value)
         elif field == "smtp_password":
-            mb.smtp_password_encrypted = encrypt_secret(value) if value else None
+            if value:
+                mb.smtp_password_encrypted = encrypt_secret(value)
         else:
             setattr(mb, field, value)
     db.commit()
