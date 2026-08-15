@@ -75,6 +75,8 @@ def test_verify_invoice_task_pass(db, storage):
     db.refresh(inv)
     assert inv.status == "pending_submit"
     assert inv.verify_status == "passed"
+    assert inv.verify_detail["status"] == "passed"
+    assert inv.verified_at is not None
 
 
 def test_verify_invoice_task_fail_goes_review(db, storage):

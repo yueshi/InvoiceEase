@@ -42,12 +42,12 @@ def enqueue_parse_sync(invoice_id: int) -> None:
 
 def enqueue_verify_sync(invoice_id: int) -> None:
     if settings.queue_backend == "local":
+        # 本地模式：同步内联执行（开发确定性优先；生产 redis 模式走 arq worker）
         try:
             from invoicing.workers.tasks import _verify_invoice
 
             _verify_invoice(invoice_id)
         except Exception:
-            # _verify_invoice 在 Task 11 落地前不存在属预期（Task 10 期间仅记日志）
             logger.exception("内联验真执行失败 invoice_id=%s", invoice_id)
         return
     try:
