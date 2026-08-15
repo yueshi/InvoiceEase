@@ -65,7 +65,7 @@ def _trace_path(ctx, data: str) -> None:
             ctx.close_path()
 
 
-def render_ofd_page_to_png(ofd_bytes: bytes, px_per_mm: float = 4.0) -> bytes | None:
+def render_ofd_page_to_png(ofd_bytes: bytes, px_per_mm: float = 6.0) -> bytes | None:
     try:
         import cairocffi as cairo
     except ImportError:

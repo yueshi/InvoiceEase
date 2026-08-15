@@ -30,7 +30,7 @@ class PaddleOcrProvider(OcrProvider):
             try:
                 from paddleocr import PaddleOCR  # 惰性导入：optional 依赖
 
-                self._engine = PaddleOCR(lang="ch")
+                self._engine = PaddleOCR(lang="ch", use_angle_cls=True)  # 角度分类提升字形识别
             except Exception:
                 self._init_failed = True
         return self._engine
