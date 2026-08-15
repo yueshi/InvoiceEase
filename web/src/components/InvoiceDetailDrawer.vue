@@ -19,7 +19,7 @@ function onDownload(kind: "file" | "xml") {
         <a-descriptions-item label="开票日期">{{ invoice.issue_date || "—" }}</a-descriptions-item>
         <a-descriptions-item label="不含税金额">{{ invoice.amount_without_tax ?? "—" }}</a-descriptions-item>
         <a-descriptions-item label="税额">{{ invoice.tax_amount ?? "—" }}</a-descriptions-item>
-        <a-descriptions-item label="价税合计">{{ invoice.total_amount ?? "—" }}（{{ invoice.total_amount_cn || "" }}）</a-descriptions-item>
+        <a-descriptions-item label="价税合计">{{ invoice.total_amount ?? "—" }}<template v-if="invoice.total_amount_cn">（{{ invoice.total_amount_cn }}）</template></a-descriptions-item>
         <a-descriptions-item label="销售方">{{ invoice.seller_name || "—" }}（{{ invoice.seller_tax_id || "—" }}）</a-descriptions-item>
         <a-descriptions-item label="购买方">{{ invoice.buyer_name || "—" }}（{{ invoice.buyer_tax_id || "—" }}）</a-descriptions-item>
         <a-descriptions-item label="状态">

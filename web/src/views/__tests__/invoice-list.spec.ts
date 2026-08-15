@@ -24,6 +24,6 @@ describe("InvoiceListView", () => {
     const wrapper = mount(InvoiceListView, { global: { stubs: { InvoiceDetailDrawer: true } } });
     const { listInvoices } = await import("../../api/invoices");
     await new Promise((r) => setTimeout(r, 0));
-    expect(listInvoices).toHaveBeenCalled();
+    expect(listInvoices).toHaveBeenCalledWith(expect.objectContaining({ page: 1, page_size: 20 }));
   });
 });

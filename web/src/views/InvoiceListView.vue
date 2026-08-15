@@ -41,6 +41,11 @@ function onPageChange(page: number, pageSize: number) {
   load();
 }
 
+function reloadFirst() {
+  data.value.page = 1;
+  load();
+}
+
 function showDetail(record: InvoiceOut) {
   current.value = record;
   drawerOpen.value = true;
@@ -83,12 +88,12 @@ const columns = [
   <div>
     <h3>发票列表</h3>
     <a-space style="margin-bottom: 16px" wrap>
-      <a-select v-model:value="filters.status" placeholder="状态" allow-clear style="width: 160px" @change="load">
+      <a-select v-model:value="filters.status" placeholder="状态" allow-clear style="width: 160px" @change="reloadFirst">
         <a-select-option v-for="(label, value) in INVOICE_STATUS_LABELS" :key="value" :value="value">{{ label }}</a-select-option>
       </a-select>
-      <a-input v-model:value="filters.keyword" placeholder="发票号码/购销方" style="width: 220px" @press-enter="load" />
-      <a-range-picker v-model:value="filters.dateRange" @change="load" />
-      <a-button type="primary" @click="load">查询</a-button>
+      <a-input v-model:value="filters.keyword" placeholder="发票号码/购销方" style="width: 220px" @press-enter="reloadFirst" />
+      <a-range-picker v-model:value="filters.dateRange" @change="reloadFirst" />
+      <a-button type="primary" @click="reloadFirst">查询</a-button>
     </a-space>
     <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size, showSizeChanger: true }"
