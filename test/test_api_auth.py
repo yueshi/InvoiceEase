@@ -48,3 +48,4 @@ def test_me(client, db):
     resp2 = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert resp2.status_code == 200
     assert resp2.json()["id"] == user.id
+    assert "password_hash" not in resp2.json()

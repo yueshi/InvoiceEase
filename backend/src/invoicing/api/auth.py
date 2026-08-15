@@ -4,6 +4,7 @@ from invoicing.audit import write_audit
 from invoicing.db import get_db
 from invoicing.models import User
 from invoicing.schemas.auth import LoginRequest, TokenResponse
+from invoicing.schemas.user import UserOut
 from invoicing.security import create_access_token, get_current_user, verify_password
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,6 @@ def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db)
     return {"ok": True}
 
 
-@router.get("/me")
+@router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
