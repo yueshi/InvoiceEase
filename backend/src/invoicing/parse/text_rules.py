@@ -1,0 +1,102 @@
+"""版式发票文本层规则提取（标签锚定优先 + 通用数字兜底）。
+
+真实布局实测（design/2026-08-16-layout-invoice-parsing-design.md §一）：
+- 标准布局：`发票号码：xxx` / `名称：xxx` 标签与值相邻
+- 破碎布局：标签块与值块分离（pypdf 文本抽取顺序所致）——兜底用
+  全局首个 20 位数字（号码）、首个年月日（开票日期）、全部 18 位税号按序（购买方=第一个）
+
+关键字段 = 号码 + 开票日期 + 不含税 + 税额 + 价税合计；任一缺失 → None。
+购销方名称在破碎布局中可能不可靠提取，允许缺失（置信度 0.85 已表达不确定性）。
+"""
+import re
+from datetime import date
+from decimal import Decimal, InvalidOperation
+
+from invoicing.parse.schemas import ParsedInvoice
+
+TEXT_CONFIDENCE = 0.85
+
+_LABEL_NO = re.compile(r"发票号码\s*[:：]?\s*(\d{20}|\d{8})")
+_LABEL_DATE_CN = re.compile(r"开票日期\s*[:：]?\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
+_LABEL_DATE_ISO = re.compile(r"开票日期\s*[:：]?\s*(\d{4}-\d{1,2}-\d{1,2})")
+_LABEL_NAME = re.compile(r"名称\s*[:：]\s*([^\s:：，,]+)")
+_LABEL_TAX_ID = re.compile(r"统一社会信用代码/纳税人识别号\s*[:：]\s*([0-9A-Z]{18})")
+_LABEL_TOTAL = re.compile(r"合\s*计.*?¥\s*([\d.]+)\s*¥\s*([\d.]+)", re.S)
+_LABEL_CN = re.compile(r"价税合计\s*[（(]大写[)）]\s*([零壹贰叁肆伍陆柒捌玖拾佰仟万亿元圆整角分]+)")
+_GENERIC_NO = re.compile(r"\b(\d{20})\b")
+_GENERIC_DATE_CN = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
+_GENERIC_TAX_IDS = re.compile(r"[0-9A-Z]{18}")
+
+
+def _to_date(m) -> str | None:
+    groups = m.groups()
+    if len(groups) == 3:
+        return date(int(groups[0]), int(groups[1]), int(groups[2])).isoformat()
+    if len(groups) == 1 and "-" in groups[0]:
+        return date.fromisoformat(groups[0]).isoformat()
+    return None
+
+
+def extract_fields_from_text(text: str) -> ParsedInvoice | None:
+    text = text.replace("　", " ")  # 全角空格归一
+
+    number = None
+    m = _LABEL_NO.search(text)
+    if m:
+        number = m.group(1)
+    else:
+        m = _GENERIC_NO.search(text)
+        if m:
+            number = m.group(1)
+
+    issue_date = None
+    for m in (_LABEL_DATE_CN.search(text), _LABEL_DATE_ISO.search(text), _GENERIC_DATE_CN.search(text)):
+        if m:
+            issue_date = _to_date(m)
+            break
+
+    total_m = _LABEL_TOTAL.search(text)
+    amount_without_tax = tax_amount = total_amount = None
+    if total_m:
+        try:
+            amount_without_tax = Decimal(total_m.group(1))
+            tax_amount = Decimal(total_m.group(2))
+            total_amount = amount_without_tax + tax_amount
+        except InvalidOperation:
+            amount_without_tax = tax_amount = total_amount = None
+
+    if not number or not issue_date or total_amount is None:
+        return None
+
+    buyer_name = seller_name = buyer_tax_id = seller_tax_id = None
+    names = _LABEL_NAME.findall(text)
+    tax_ids = _LABEL_TAX_ID.findall(text)
+    if names and tax_ids and len(names) >= 2 and len(tax_ids) >= 2:
+        buyer_name, seller_name = names[0], names[1]
+        buyer_tax_id, seller_tax_id = tax_ids[0], tax_ids[1]
+    else:
+        # 排除发票号码的 18 位前缀被误捕为税号（20 位票号场景）
+        generic_ids = [t for t in _GENERIC_TAX_IDS.findall(text) if not (number and t in number)]
+        if len(generic_ids) >= 2:
+            buyer_tax_id, seller_tax_id = generic_ids[0], generic_ids[1]
+
+    total_cn = None
+    m = _LABEL_CN.search(text)
+    if m:
+        total_cn = m.group(1)
+
+    return ParsedInvoice(
+        invoice_number=number,
+        issue_date=date.fromisoformat(issue_date),
+        amount_without_tax=amount_without_tax,
+        tax_amount=tax_amount,
+        total_amount=total_amount,
+        total_amount_cn=total_cn or "",
+        seller_name=seller_name or "",
+        seller_tax_id=seller_tax_id or "",
+        buyer_name=buyer_name or "",
+        buyer_tax_id=buyer_tax_id or "",
+        invoice_type=None,
+        confidence_score=TEXT_CONFIDENCE,
+        parse_source="PDF_TEXT",
+    )
