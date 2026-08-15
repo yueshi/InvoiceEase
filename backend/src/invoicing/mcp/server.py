@@ -35,6 +35,21 @@ def build_server() -> MCPServer:
     def invoice_detail(invoice_id: int) -> InvoiceOut:
         return mcp_tools.get_invoice_mcp(invoice_id)
 
+    from invoicing.mcp import extract as mcp_extract
+    from invoicing.schemas.mcp_extract import ExtractResult, ValidationResult
+
+    @server.tool(description="识别本地发票文件（PDF/OFD/XML 原件；图片按合规拒收），返回结构化数据与校验结果。")
+    def extract_invoice(file_path: str) -> ExtractResult:
+        return mcp_extract.extract_invoice_file(file_path)
+
+    @server.tool(description="批量识别本地发票文件，逐条返回 success/error，互不影响。")
+    def batch_extract_invoices(file_paths: list[str]) -> list[ExtractResult]:
+        return mcp_extract.batch_extract_invoice_files(file_paths)
+
+    @server.tool(description="校验发票数据：字段完整性与价税合计/大小写金额一致性。")
+    def validate_invoice(invoice_data: dict) -> ValidationResult:
+        return mcp_extract.validate_invoice_data(invoice_data)
+
     return server
 
 
