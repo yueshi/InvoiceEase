@@ -67,7 +67,8 @@ def get_invoice_mcp(invoice_id: int) -> InvoiceOut:
 
 
 def ingest_invoice(file_path: str) -> InvoiceOut:
-    """WorkBuddy 归档闭环：原件入存储 → 解析 → 验真（本地模式内联）→ 返回发票记录。"""
+    """WorkBuddy 归档闭环：原件入存储 → 解析 → 验真（本地模式内联）→ 返回发票记录。
+    注意：本地模式返回终态 InvoiceOut；redis 模式返回 parsing 中间态（异步 worker 处理），状态以发票详情查询为准。"""
     from pathlib import Path
     from uuid import uuid4
 
