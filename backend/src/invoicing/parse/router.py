@@ -25,10 +25,30 @@ def _parse_text(text: str, source: ParseSource) -> ParseOutcome:
     return ParseOutcome(source=source.value, parsed=parsed, errors=errors)
 
 
+def _parse_ocr(image_bytes: bytes, source: ParseSource) -> ParseOutcome:
+    from invoicing.parse.ocr import OcrText, get_ocr_provider
+    from invoicing.parse.text_rules import extract_fields_from_text
+
+    provider = get_ocr_provider()
+    if provider is None:
+        return ParseOutcome(source=ParseSource.PDF_UNSTRUCTURED.value, parsed=None, errors=[])
+    ocr_text: OcrText | None = provider.ocr_image(image_bytes)
+    if ocr_text is None:
+        return ParseOutcome(source=ParseSource.PDF_UNSTRUCTURED.value, parsed=None, errors=[])
+    parsed = extract_fields_from_text(ocr_text.text, confidence=ocr_text.confidence)
+    if parsed is None:
+        return ParseOutcome(source=ParseSource.PDF_UNSTRUCTURED.value, parsed=None, errors=[])
+    parsed.parse_source = source.value
+    errors = validate(parsed)
+    return ParseOutcome(source=source.value, parsed=parsed, errors=errors)
+
+
 def parse_file(file_type: str, data: bytes) -> ParseOutcome:
-    """三级路由：内嵌结构化 XML → 文本层规则提取 → PDF_UNSTRUCTURED（待复核）。"""
+    """五级路由：内嵌结构化 XML → 文本层规则提取 → OCR 兜底 → PDF_UNSTRUCTURED（待复核）。"""
     if file_type == FileType.XML.value:
         return _parse_structured(data, ParseSource.XML)
+    if file_type == FileType.IMAGE.value:
+        return _parse_ocr(data, ParseSource.IMAGE_OCR)
     if file_type == FileType.OFD.value:
         from invoicing.parse.ofd_text import extract_text_from_ofd
         from invoicing.parse.xbrl import extract_xml_from_ofd
@@ -39,6 +59,13 @@ def parse_file(file_type: str, data: bytes) -> ParseOutcome:
         text = extract_text_from_ofd(data)
         if text:
             return _parse_text(text, ParseSource.OFD_TEXT)
+        from invoicing.parse.ocr import extract_ofd_page_image
+
+        img = extract_ofd_page_image(data)
+        if img:
+            ocr_outcome = _parse_ocr(img, ParseSource.OFD_OCR)
+            if ocr_outcome.parsed is not None:
+                return ocr_outcome
         return ParseOutcome(source=ParseSource.PDF_UNSTRUCTURED.value, parsed=None, errors=[])
     if file_type == FileType.PDF.value:
         from invoicing.parse.pdf_text_parser import extract_pdf_text
@@ -50,5 +77,12 @@ def parse_file(file_type: str, data: bytes) -> ParseOutcome:
         text = extract_pdf_text(data)
         if text:
             return _parse_text(text, ParseSource.PDF_TEXT)
+        from invoicing.parse.ocr import render_pdf_first_page
+
+        img = render_pdf_first_page(data)
+        if img:
+            ocr_outcome = _parse_ocr(img, ParseSource.PDF_OCR)
+            if ocr_outcome.parsed is not None:
+                return ocr_outcome
         return ParseOutcome(source=ParseSource.PDF_UNSTRUCTURED.value, parsed=None, errors=[])
     raise ValueError(f"不支持的文件类型: {file_type}")

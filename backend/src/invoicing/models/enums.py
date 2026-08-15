@@ -34,6 +34,9 @@ class ParseSource(str, Enum):
     PDF_XBRL = "PDF_XBRL"
     PDF_TEXT = "PDF_TEXT"
     OFD_TEXT = "OFD_TEXT"
+    PDF_OCR = "PDF_OCR"
+    OFD_OCR = "OFD_OCR"
+    IMAGE_OCR = "IMAGE_OCR"
     PDF_UNSTRUCTURED = "PDF_UNSTRUCTURED"
 
 
@@ -41,6 +44,7 @@ class FileType(str, Enum):
     PDF = "PDF"
     OFD = "OFD"
     XML = "XML"
+    IMAGE = "IMAGE"
 
 
 class AuditAction(str, Enum):

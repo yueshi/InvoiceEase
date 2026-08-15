@@ -20,8 +20,9 @@ from invoicing.schemas.mcp_extract import (
     ValidationResult,
 )
 
-IMAGE_REJECT = "合规拒收：仅接受 PDF/OFD/XML 原件（财会〔2025〕9 号）"
+IMAGE_REJECT = "合规拒收：仅接受 PDF/OFD/XML 原件（财会〔2025〕9 号）"  # fetch 层邮箱拒收仍用
 UNSTRUCTURED = "未内嵌结构化数据，OCR 引擎 Phase 2 支持"
+OCR_UNAVAILABLE = "OCR 引擎未安装（uv sync --extra ocr）"
 
 _SUPPORTED = (FileType.PDF.value, FileType.OFD.value, FileType.XML.value)
 
@@ -62,7 +63,27 @@ def extract_invoice_file(file_path: str) -> ExtractResult:
     data = _read_file(file_path)
     kind = classify_attachment(Path(file_path).name, "", data)
     if kind == "IMAGE":
-        return ExtractResult(success=False, error=IMAGE_REJECT)
+        # 本地工具语义：图片走 OCR 识别（邮箱收取仍按合规拒收，见 fetch 层）
+        from invoicing.parse.ocr import get_ocr_provider
+        from invoicing.parse.text_rules import extract_fields_from_text
+        from invoicing.parse.validation import validate
+
+        provider = get_ocr_provider()
+        if provider is None:
+            return ExtractResult(success=False, error=OCR_UNAVAILABLE)
+        ocr_text = provider.ocr_image(data)
+        if ocr_text is None:
+            return ExtractResult(success=False, error="OCR 识别失败")
+        parsed = extract_fields_from_text(ocr_text.text, confidence=ocr_text.confidence)
+        if parsed is None:
+            return ExtractResult(success=False, error=UNSTRUCTURED)
+        parsed.parse_source = "IMAGE_OCR"
+        errors = validate(parsed)
+        return ExtractResult(
+            success=True,
+            data=_map_data(parsed, file_path),
+            validation=ValidationResult(valid=not errors, errors=errors),
+        )
     if kind not in _SUPPORTED:
         return ExtractResult(success=False, error=f"不支持的格式: {kind or '未知'}")
     try:

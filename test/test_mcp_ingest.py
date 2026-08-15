@@ -22,11 +22,32 @@ def test_ingest_xml_full_pipeline(db):
     assert log.channel == "mcp"
 
 
-def test_ingest_image_rejected(tmp_path):
+def test_ingest_image_ocr_unavailable(tmp_path, monkeypatch):
+    """图片 ingest：OCR 不可用时报安装提示（邮箱拒收语义在 fetch 层，不受影响）。"""
+    monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: None)
     p = tmp_path / "photo.jpg"
     p.write_bytes(b"\xff\xd8\xff\xe0")
-    with pytest.raises(ValueError, match="合规拒收"):
+    with pytest.raises(ValueError, match="OCR 引擎未安装"):
         ingest_invoice(str(p))
+
+
+def test_ingest_image_with_ocr_full_pipeline(tmp_path, monkeypatch):
+    from invoicing.parse.ocr import OcrText
+
+    class FakeProvider:
+        def ocr_image(self, image_bytes):
+            return OcrText(
+                text="发票号码：26617000000309516967\n开票日期：2026年07月09日\n合 计 ¥65.48 ¥1.96\n",
+                confidence=0.91,
+            )
+
+    monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: FakeProvider())
+    p = tmp_path / "photo.jpg"
+    p.write_bytes(b"\xff\xd8\xff\xe0")
+    inv = ingest_invoice(str(p))
+    assert inv.status == "pending_submit"  # 本地内联：OCR 识别 → 解析 → 验真
+    assert inv.invoice_number == "26617000000309516967"
+    assert inv.file_type == "IMAGE"
 
 
 def test_ingest_duplicate_number_blocked(db, tmp_path):

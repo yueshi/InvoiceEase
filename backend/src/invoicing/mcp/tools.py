@@ -73,8 +73,9 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
     from uuid import uuid4
 
     from invoicing.fetch.filters import classify_attachment
-    from invoicing.mcp.extract import IMAGE_REJECT, _read_file
+    from invoicing.mcp.extract import OCR_UNAVAILABLE, _read_file
     from invoicing.models import AuditAction, Invoice, InvoiceStatus
+    from invoicing.models.enums import FileType
     from invoicing.storage import get_storage
     from invoicing.workers.queue import enqueue_parse_sync
 
@@ -82,8 +83,13 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
     data = _read_file(file_path)
     kind = classify_attachment(path.name, "", data)
     if kind == "IMAGE":
-        raise ValueError(IMAGE_REJECT)
-    if kind not in ("PDF", "OFD", "XML"):
+        from invoicing.parse.ocr import get_ocr_provider
+
+        if get_ocr_provider() is None:
+            raise ValueError(OCR_UNAVAILABLE)
+        # 图片原件合规归档（本地工具语义；邮箱收取仍拒收图片）
+        kind = FileType.IMAGE.value
+    if kind not in ("PDF", "OFD", "XML", "IMAGE"):
         raise ValueError(f"不支持的格式: {kind or '未知'}")
 
     key = f"tenant-default/workbuddy/{uuid4().hex}-{path.name}"

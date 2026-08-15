@@ -39,7 +39,7 @@ def _to_date(m) -> str | None:
     return None
 
 
-def extract_fields_from_text(text: str) -> ParsedInvoice | None:
+def extract_fields_from_text(text: str, confidence: float = TEXT_CONFIDENCE) -> ParsedInvoice | None:
     text = text.replace("　", " ")  # 全角空格归一
 
     number = None
@@ -116,6 +116,6 @@ def extract_fields_from_text(text: str) -> ParsedInvoice | None:
         buyer_name=buyer_name or "",
         buyer_tax_id=buyer_tax_id or "",
         invoice_type=None,
-        confidence_score=TEXT_CONFIDENCE,
+        confidence_score=confidence,
         parse_source="PDF_TEXT",
     )

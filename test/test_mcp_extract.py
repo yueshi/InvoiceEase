@@ -30,14 +30,6 @@ def test_extract_xml_success():
     assert result.validation.valid is True
 
 
-def test_extract_image_rejected(tmp_path):
-    p = tmp_path / "photo.jpg"
-    p.write_bytes(b"\xff\xd8\xff\xe0")
-    result = extract_invoice_file(str(p))
-    assert result.success is False
-    assert "合规拒收" in result.error
-
-
 def test_extract_plain_pdf_unstructured(tmp_path):
     p = tmp_path / "scan.pdf"
     p.write_bytes(b"%PDF-1.4 no data")
@@ -122,3 +114,31 @@ async def test_in_memory_client_lists_new_tools():
         tools = await client.list_tools()
         names = {t.name for t in tools.tools}
     assert {"extract_invoice", "batch_extract_invoices", "validate_invoice"} <= names
+
+
+def test_extract_image_with_ocr(tmp_path, monkeypatch):
+    from invoicing.parse.ocr import OcrText
+
+    class FakeProvider:
+        def ocr_image(self, image_bytes):
+            return OcrText(
+                text="发票号码：26617000000309516967\n开票日期：2026年07月09日\n合 计 ¥65.48 ¥1.96\n",
+                confidence=0.91,
+            )
+
+    monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: FakeProvider())
+    p = tmp_path / "photo.jpg"
+    p.write_bytes(b"\xff\xd8\xff\xe0")
+    result = extract_invoice_file(str(p))
+    assert result.success is True
+    assert result.data.invoiceNumber == "26617000000309516967"
+    assert result.data.sourceFile == str(p)
+
+
+def test_extract_image_ocr_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: None)
+    p = tmp_path / "photo.jpg"
+    p.write_bytes(b"\xff\xd8\xff\xe0")
+    result = extract_invoice_file(str(p))
+    assert result.success is False
+    assert "OCR 引擎未安装" in result.error
