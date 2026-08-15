@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · 测试指南</title>
+<style>
+  :root { --ink:#1f2937; --sub:#6b7280; --line:#e5e7eb; --blue:#2563eb; --blue-bg:#eff6ff;
+          --green:#059669; --green-bg:#ecfdf5; --amber:#d97706; --amber-bg:#fffbeb; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f6f7f9;
+         color:var(--ink); line-height:1.7; padding:32px 16px 64px; }
+  .wrap { max-width:900px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a8a,#2563eb); color:#fff; border-radius:14px;
+           padding:28px 32px; margin-bottom:24px; }
+  header h1 { font-size:24px; }
+  header p { margin-top:6px; font-size:13px; opacity:.9; }
+  h2 { font-size:18px; margin:32px 0 12px; padding-left:10px; border-left:4px solid var(--blue); }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px 22px; margin-bottom:14px; }
+  pre { background:#f3f4f6; border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12.5px;
+        font-family:"SF Mono",Menlo,monospace; margin:10px 0; }
+  code { background:#f3f4f6; border-radius:4px; padding:1px 5px; font-size:12.5px; font-family:"SF Mono",Menlo,monospace; }
+  .tag { display:inline-block; border-radius:6px; padding:1px 8px; font-size:12px; font-weight:600; }
+  .tag.blue { background:var(--blue-bg); color:var(--blue); }
+  .tag.green { background:var(--green-bg); color:var(--green); }
+  .tag.amber { background:var(--amber-bg); color:var(--amber); }
+  .note { background:var(--amber-bg); border-left:3px solid var(--amber); border-radius:8px; padding:10px 14px; font-size:13px; margin:10px 0; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { border:1px solid var(--line); padding:8px 12px; text-align:left; }
+  th { background:#f9fafb; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 · 测试指南</h1>
+  <p>自动化测试 / 真机复验 / 服务启动 · 2026-08-16 · 覆盖 Plan A-H 全部能力</p>
+</header>
+
+<h2>一、自动化测试</h2>
+<div class="card">
+  <table>
+    <tr><th>套件</th><th>命令</th><th>当前基线</th></tr>
+    <tr>
+      <td>后端全量<br><span class="tag blue">含 OCR 路由（Fake 引擎）</span></td>
+      <td><code>cd backend &amp;&amp; uv run pytest ../test -q</code></td>
+      <td>154 passed</td>
+    </tr>
+    <tr>
+      <td>OCR 基础设施定向</td>
+      <td><code>uv run pytest ../test/test_ocr_provider.py ../test/test_ocr_routing.py -v</code></td>
+      <td>11 passed</td>
+    </tr>
+    <tr>
+      <td>解析引擎定向</td>
+      <td><code>uv run pytest ../test/test_rai_parser.py ../test/test_pdf_text_parser.py ../test/test_ofd_text.py -v</code></td>
+      <td>14 passed</td>
+    </tr>
+    <tr>
+      <td>MCP 协议集成（需端口）</td>
+      <td><code>uv run pytest ../test/test_mcp_integration.py -v</code></td>
+      <td>1 passed</td>
+    </tr>
+    <tr>
+      <td>前端</td>
+      <td><code>cd web &amp;&amp; npm run test &amp;&amp; npm run build</code></td>
+      <td>13 passed</td>
+    </tr>
+  </table>
+  <p style="margin-top:8px;font-size:13px;color:var(--sub)">全部测试不依赖真实 PaddleOCR（Fake 引擎注入），无需安装 ocr extra。</p>
+</div>
+
+<h2>二、真机复验（真实发票文件 + 真实 OCR）</h2>
+<div class="card">
+  <p><b>前置</b>：安装 OCR 依赖（首次会下载模型，需联网一次）：</p>
+  <pre>cd backend &amp;&amp; uv sync --extra ocr</pre>
+
+  <p><b>方式 1：命令行单文件识别</b>（覆盖五级路由全部路径）：</p>
+  <pre>uv run --extra ocr python -c "
+from invoicing.mcp.extract import extract_invoice_file
+import json
+r = extract_invoice_file('/path/to/发票.pdf')
+print(json.dumps(r.model_dump(), ensure_ascii=False, indent=2, default=str))
+"</pre>
+
+  <p><b>方式 2：WorkBuddy 对话</b>（Agent 编排模式）：</p>
+  <pre>用 invoice-ease 的 extract_invoice 识别 /path/to/发票.ofd</pre>
+
+  <p><b>方式 3：Web 后台全链路</b>（归档闭环）：</p>
+  <pre>uv run --extra ocr python -c "
+from invoicing.mcp.tools import ingest_invoice
+inv = ingest_invoice('/path/to/发票.pdf')
+print(inv.status, inv.invoice_number, inv.total_amount)
+"</pre>
+
+  <h3 style="margin:12px 0 8px">真实样例文件（本机）</h3>
+  <table>
+    <tr><th>文件</th><th>预期结果</th></tr>
+    <tr><td><code>~/WorkBuddy/2026-08-15-22-52-26/invoices/12306/…/26419122537000504214.pdf</code></td><td>铁路客票 rai XBRL：272.50 ✓</td></tr>
+    <tr><td>同目录 <code>.ofd</code></td><td>同上（内嵌 rai XML）</td></tr>
+    <tr><td><code>…/gaode/【及时用车特选-67.44元…】.pdf</code></td><td>文本规则：67.44 ✓</td></tr>
+    <tr><td><code>…/gaode/【曹操出行-130.69元…】.pdf</code></td><td>破碎布局兜底：130.69 ✓</td></tr>
+    <tr><td>同目录 <code>.ofd</code></td><td>粘连文本规则：130.69 ✓</td></tr>
+    <tr><td>仓库内 <code>test/fixtures/invoices/dianzi.xml</code></td><td>数电票：1000.00 ✓</td></tr>
+  </table>
+  <div class="note">真实文件含企业税号等敏感信息——仅本地验证使用，不入库、不提交。</div>
+</div>
+
+<h2>三、服务启动与重启</h2>
+<div class="card">
+  <pre># 后端（8000 标准端口；本机 8000 被 auditmind 占用时用 8001）
+cd backend
+INVOICING_MCP_TOKEN=wb-dev-token-2026 uv run uvicorn invoicing.main:app --host 127.0.0.1 --port 8001
+
+# 前端（代理指向同端口）
+cd web
+VITE_API_TARGET=http://127.0.0.1:8001 npm run dev</pre>
+  <p style="font-size:13px;color:var(--sub)">改动解析代码后必须<b>重启后端</b>（无 --reload 时旧进程不感知新代码）。OCR 服务需以 <code>--extra ocr</code> 方式启动：<code>uv run --extra ocr uvicorn ...</code>。</p>
+</div>
+
+<h2>四、五级解析路由速查</h2>
+<div class="card">
+  <table>
+    <tr><th>输入</th><th>路由顺序</th><th>parse_source</th></tr>
+    <tr><td>XML</td><td>数电票 schema → rai XBRL（铁路客票）</td><td>XML</td></tr>
+    <tr><td>PDF</td><td>内嵌 XML（数电票/rai）→ 文本层规则 → OCR（渲染首页）→ 待复核</td><td>PDF_XBRL / PDF_TEXT / PDF_OCR / PDF_UNSTRUCTURED</td></tr>
+    <tr><td>OFD</td><td>内嵌 XML → Content.xml 文本规则 → OCR（Res 页面图）→ 待复核</td><td>OFD_XBRL / OFD_TEXT / OFD_OCR / PDF_UNSTRUCTURED</td></tr>
+    <tr><td>图片（仅本地工具）</td><td>PaddleOCR → 文本规则；OCR 未安装 → 报安装提示</td><td>IMAGE_OCR</td></tr>
+  </table>
+  <p style="margin-top:8px;font-size:13px;color:var(--sub)">邮箱收取图片仍按合规拒收（FRD G-03），不受上述影响。</p>
+</div>
+
+<h2>五、常见问题</h2>
+<div class="card">
+  <ul style="padding-left:18px;font-size:13.5px">
+    <li><b>OCR 识别失败/未安装</b>：确认 <code>uv sync --extra ocr</code> 且服务以 <code>--extra ocr</code> 启动；macOS x86_64 锁定 paddleocr 2.x + paddle 2.6（Linux 可升 3.x）</li>
+    <li><b>真实文件 FAIL</b>：多为文本布局超出规则覆盖 → 落待复核（设计预期，宁缺毋滥）；把 error 文案发来可扩展规则</li>
+    <li><b>测试环境</b>：FakeOcrProvider 注入，<code>uv run pytest</code> 无需 ocr extra；装了 ocr extra 后测试仍绿（惰性加载 + 失败闩）</li>
+    <li><b>前端 8000 端口</b>：本机 8000 被其他进程占用时后端用 8001，<code>VITE_API_TARGET</code> 同步调整</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>
