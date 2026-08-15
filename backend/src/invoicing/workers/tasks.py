@@ -6,9 +6,12 @@ from sqlalchemy.exc import IntegrityError
 
 from invoicing.audit import write_audit
 from invoicing.db import SessionLocal
-from invoicing.models import Invoice, InvoiceStatus
+from invoicing.models import Invoice, InvoiceStatus, VerifyStatus
+from invoicing.models.fields import utcnow
 from invoicing.parse.router import parse_file
 from invoicing.storage import get_storage
+from invoicing.verify.dedup import find_duplicate
+from invoicing.verify.provider import get_provider
 from invoicing.workflow.state import transition
 from invoicing.workers.queue import enqueue_verify_sync
 
@@ -107,6 +110,55 @@ def _parse_invoice(invoice_id: int) -> None:
     except Exception:
         db.rollback()
         logger.exception("解析任务异常 invoice_id=%s", invoice_id)
+        raise
+    finally:
+        db.close()
+
+
+def _verify_invoice(invoice_id: int) -> None:
+    db = SessionLocal()
+    try:
+        inv = db.get(Invoice, invoice_id)
+        if inv is None:
+            logger.info("跳过验真任务 invoice_id=%s：不存在", invoice_id)
+            return
+        if inv.status == InvoiceStatus.parsed.value:
+            # 解析完成后首次验真：worker 入口补 parsed→verifying 转换（状态机允许）
+            transition(inv, InvoiceStatus.verifying.value)
+        elif inv.status != InvoiceStatus.verifying.value:
+            logger.info("跳过验真任务 invoice_id=%s status=%s", invoice_id, inv.status)
+            return
+
+        duplicate = find_duplicate(db, inv)
+        if duplicate is not None:
+            inv.duplicate_flag = True
+            inv.duplicate_of_id = duplicate.id
+            transition(inv, InvoiceStatus.blocked.value)
+            write_audit(
+                db, action="VERIFY", invoice_id=inv.id, channel="system",
+                detail={"result": "duplicate", "duplicate_of_id": duplicate.id},
+            )
+            db.commit()
+            return
+
+        result = get_provider().verify(inv)
+        inv.verify_detail = {"status": result.status, **result.detail}
+        inv.verified_at = utcnow()
+        if result.status == "passed":
+            inv.verify_status = VerifyStatus.passed.value
+            transition(inv, InvoiceStatus.pending_submit.value)
+        else:
+            # failed 与 error（服务异常）都不放行，进人工复核
+            inv.verify_status = VerifyStatus.failed.value
+            transition(inv, InvoiceStatus.pending_review.value)
+        write_audit(
+            db, action="VERIFY", invoice_id=inv.id, channel="system",
+            detail={"result": result.status, "provider": "mock"},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("验真任务异常 invoice_id=%s", invoice_id)
         raise
     finally:
         db.close()
