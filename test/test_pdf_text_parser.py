@@ -47,3 +47,18 @@ def test_amounts_consistent_after_extract():
 
     parsed = extract_fields_from_text((FIXTURES / "pdf_layout_standard.txt").read_text())
     assert validate(parsed) == []  # 65.48+1.96=67.44 且大写一致
+
+
+def test_no_yen_total_fallback():
+    """无 ¥ 符号的合计行：税率锚定 + 向左找金额（真实高德 OFD 布局）。"""
+    text = (
+        "发票号码：26327000001251594557\n"
+        "开票日期：2026年07月09日\n"
+        "合 计\n"
+        "*交通运输服务*客运服务费 126.88 3% 3.81\n"
+    )
+    parsed = extract_fields_from_text(text)
+    assert parsed is not None
+    assert parsed.amount_without_tax == Decimal("126.88")
+    assert parsed.tax_amount == Decimal("3.81")
+    assert parsed.total_amount == Decimal("130.69")

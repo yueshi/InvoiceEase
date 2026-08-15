@@ -36,3 +36,28 @@ def test_validate_cn_mismatch():
 def test_amount_to_cn_negative_raises():
     with pytest.raises(ValueError):
         amount_to_cn(Decimal("-1.00"))
+
+
+def test_cn_yuan_variant_accepted():
+    """真实发票常见「圆」写法应与「元」等价（圆/元归一）。"""
+    from datetime import date
+    from decimal import Decimal
+
+    from invoicing.parse.schemas import ParsedInvoice
+    from invoicing.parse.validation import validate
+
+    parsed = ParsedInvoice(
+        invoice_number="N1",
+        issue_date=date(2026, 8, 1),
+        amount_without_tax=Decimal("65.48"),
+        tax_amount=Decimal("1.96"),
+        total_amount=Decimal("67.44"),
+        total_amount_cn="陆拾柒圆肆角肆分",
+        seller_name="S",
+        seller_tax_id="T1",
+        buyer_name="B",
+        buyer_tax_id="T2",
+        confidence_score=0.85,
+        parse_source="PDF_TEXT",
+    )
+    assert validate(parsed) == []
