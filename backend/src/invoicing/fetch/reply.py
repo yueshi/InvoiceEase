@@ -1,3 +1,4 @@
+import json
 import logging
 import smtplib
 from email.mime.text import MIMEText
@@ -15,7 +16,13 @@ REJECT_TEMPLATE = (
 )
 
 
-def send_reject_reply(mailbox: Mailbox, to_addr: str, subject: str) -> None:
+def send_reject_reply(
+    mailbox: Mailbox, to_addr: str, subject: str,
+    provider_message_id: str | None = None, body: str = REJECT_TEMPLATE,
+) -> None:
+    if mailbox.mailbox_type == "agently":
+        _reply_agently(mailbox, provider_message_id, body)
+        return
     if not mailbox.smtp_host or not to_addr:
         logger.info("SMTP 未配置或收件人为空，跳过拒收回复 mailbox_id=%s", mailbox.id)
         return
@@ -34,3 +41,20 @@ def send_reject_reply(mailbox: Mailbox, to_addr: str, subject: str) -> None:
         server.sendmail(msg["From"], [to_addr], msg.as_string())
     finally:
         server.quit()
+
+
+def _reply_agently(mailbox: Mailbox, provider_message_id: str | None, body: str) -> None:
+    """agently 拒收回复：+reply 两步确认（首跑拿 token，重跑完成）。"""
+    if not provider_message_id:
+        logger.info("agently 拒收回复缺少 provider_message_id，跳过 mailbox_id=%s", mailbox.id)
+        return
+    from invoicing.fetch.agently import run_cli  # 延迟导入避免循环
+
+    first = run_cli(mailbox, ["message", "+reply", "--id", provider_message_id, "--body", body])
+    token = (first.get("data") or {}).get("confirmation_token")
+    if not token:
+        raise ValueError(f"agently +reply 未返回 confirmation_token: {json.dumps(first, ensure_ascii=False)[:200]}")
+    run_cli(
+        mailbox,
+        ["message", "+reply", "--id", provider_message_id, "--body", body, "--confirmation-token", token],
+    )

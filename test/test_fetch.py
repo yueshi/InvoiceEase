@@ -140,3 +140,46 @@ def test_poll_duplicate_email_same_file_blocked(db):
     result = poll_mailbox(db, mb, fetcher)
     assert result.received == 1
     assert result.duplicates == 1
+
+
+def test_poll_agently_mailbox_uses_agently_fetcher(db, monkeypatch):
+    from invoicing.fetch.agently import AgentlyFetcher
+    from invoicing.fetch.service import poll_mailbox
+
+    mb = Mailbox(name="Agently", mailbox_type="agently", imap_host=None, username=None, password_encrypted=None)
+    db.add(mb)
+    db.flush()
+    captured = {}
+
+    class FakeAgentlyFetcher(AgentlyFetcher):
+        def fetch_new(self, last_uid):
+            captured["called"] = True
+            return []
+
+        def mark_seen(self, uids):
+            pass
+
+    monkeypatch.setattr("invoicing.fetch.agently.AgentlyFetcher", FakeAgentlyFetcher)
+    poll_mailbox(db, mb)
+    assert captured.get("called") is True
+
+
+def test_reject_reply_agently_two_step(db, monkeypatch):
+    from invoicing.fetch.reply import send_reject_reply
+
+    mb = Mailbox(name="Agently", mailbox_type="agently", imap_host=None, username=None, password_encrypted=None)
+    db.add(mb)
+    db.flush()
+    calls = []
+
+    def fake_run_cli(mailbox, args, timeout=30):
+        calls.append(args)
+        if "--confirmation-token" in args:
+            return {"ok": True, "data": {"queued": True}}
+        return {"ok": True, "data": {"confirmation_required": True, "confirmation_token": "ctk_x"}}
+
+    monkeypatch.setattr("invoicing.fetch.agently.run_cli", fake_run_cli)
+    send_reject_reply(mb, "user@agent.qq.com", "发票照片", provider_message_id="msg_1")
+    assert len(calls) == 2  # 首跑 + 确认重跑
+    assert calls[0][:3] == ["message", "+reply", "--id"]
+    assert "--confirmation-token" in calls[1]

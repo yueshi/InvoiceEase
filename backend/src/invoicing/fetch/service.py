@@ -93,7 +93,7 @@ def _process_attachment(db, storage, mb, msg, att, result: PollResult, to_enqueu
         write_audit(db, action="REJECT_REPLY", channel="system",
                     detail={"message_id": msg.message_id, "filename": att.filename, "reason": "image_not_accepted"})
         try:
-            send_reject_reply(mb, msg.sender, msg.subject)
+            send_reject_reply(mb, msg.sender, msg.subject, provider_message_id=msg.provider_message_id)
         except Exception:
             logger.exception("拒收回复发送失败 message_id=%s", msg.message_id)
             result.errors += 1
@@ -105,7 +105,13 @@ def _process_attachment(db, storage, mb, msg, att, result: PollResult, to_enqueu
 
 
 def poll_mailbox(db: Session, mailbox: Mailbox, fetcher: MailFetcher | None = None) -> PollResult:
-    fetcher = fetcher or ImapMailFetcher(mailbox)
+    if fetcher is None:
+        if mailbox.mailbox_type == "agently":
+            from invoicing.fetch.agently import AgentlyFetcher
+
+            fetcher = AgentlyFetcher(mailbox)
+        else:
+            fetcher = ImapMailFetcher(mailbox)
     result = PollResult()
     to_enqueue: list[int] = []
     try:
