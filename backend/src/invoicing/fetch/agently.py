@@ -23,8 +23,9 @@ from invoicing.models import Mailbox
 logger = logging.getLogger(__name__)
 
 BATCH_LIMIT = 8
-REQUEST_INTERVAL = 6.0
+REQUEST_INTERVAL = 8.0  # 间隔 8s：任意 60 秒窗口请求数 ≤ 10
 LIST_LIMIT = 50
+MAX_PAGES = 10  # +list 分页循环硬上限
 
 
 class AgentlyCliError(Exception):
@@ -74,9 +75,9 @@ class AgentlyFetcher(MailFetcher):
         messages = self._list_messages()
         candidates = [m for m in messages if _to_unix(m["created_at"]) >= last_uid]
         candidates.sort(key=lambda m: m["created_at"])  # 旧→新，游标只推进到已处理处
+        # 游标（last_uid）由 service 层以返回消息的最大 uid 推进（poll_mailbox 内 max(uid)）
         result: list[RawMailMessage] = []
         processed = 0
-        last_processed_ts: int | None = None
         with tempfile.TemporaryDirectory(prefix="agently-att-") as tmp:
             for msg in candidates:
                 ts = _to_unix(msg["created_at"])
@@ -98,15 +99,14 @@ class AgentlyFetcher(MailFetcher):
                         attachments=attachments,
                     )
                 )
-                last_processed_ts = ts
-                time.sleep(REQUEST_INTERVAL)
         return result
 
     def _list_messages(self) -> list[dict]:
         """+list 支持 --cursor 分页（探测自 --help），循环翻页直到 has_more=false。"""
         messages: list[dict] = []
         cursor: str | None = None
-        while True:
+        for _ in range(MAX_PAGES):
+            time.sleep(REQUEST_INTERVAL)  # 每次请求前限流
             args = ["message", "+list", "--limit", str(LIST_LIMIT)]
             if cursor:
                 args += ["--cursor", cursor]
@@ -117,20 +117,23 @@ class AgentlyFetcher(MailFetcher):
             if not pagination.get("has_more") or not pagination.get("next_cursor"):
                 break
             cursor = pagination["next_cursor"]
+        else:
+            logger.warning("agently 分页超过 %s 页，截断", MAX_PAGES)
         return messages
 
     def _download_attachments(self, msg: dict, tmp: Path) -> list[RawAttachment]:
+        time.sleep(REQUEST_INTERVAL)  # 每次请求前限流
         payload = run_cli(self.mailbox, ["message", "+read", "--id", msg["message_id"]])
         attachments: list[RawAttachment] = []
         for att in (payload.get("data") or {}).get("attachments") or []:
             if att.get("attachment_id"):
+                time.sleep(REQUEST_INTERVAL)  # 每次请求前限流
                 dl = run_cli(
                     self.mailbox,
                     ["attachment", "+download", "--msg", msg["message_id"],
                      "--att", att["attachment_id"], "--output", str(tmp)],
                 )
                 content = Path(dl["data"]["saved_to"]).read_bytes()
-                time.sleep(REQUEST_INTERVAL)
             elif att.get("download_url"):
                 content = self._download_url(att["download_url"])
             else:
