@@ -25,6 +25,10 @@ UNSTRUCTURED = "未内嵌结构化数据，OCR 引擎 Phase 2 支持"
 _SUPPORTED = (FileType.PDF.value, FileType.OFD.value, FileType.XML.value)
 
 
+def _party(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def _read_file(file_path: str) -> bytes:
     path = Path(file_path)
     if not path.is_file():
@@ -70,10 +74,18 @@ def extract_invoice_file(file_path: str) -> ExtractResult:
 
 
 def batch_extract_invoice_files(file_paths: list[str]) -> list[ExtractResult]:
-    return [extract_invoice_file(p) for p in file_paths]
+    results: list[ExtractResult] = []
+    for p in file_paths:
+        try:
+            results.append(extract_invoice_file(p))
+        except ValueError as e:  # 缺失文件等：单条失败不影响其他条目
+            results.append(ExtractResult(success=False, error=str(e)))
+    return results
 
 
 def validate_invoice_data(invoice_data: dict) -> ValidationResult:
+    if not isinstance(invoice_data, dict):
+        return ValidationResult(valid=False, errors=[{"code": "INVALID_FIELD", "message": "invoice_data 必须是对象"}])
     required = ["invoiceNumber", "issueDate", "amountWithoutTax", "taxAmount", "totalWithTax"]
     missing = [
         {"code": "MISSING_FIELD", "message": f"缺少必填字段: {f}"}
@@ -90,10 +102,10 @@ def validate_invoice_data(invoice_data: dict) -> ValidationResult:
             tax_amount=Decimal(str(invoice_data["taxAmount"])),
             total_amount=Decimal(str(invoice_data["totalWithTax"])),
             total_amount_cn=str(invoice_data.get("totalWithTaxCN") or ""),
-            seller_name=str((invoice_data.get("seller") or {}).get("name") or ""),
-            seller_tax_id=str((invoice_data.get("seller") or {}).get("taxId") or ""),
-            buyer_name=str((invoice_data.get("buyer") or {}).get("name") or ""),
-            buyer_tax_id=str((invoice_data.get("buyer") or {}).get("taxId") or ""),
+            seller_name=str(_party(invoice_data.get("seller")).get("name") or ""),
+            seller_tax_id=str(_party(invoice_data.get("seller")).get("taxId") or ""),
+            buyer_name=str(_party(invoice_data.get("buyer")).get("name") or ""),
+            buyer_tax_id=str(_party(invoice_data.get("buyer")).get("taxId") or ""),
             confidence_score=1.0,
             parse_source="workbuddy",
         )

@@ -61,6 +61,21 @@ def test_batch_extract_mixed(tmp_path):
     assert results[1].success is False
 
 
+def test_batch_extract_with_missing_file(tmp_path):
+    ok = FIXTURES / "dianzi.xml"
+    results = batch_extract_invoice_files([str(ok), "/nonexistent/x.xml"])
+    assert len(results) == 2
+    assert results[0].success is True
+    assert results[1].success is False
+    assert "文件不存在" in results[1].error
+
+
+def test_validate_non_dict_input():
+    result = validate_invoice_data(None)
+    assert result.valid is False
+    assert any(e.code == "INVALID_FIELD" for e in result.errors)
+
+
 def test_validate_ok():
     data = {
         "invoiceNumber": "24312000000012345678",
