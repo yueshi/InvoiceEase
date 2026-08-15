@@ -112,6 +112,16 @@ def test_create_agently_mailbox_without_imap_fields(client, db):
     assert "agently_token" not in body and "password" not in body  # 凭据不回显
 
 
+def test_create_invalid_mailbox_type_422(client, db):
+    token = _admin_token(client, db)
+    resp = client.post(
+        "/api/v1/mailboxes",
+        json={"name": "X", "mailbox_type": "gmail"},
+        headers=_h(token),
+    )
+    assert resp.status_code == 422
+
+
 def test_create_imap_missing_fields_422(client, db):
     token = _admin_token(client, db)
     resp = client.post(
