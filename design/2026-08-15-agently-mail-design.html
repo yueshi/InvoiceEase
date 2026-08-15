@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 × Agently Mail 接入 · 核心设计</title>
+<style>
+  :root {
+    --ink: #1f2937; --sub: #6b7280; --line: #e5e7eb;
+    --blue: #2563eb; --blue-bg: #eff6ff; --green: #059669; --green-bg: #ecfdf5;
+    --amber: #d97706; --amber-bg: #fffbeb; --red: #dc2626; --red-bg: #fef2f2;
+    --card-bg: #ffffff; --page-bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--page-bg); color: var(--ink); line-height: 1.65; padding: 32px 16px 64px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff;
+           border-radius: 14px; padding: 32px 36px; margin-bottom: 24px; }
+  header h1 { font-size: 26px; font-weight: 700; }
+  header .meta { margin-top: 10px; font-size: 13px; opacity: .92; }
+  header .meta span { display: inline-block; background: rgba(255,255,255,.18);
+                      border-radius: 999px; padding: 2px 12px; margin-right: 8px; }
+  h2 { font-size: 19px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid var(--blue); }
+  .card { background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 24px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; white-space: nowrap; }
+  code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-size: 12.5px;
+         font-family: "SF Mono", Menlo, monospace; color: #111827; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+  .tag.blue { background: var(--blue-bg); color: var(--blue); }
+  .tag.green { background: var(--green-bg); color: var(--green); }
+  .tag.amber { background: var(--amber-bg); color: var(--amber); }
+  .tag.red { background: var(--red-bg); color: var(--red); }
+  .note { background: var(--blue-bg); border-left: 3px solid var(--blue); border-radius: 8px;
+          padding: 12px 16px; font-size: 13.5px; margin: 12px 0; }
+  .warn { background: var(--amber-bg); border-left: 3px solid var(--amber); }
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 16px 0; }
+  .flow .node { flex: 1 1 130px; min-width: 120px; background: var(--card-bg);
+                border: 1.5px solid var(--line); border-radius: 10px; padding: 12px 14px;
+                text-align: center; font-size: 13px; }
+  .flow .node b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .flow .node.small { font-size: 12px; color: var(--sub); }
+  .flow .arrow { align-self: center; font-size: 20px; color: var(--sub); flex: 0 0 auto; }
+  .flow .node.hl { border-color: var(--blue); background: var(--blue-bg); }
+  .flow .node.reuse { border-color: var(--green); background: var(--green-bg); }
+  ul { padding-left: 20px; font-size: 13.5px; }
+  li { margin: 5px 0; }
+  .cols { display: flex; gap: 16px; flex-wrap: wrap; }
+  .cols .card { flex: 1 1 300px; }
+  footer { margin-top: 40px; text-align: center; color: var(--sub); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 × Agently Mail 接入 · 核心设计</h1>
+  <div class="meta">
+    <span>V0.2 · 2026-08-15</span>
+    <span>需求：FRD G-08（P1）</span>
+    <span>契约来源：本机实测 agently-cli v1.0.15</span>
+    <span>完整文档：design/2026-08-15-agently-mail-design.md</span>
+  </div>
+</header>
+
+<h2>一句话方案</h2>
+<div class="card">
+  <p style="font-size:15px">Agently Mail 是「Agent 原生邮箱」，<b>没有 IMAP/SMTP 协议</b>，一切访问走 <code>agently-cli</code> 命令。
+  方案：把它做成发票易 <code>MailFetcher</code> 协议的<b>第二个实现</b>（<code>AgentlyFetcher</code>），
+  收取之后的附件过滤 → 解析 → 验真 → 归档全链路<b>零改动复用</b>。</p>
+</div>
+
+<h2>架构总览</h2>
+<div class="flow">
+  <div class="node"><b>调度器/手动收取</b><span class="small">每 5 分钟 · MCP/Web 触发</span></div>
+  <div class="arrow">→</div>
+  <div class="node hl"><b>poll_mailbox</b><span class="small">按 mailbox_type 分发</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>AgentlyFetcher</b><span class="small">subprocess 调 agently-cli</span></div>
+  <div class="arrow">→</div>
+  <div class="node reuse"><b>附件过滤/入库</b><span class="small">PDF/OFD/XML · ZIP · 图片拒收</span></div>
+  <div class="arrow">→</div>
+  <div class="node reuse"><b>解析 → 验真 → 归档</b><span class="small">全复用（零改动）</span></div>
+</div>
+<div class="note">
+  <b>fetcher 分发</b>（fetch/service.py）：<code>imap → ImapMailFetcher</code>（现状不动）；
+  <code>agently → AgentlyFetcher</code>（新增）。<b>拒收回复</b>同模式分发：imap→SMTP，agently→<code>+reply</code>（两步确认）。
+</div>
+
+<h2>核心决策</h2>
+<div class="card">
+  <table>
+    <tr><th style="width:150px">决策点</th><th>方案</th><th style="width:110px">状态</th></tr>
+    <tr>
+      <td>防重复收取</td>
+      <td>Agently 无 \Seen/uid → <code>last_uid</code> 语义改为<b>时间戳游标</b>（ISO→unix 秒）；
+          主力防线是既有 <code>(email_message_id, file_url)</code> 唯一索引。宁重勿漏。</td>
+      <td><span class="tag blue">实测确认</span></td>
+    </tr>
+    <tr>
+      <td>去重键选择</td>
+      <td><code>email_message_id</code> 用 <b>rfc_message_id</b>（标准 RFC 格式，与 IMAP 语义统一）；
+          <code>message_id</code>（msg_ 前缀）仅作回复定位（provider_message_id）。</td>
+      <td><span class="tag blue">实测确认</span></td>
+    </tr>
+    <tr>
+      <td>取信流程</td>
+      <td><code>+list</code>（分页循环 next_cursor）→ 对 <code>has_attachments</code> 消息 <code>+read</code>
+          取附件清单 → 逐个 <code>+download</code>；大附件（download_url）走 HTTP 下载分支。</td>
+      <td><span class="tag blue">实测确认</span></td>
+    </tr>
+    <tr>
+      <td>拒收回复</td>
+      <td>agently 走 <code>+reply</code>，两步确认：首跑拿 <code>confirmation_token</code> → 重跑完成；
+          固定模板场景优先 <code>--confirmed</code> 跳过（+reply 支持与否待验证）。</td>
+      <td><span class="tag amber">部分待验</span></td>
+    </tr>
+    <tr>
+      <td>认证/无头</td>
+      <td>本机 keychain 已授权；服务器部署用 <code>AGENTLY_ACCESS_TOKEN</code> 环境变量（Fernet 加密入库，可空=依赖本机登录态）。</td>
+      <td><span class="tag amber">部署前验证</span></td>
+    </tr>
+    <tr>
+      <td>限流配额</td>
+      <td>10 req/min · 200 req/hr · 50 封/天 → AgentlyFetcher 配额意识：单轮批上限（20 封）、
+          429/限流指数退避、下轮续拉，审计留痕。</td>
+      <td><span class="tag red">设计必守</span></td>
+    </tr>
+  </table>
+</div>
+
+<h2>数据模型变更（mailboxes 表，Alembic 迁移）</h2>
+<div class="card">
+  <table>
+    <tr><th>字段</th><th>变更</th><th>说明</th></tr>
+    <tr><td><code>mailbox_type</code></td><td><b>新增</b> String(16) NOT NULL default 'imap'</td><td><code>imap</code> | <code>agently</code></td></tr>
+    <tr><td><code>agently_workspace</code></td><td><b>新增</b> String(64) NULL</td><td>AGENTLY_WORKSPACE；空 = 默认工作区</td></tr>
+    <tr><td><code>agently_token_encrypted</code></td><td><b>新增</b> String(512) NULL</td><td>Fernet 加密的 AGENTLY_ACCESS_TOKEN</td></tr>
+    <tr><td><code>imap_host / username / password_encrypted</code></td><td><b>放宽为 NULL</b></td><td>agently 类型不需要；API 层校验 type=imap 时必填</td></tr>
+  </table>
+  <p style="margin-top:10px;font-size:13px;color:var(--sub)">协议扩展：<code>RawMailMessage</code> 增加 <code>provider_message_id</code>（拒收回复定位原邮件）。</p>
+</div>
+
+<h2>实测输出契约速查</h2>
+<div class="cols">
+  <div class="card">
+    <b>+list</b>（stdout 即 JSON）
+    <ul>
+      <li><code>data.data[]</code>：<code>message_id / created_at(ISO) / from / subject / has_attachments / is_read / snippet</code></li>
+      <li><code>pagination</code>：<code>has_more / next_cursor</code></li>
+    </ul>
+  </div>
+  <div class="card">
+    <b>+read</b>（附件清单在此）
+    <ul>
+      <li><code>attachments[]</code>：<code>attachment_id / filename / content_type / size</code>；大附件为 <code>download_url</code></li>
+      <li><code>rfc_message_id</code> ← 去重键</li>
+    </ul>
+  </div>
+  <div class="card">
+    <b>+download / +send / +reply</b>
+    <ul>
+      <li>下载实测<b>字节一致</b> ✓</li>
+      <li>两步确认：<code>confirmation_token</code> 重跑完成</li>
+      <li><code>+send --attachment</code> ≤10MB/个、总额 20MB、50 个</li>
+    </ul>
+  </div>
+</div>
+
+<h2>一次轮询时序（agently 邮箱）</h2>
+<div class="flow">
+  <div class="node"><b>+list --limit 50</b><span class="small">JSON · 分页循环</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>游标过滤</b><span class="small">created_at &gt; last_uid</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>+read × N</b><span class="small">带附件消息取清单</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>+download × M</b><span class="small">附件落临时目录</span></div>
+  <div class="arrow">→</div>
+  <div class="node reuse"><b>既有链路</b><span class="small">过滤→入库→parse→verify</span></div>
+</div>
+<div class="note">
+  图片附件 → <code>+reply</code> 拒收模板（两步确认）；重复消息 → 唯一索引拦截（<code>_store_original</code> IntegrityError 分支，已有测试）。
+</div>
+
+<h2>实施任务草案（Plan E）</h2>
+<div class="card">
+  <table>
+    <tr><th>#</th><th>任务</th><th>内容</th></tr>
+    <tr><td>E1</td><td>迁移 + 模型/Schema/API</td><td>mailbox_type 三字段、NULL 放宽、API 校验与测试</td></tr>
+    <tr><td>E2</td><td>AgentlyFetcher + 协议扩展</td><td>fetch/agently.py、provider_message_id、subprocess 封装（mock CLI fixture）、游标语义、限流退避</td></tr>
+    <tr><td>E3</td><td>回复分发 + 调度分发</td><td>reply.py 按类型分发（两步确认）、poll_mailbox 分发、测试</td></tr>
+    <tr><td>E4</td><td>前端表单 + 文档</td><td>SettingsView 类型切换（表单必须绑 :model）、docs 接入说明</td></tr>
+    <tr><td>E5</td><td>真实授权验收</td><td>用收件箱里现成的「发票测试-数电票」邮件做全链路冒烟</td></tr>
+  </table>
+</div>
+
+<h2>风险与决策点</h2>
+<div class="card">
+  <ul>
+    <li><b>限流是硬约束</b>：带附件邮件每封需 +read + download 多次请求，忙碌收件箱一轮可撞 200/hr —— 批上限 + 退避 + 审计。</li>
+    <li><b>token 长期有效性未知</b>：收取静默失败时审计可查；「授权过期」告警面（Web 红点）为后续增强。</li>
+    <li><b>运行时依赖</b>：部署机需 node + agently-cli；CLI 联网调用腾讯服务，部署文档需明示（纯离线部署场景注意）。</li>
+    <li><b>扩展性</b>：mailbox_type 是枚举扩展点——未来第三方邮箱（Gmail API 等）同模式接入。</li>
+  </ul>
+</div>
+
+<footer>发票易 InvoiceEase · 设计文档 V0.2 · 生成于 2026-08-15 · 待评审</footer>
+</div>
+</body>
+</html>
