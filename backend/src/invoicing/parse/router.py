@@ -59,6 +59,14 @@ def parse_file(file_type: str, data: bytes) -> ParseOutcome:
         text = extract_text_from_ofd(data)
         if text:
             return _parse_text(text, ParseSource.OFD_TEXT)
+        # 字体转曲 OFD：矢量渲染整页 → OCR；纯图片 OFD：取最大页面图 → OCR
+        from invoicing.parse.ofd_render import render_ofd_page_to_png
+
+        img = render_ofd_page_to_png(data)
+        if img:
+            ocr_outcome = _parse_ocr(img, ParseSource.OFD_OCR)
+            if ocr_outcome.parsed is not None:
+                return ocr_outcome
         from invoicing.parse.ocr import extract_ofd_page_image
 
         img = extract_ofd_page_image(data)

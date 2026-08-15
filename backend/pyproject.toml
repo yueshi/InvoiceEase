@@ -29,6 +29,7 @@ ocr = [
     "setuptools>=68",
     "paddlepaddle>=2.5,<3",
     "pymupdf>=1.28.2",
+    "cairocffi>=1.7.1",
 ]
 
 [dependency-groups]

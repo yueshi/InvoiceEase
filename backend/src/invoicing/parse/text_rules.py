@@ -41,7 +41,10 @@ def _to_date(m) -> str | None:
 
 
 def extract_fields_from_text(text: str, confidence: float = TEXT_CONFIDENCE) -> ParsedInvoice | None:
-    text = text.replace("　", " ")  # 全角空格归一
+    text = text.replace("　", " ").replace("￥", "¥")  # 全角空格与全角人民币符号归一
+    # OCR 数字内空格归一（"65. 48" → "65.48"）
+    text = re.sub(r"(?<=\d)\s+(?=\d)", "", text)
+    text = re.sub(r"(?<=\d)\s+(?=\.)|(?<=\.)\s+(?=\d)", "", text)
 
     number = None
     m = _LABEL_NO.search(text)
