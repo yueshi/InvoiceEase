@@ -2,11 +2,11 @@
 
 | 项目 | 内容 |
 |------|------|
-| 文档版本 | V0.1 |
+| 文档版本 | V0.2 |
 | 编制日期 | 2026-08-15 |
-| 状态 | 待评审 |
+| 状态 | 待评审（输出契约已实测校准） |
 | 需求基线 | FRD G-08（P1）：支持 Agently Mail 等 Agent 专用邮箱服务接入 |
-| 事实来源 | https://agent.qq.com/doc/cli-setup.md + npm `@tencent-qqmail/agently-cli` v1.0.15 readme（2026-08-15 获取） |
+| 事实来源 | https://agent.qq.com/doc/cli-setup.md + npm readme + **本机实测**（`agently-cli` v1.0.15，已授权，2026-08-15） |
 
 ---
 
@@ -118,17 +118,29 @@ API/Schema 扩展：`MailboxCreate/MailboxUpdate/MailboxOut` 增加三字段；c
 
 ---
 
-## 六、授权后探测计划（授权完成后执行，回填本设计）
+## 六、实测输出契约（2026-08-15 授权后实测，已校准设计）
 
-1. `agently-cli +me` → 输出结构与邮箱地址
-2. `agently-cli message +list --limit 5` → JSON 结构：消息字段（id/时间/主题/发件人）、附件 id 是否内嵌
-3. `agently-cli message +read --id X` → 是否需要（附件清单是否在 +list 里）
-4. `attachment +download` 真实下载一枚附件 → 文件落盘行为
-5. `message +reply` 两步确认的实际输出格式（confirmation_token 位置）
-6. `AGENTLY_ACCESS_TOKEN` 注入后命令是否免交互（验证无头可用性）
-7. CLI 输出是否稳定 JSON（有无 `--format json` 参数）
+**认证**：`auth login` 交互式 OAuth（token 存系统 keychain，macOS）；服务器部署用 `AGENTLY_ACCESS_TOKEN` 环境变量（readme 声明最高优先级，未实测——部署前验证）。本机工作区凭据已可用（邮箱 `aken123@agent.qq.com`）。
 
-探测结果将校准 §二/§三 的具体字段名与解析器。
+**+me**：`{ok, data: {aliases: [{alias_id, email, is_primary, name}], constraints: {max_attachment_count: 50, max_attachment_size_bytes: 20971520（20MB）, max_total_attachments_size_bytes: 20971520}, rate_limits: {daily_send_quota: 50, requests_per_hour: 200, requests_per_minute: 10}, scopes}}`
+
+**+list**（无需 --format，stdout 即 JSON）：`{ok, data: {data: [{created_at: ISO8601, from: {email, name}, has_attachments: bool, is_read, message_id: "msg_...", snippet, subject, to: [...]}], pagination: {has_more, next_cursor, previous_cursor}}}` —— **分页有 next_cursor**，超过 limit 需循环拉取。
+
+**+read**：`{ok, data: {attachments: [{attachment_id: "att_...", content_type, filename, size} | {download_url（大附件时无 attachment_id）, ...}], attachment_count, body, body_format, created_at, from, has_attachments, message_id, rfc_message_id: "<tencent_...@qq.com>", subject, to/cc/bcc}}` —— **附件清单在 +read 而非 +list**；**rfc_message_id 可直接作 email_message_id 去重键**。
+
+**+download**：`{ok, data: {filename, saved_to: 绝对路径, size}}` —— 实测下载字节与源文件一致。
+
+**+send**：`--attachment <相对路径>`（≤10MB/个、总额 20MB、50 个）；两步确认：首跑 `{confirmation_required: true, confirmation_token, summary}`，`--confirmation-token` 完成；**`--confirmed` 跳过确认**（固定模板场景可用）。实测发送成功 `{queued: true}`。
+
+**+reply**：两步确认同 +send：首跑返回 `confirmation_token`，重跑 `--confirmation-token <ctk_...>` 完成。
+
+**限流约束（设计必守）**：10 req/min、200 req/hr、每日发送 50 封。默认 5 分钟一轮轮询安全；但**带附件消息每封需要 +read（1 次）+ 每附件 +download（1 次）**，一封 3 附件的邮件 = 4 次请求，忙碌收件箱一轮 50 封可达 200+ 请求撞小时限——AgentlyFetcher 需配额意识：单轮批上限（如 20 封）、遇 429/限流退避（指数退避 + 下轮续拉），审计记录。
+
+**对设计的校准结论**：
+1. 时间戳游标成立：`created_at` ISO8601 → 转 unix 秒存 `last_uid`；同秒多条靠 `(email_message_id=rfc_message_id, file_url)` 唯一索引兜底（宁重勿漏）✓
+2. fetch_new 流程修订：`+list`（分页循环）→ 对 `has_attachments=true` 的每条 `+read` 取 attachments[] → 逐个 `+download` 到临时目录 → 组装 RawAttachment；大附件（download_url）分支：HTTP GET 下载（带 Authorization 头，token 与 CLI 同源）
+3. provider_message_id = `message_id`（msg_ 前缀，供 +reply 定位）；email_message_id = `rfc_message_id`
+4. 拒收回复：+reply 两步确认——固定模板场景尝试 `--confirmed`（若 +reply 支持，探测未验证该 flag；不支持则解析 confirmation_token 重跑）
 
 ---
 
