@@ -114,7 +114,7 @@ const userColumns = [
     <h3>系统配置</h3>
     <a-tabs v-model:active-key="activeTab">
       <a-tab-pane key="mailboxes" tab="邮箱配置">
-        <a-button type="primary" style="margin-bottom: 12px" @click="editingMailbox = null; Object.assign(mailboxForm, { name: '', mailbox_type: 'imap', imap_host: '', username: '', password: '', imap_port: undefined, keywords: '', agently_workspace: '', agently_token: '' }); mailboxModalOpen = true">新建邮箱</a-button>
+        <a-button type="primary" style="margin-bottom: 12px" @click="editingMailbox = null; Object.assign(mailboxForm, { name: '', mailbox_type: 'imap', imap_host: '', username: '', password: '', imap_port: undefined, keywords: '发票,Invoice', agently_workspace: '', agently_token: '' }); mailboxModalOpen = true">新建邮箱</a-button>
         <a-table :columns="mailboxColumns" :data-source="mailboxes" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'actions'">
