@@ -1,0 +1,31 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="INVOICING_", env_file=".env", extra="ignore")
+
+    # 开发默认值：SQLite + 本地文件存储 + 进程内队列（无需 docker）；
+    # 生产对齐：database_url 指向 postgres、storage_backend=s3、queue_backend=redis
+    database_url: str = "sqlite:///./invoicing.db"
+    redis_url: str = "redis://localhost:6379/0"
+    storage_backend: str = "local"  # local | s3
+    storage_root: str = "./data/originals"  # local 后端存储根目录
+    queue_backend: str = "local"  # local（同步内联执行）| redis（arq worker）
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "minioadmin"
+    minio_bucket: str = "invoice-originals"
+    minio_secure: bool = False
+    jwt_secret: str = "change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 480
+    mcp_token: str = "change-me"
+    fernet_key: str = "change-me-32bytes-base64-key!!!"  # 生产环境必须覆盖
+    admin_username: str = "admin"
+    admin_password: str = "admin123"
+    mock_verify_rules: str = '{"fail_prefixes": ["0000"], "error_prefixes": ["0001"]}'
+    scheduler_enabled: bool = True
+    log_level: str = "INFO"
+
+
+settings = Settings()

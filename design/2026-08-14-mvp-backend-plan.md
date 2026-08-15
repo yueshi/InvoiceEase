@@ -18,7 +18,8 @@
 - 状态转换只能通过 `invoicing/workflow/state.py` 的转换表，非法转换必须抛异常
 - 测试代码放在仓库根 `test/` 目录，样例文件放 `test/fixtures/`
 - 每个任务结束必须 git commit，提交信息格式 `feat(backend): ...`
-- 运行测试前需先 `docker compose -f deploy/dev-compose.yml up -d`（postgres/redis/minio 开发环境，Task 1 提供）
+- **开发/测试环境（默认，无需 docker）**：SQLite（`INVOICING_DATABASE_URL=sqlite:///./invoicing.db`）+ 本地文件系统存储（`INVOICING_STORAGE_BACKEND=local`）+ 进程内队列（`INVOICING_QUEUE_BACKEND=local`，收取后同步内联执行解析/验真）。`deploy/dev-compose.yml`（postgres/redis/minio）保留供生产对齐测试，MVP 开发阶段不要求启动
+- 时间戳统一 naive-UTC（`datetime.now(timezone.utc).replace(tzinfo=None)`）；金额用 `Money` TypeDecorator（PG: NUMERIC(14,2)，SQLite: TEXT）；JSON 用可移植 `JSON` 类型（非 JSONB）
 
 ---
 
@@ -211,8 +212,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="INVOICING_", env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+psycopg://invoicing:invoicing@localhost:5432/invoicing"
+    # 开发默认值：SQLite + 本地文件存储 + 进程内队列（无需 docker）；
+    # 生产对齐：database_url 指向 postgres、storage_backend=s3、queue_backend=redis
+    database_url: str = "sqlite:///./invoicing.db"
     redis_url: str = "redis://localhost:6379/0"
+    storage_backend: str = "local"  # local | s3
+    storage_root: str = "./data/originals"  # local 后端存储根目录
+    queue_backend: str = "local"  # local（同步内联执行）| redis（arq worker）
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
@@ -281,53 +287,40 @@ app = create_app()
 
 - [ ] **Step 6: 写 conftest.py（必须在导入 invoicing 前设置环境变量）**
 
+（说明：测试隔离用「每测试重建表」模式而非外层事务回滚——任务函数自开 SessionLocal 跨会话写库，快照隔离下回滚模式读不到；SQLite 重建 4 张表代价极小。）
+
 ```python
 import os
 
-os.environ.setdefault(
-    "INVOICING_DATABASE_URL",
-    "postgresql+psycopg://invoicing:invoicing@localhost:5432/invoicing_test",
-)
+os.environ.setdefault("INVOICING_DATABASE_URL", "sqlite:///./invoicing_test.db")
+os.environ.setdefault("INVOICING_STORAGE_BACKEND", "local")
+os.environ.setdefault("INVOICING_STORAGE_ROOT", "./data/test-originals")
+os.environ.setdefault("INVOICING_QUEUE_BACKEND", "local")
 os.environ.setdefault("INVOICING_SCHEDULER_ENABLED", "false")
 os.environ.setdefault("INVOICING_JWT_SECRET", "test-secret")
 os.environ.setdefault("INVOICING_ADMIN_PASSWORD", "admin123")
 
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
 
-import invoicing.models  # noqa: F401  确保模型注册进 Base.metadata
 from invoicing.config import settings
-from invoicing.db import Base
+from invoicing.db import Base, SessionLocal
 
 
 @pytest.fixture(scope="session")
 def engine():
-    admin_engine = create_engine(
-        "postgresql+psycopg://invoicing:invoicing@localhost:5432/postgres", isolation_level="AUTOCOMMIT"
-    )
-    with admin_engine.connect() as conn:
-        exists = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname='invoicing_test'")
-        ).scalar()
-        if not exists:
-            conn.execute(text("CREATE DATABASE invoicing_test"))
-    admin_engine.dispose()
     eng = create_engine(settings.database_url)
-    Base.metadata.create_all(eng)
     yield eng
     eng.dispose()
 
 
 @pytest.fixture()
 def db(engine):
-    connection = engine.connect()
-    trans = connection.begin()
-    session = Session(bind=connection)
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    session = SessionLocal()
     yield session
     session.close()
-    trans.rollback()
-    connection.close()
 ```
 
 - [ ] **Step 7: 写失败的测试 test/test_health.py**
@@ -348,7 +341,7 @@ def test_health():
 - [ ] **Step 8: 安装依赖并运行测试，确认失败**
 
 Run: `cd backend && uv sync`
-然后 `docker compose -f deploy/dev-compose.yml up -d`（仓库根目录执行）
+（开发模式不需要 docker——sqlite/本地文件/进程内队列均内置。）
 Run: `cd backend && uv run pytest ../test/test_health.py -v`
 Expected: FAIL（`invoicing` 包尚不存在，ModuleNotFoundError）
 
@@ -360,12 +353,14 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 .env
+*.db
+data/
 ```
 
 - [ ] **Step 10: 运行测试，确认通过**
 
 Run: `cd backend && uv run pytest ../test/test_health.py -v`
-Expected: PASS（postgres/dev-compose 需已启动）
+Expected: PASS（无需任何外部服务）
 
 - [ ] **Step 11: Commit**
 
@@ -406,7 +401,46 @@ git commit -m "feat(backend): 工程脚手架、配置与开发环境"
   - `Invoice(id, tenant_id, user_id, mailbox_id, email_message_id, email_subject, invoice_code, invoice_number, issue_date, amount_without_tax, tax_amount, total_amount, total_amount_cn, seller_name, seller_tax_id, buyer_name, buyer_tax_id, invoice_type, file_url, file_type, xml_url, parse_source, confidence_score, validation_errors, verify_status, verify_detail, verified_at, duplicate_flag, duplicate_of_id, status, review_note, reviewed_by, reviewed_at, created_at, updated_at)`
   - `AuditLog(id, user_id, action, invoice_id, detail, ip_address, channel, created_at)`
 
-- [ ] **Step 1: 写 models/enums.py**
+- [ ] **Step 1: 写 models/fields.py（可移植金额类型）**
+
+```python
+from datetime import datetime, timezone
+from decimal import Decimal
+
+from sqlalchemy import Numeric, String
+from sqlalchemy.types import TypeDecorator
+
+
+def utcnow() -> datetime:
+    """naive-UTC 当前时间：SQLite 字符串比较一致；PG 对齐时改用 timestamptz 语义。"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class Money(TypeDecorator):
+    """金额：PostgreSQL 用 NUMERIC(14,2)；SQLite 用 TEXT 存字符串，杜绝浮点精度损失。"""
+
+    impl = Numeric(14, 2)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "sqlite":
+            return dialect.type_descriptor(String(32))
+        return dialect.type_descriptor(Numeric(14, 2))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "sqlite":
+            return str(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return Decimal(value)
+```
+
+- [ ] **Step 2: 写 models/enums.py**
 
 ```python
 from enum import Enum
@@ -464,16 +498,17 @@ class AuditAction(str, Enum):
     REVERIFY = "REVERIFY"
 ```
 
-- [ ] **Step 2: 写 models/user.py**
+- [ ] **Step 3: 写 models/user.py**
 
 ```python
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from invoicing.db import Base
 from invoicing.models.enums import Role
+from invoicing.models.fields import utcnow
 
 
 class User(Base):
@@ -486,29 +521,30 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        default=lambda: datetime.now(timezone.utc),
+        default=utcnow,
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        default=lambda: datetime.now(timezone.utc),
+        default=utcnow,
         onupdate=func.now(),
         nullable=False,
     )
 ```
 
-（说明：`default` 提供 Python 侧默认值，保证 API 返回对象在未刷新前 `created_at` 即非空；`server_default` 保证非 ORM 写入也有值。）
+（说明：`utcnow` 在 fields.py 中定义为 `lambda: datetime.now(timezone.utc).replace(tzinfo=None)`——naive-UTC，保证 SQLite 字符串比较一致；`default` 提供 Python 侧默认值，API 返回对象在未刷新前 `created_at` 即非空；`server_default` 保证非 ORM 写入也有值。）
 
-- [ ] **Step 3: 写 models/mailbox.py**
+- [ ] **Step 4: 写 models/mailbox.py**
 
 ```python
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from invoicing.db import Base
+from invoicing.models.fields import utcnow
 
 
 class Mailbox(Base):
@@ -534,25 +570,26 @@ class Mailbox(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        default=lambda: datetime.now(timezone.utc),
+        default=utcnow,
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        default=lambda: datetime.now(timezone.utc),
+        default=utcnow,
         onupdate=func.now(),
         nullable=False,
     )
 ```
 
-- [ ] **Step 4: 写 models/invoice.py（含查重唯一索引与 email_message_id 部分唯一索引）**
+- [ ] **Step 5: 写 models/invoice.py（含查重唯一索引与 email_message_id 部分唯一索引）**
 
 ```python
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Date,
     DateTime,
@@ -560,24 +597,26 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     func,
+    text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from invoicing.db import Base
 from invoicing.models.enums import InvoiceStatus, VerifyStatus
+from invoicing.models.fields import Money, utcnow
 
 
 class Invoice(Base):
     __tablename__ = "invoices"
     __table_args__ = (
+        # 注意：func 内引用列名必须用 text()（裸字符串会被当作字面量），
+        # 而 Index 列表项中的裸字符串才是列名
         Index(
             "uq_invoices_dedup_key",
             "tenant_id",
-            func.coalesce("invoice_code", ""),
+            func.coalesce(text("invoice_code"), ""),
             "invoice_number",
             unique=True,
         ),
@@ -585,7 +624,8 @@ class Invoice(Base):
             "uq_invoices_email_message_id",
             "email_message_id",
             unique=True,
-            postgresql_where=("email_message_id IS NOT NULL"),
+            postgresql_where=text("email_message_id IS NOT NULL"),
+            sqlite_where=text("email_message_id IS NOT NULL"),
         ),
         Index("ix_invoices_status", "status"),
         Index("ix_invoices_created_at", "created_at"),
@@ -601,9 +641,9 @@ class Invoice(Base):
     invoice_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
     invoice_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     issue_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    amount_without_tax: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
-    tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
-    total_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    amount_without_tax: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    tax_amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    total_amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     total_amount_cn: Mapped[str | None] = mapped_column(String(128), nullable=True)
     seller_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     seller_tax_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -617,12 +657,12 @@ class Invoice(Base):
 
     parse_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    validation_errors: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    validation_errors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     verify_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=VerifyStatus.pending.value
     )
-    verify_detail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    verify_detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duplicate_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     duplicate_of_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)
@@ -637,29 +677,29 @@ class Invoice(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        default=lambda: datetime.now(timezone.utc),
+        default=utcnow,
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        default=lambda: datetime.now(timezone.utc),
+        default=utcnow,
         onupdate=func.now(),
         nullable=False,
     )
 ```
 
-- [ ] **Step 5: 写 models/audit.py 与 models/__init__.py**
+- [ ] **Step 6: 写 models/audit.py 与 models/__init__.py**
 
 ```python
 # models/audit.py
-from datetime import datetime, timezone
+from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from invoicing.db import Base
+from invoicing.models.fields import utcnow
 
 
 class AuditLog(Base):
@@ -670,13 +710,13 @@ class AuditLog(Base):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     action: Mapped[str] = mapped_column(String(32), nullable=False)
     invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)
-    detail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     channel: Mapped[str] = mapped_column(String(16), nullable=False, default="web")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        default=lambda: datetime.now(timezone.utc),
+        default=utcnow,
         nullable=False,
     )
 ```
@@ -710,7 +750,7 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 6: 写失败测试 test/test_models.py**
+- [ ] **Step 7: 写失败测试 test/test_models.py**
 
 ```python
 from datetime import date
@@ -759,19 +799,19 @@ def test_duplicate_email_message_id_raises_integrity_error(db):
         db.flush()
 ```
 
-- [ ] **Step 7: 运行测试，确认失败**
+- [ ] **Step 8: 运行测试，确认失败**
 
 Run: `cd backend && uv run pytest ../test/test_models.py -v`
 Expected: FAIL（models 模块不存在）
 
-- [ ] **Step 8: 实现 models 包（Steps 1-5 内容落盘）**
+- [ ] **Step 9: 实现 models 包（Steps 1-6 内容落盘）**
 
-- [ ] **Step 9: 运行测试，确认通过**
+- [ ] **Step 10: 运行测试，确认通过**
 
 Run: `cd backend && uv run pytest ../test/test_models.py -v`
-Expected: 3 PASS（测试库 invoicing_test 由 conftest 自动创建；dev-compose 的 postgres 必须已启动）
+Expected: 3 PASS（测试库 invoicing_test.db 为本地 SQLite 文件，无需外部服务）
 
-- [ ] **Step 10: 配置 Alembic 并生成初始迁移**
+- [ ] **Step 11: 配置 Alembic 并生成初始迁移**
 
 Run: `cd backend && uv run alembic init alembic`
 然后改写 `backend/alembic.ini` 中 `sqlalchemy.url` 一行留空（由 env.py 注入），并写 `backend/alembic/env.py`：
@@ -828,9 +868,9 @@ Run: `cd backend && uv run alembic revision --autogenerate -m "init tables"`
 然后检查 `backend/alembic/versions/` 生成的迁移脚本：必须包含 users/mailboxes/invoices/audit_logs 4 张表、`uq_invoices_dedup_key` 唯一索引（表达式 `coalesce(invoice_code, '')`）、`uq_invoices_email_message_id` 部分唯一索引。缺失则手工补进迁移脚本。
 
 Run: `cd backend && uv run alembic upgrade head`
-Expected: 开发库 invoicing 中出现 users/mailboxes/invoices/audit_logs 4 张表。
+Expected: 本地 invoicing.db（SQLite）中出现 users/mailboxes/invoices/audit_logs 4 张表。（迁移在 SQLite 下 autogenerate；Plan D PG 对齐时重新生成。）
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add backend/src/invoicing/models backend/alembic.ini backend/alembic test/test_models.py
@@ -1324,7 +1364,7 @@ git commit -m "feat(backend): 审计日志写入服务"
 
 ---
 
-### Task 6: 对象存储（MinIO 封装）
+### Task 6: 对象存储（本地文件系统后端 + S3 后端）
 
 **Files:**
 - Create: `backend/src/invoicing/storage.py`
@@ -1333,29 +1373,22 @@ git commit -m "feat(backend): 审计日志写入服务"
 **Interfaces:**
 - Consumes: `settings`（Task 1）
 - Produces:
-  - `class ObjectStorage`：`__init__(endpoint, access_key, secret_key, bucket, secure)`；方法 `ensure_bucket() -> None`、`put(key: str, data: bytes, content_type: str) -> str`（返回 key）、`get(key: str) -> bytes`、`presigned_url(key: str, expires: int = 3600) -> str`
-  - `get_storage() -> ObjectStorage`（基于 settings 构建的单例）
+  - `class ObjectStorage`（基类）：`put(key: str, data: bytes, content_type: str) -> str`（返回规范化 key）、`get(key: str) -> bytes`
+  - `class LocalFileStorage(ObjectStorage)`：`__init__(root: str)`；key 规范化（拒绝 `..` 越界与绝对路径）；content_type 忽略
+  - `class S3Storage(ObjectStorage)`：boto3/MinIO 实现（生产对齐用）+ `ensure_bucket()` + `presigned_url(key, expires=3600)`
+  - `get_storage() -> ObjectStorage`（按 `settings.storage_backend`（local|s3）返回单例）
 
-- [ ] **Step 1: 写失败测试 test/test_storage.py（依赖 dev-compose 的 minio 运行）**
+- [ ] **Step 1: 写失败测试 test/test_storage.py（本地文件系统，无需外部服务）**
 
 ```python
 import pytest
 
-from invoicing.config import settings
-from invoicing.storage import ObjectStorage
+from invoicing.storage import LocalFileStorage
 
 
-@pytest.fixture(scope="module")
-def storage():
-    st = ObjectStorage(
-        endpoint=settings.minio_endpoint,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
-        bucket=settings.minio_bucket,
-        secure=settings.minio_secure,
-    )
-    st.ensure_bucket()
-    return st
+@pytest.fixture()
+def storage(tmp_path):
+    return LocalFileStorage(root=str(tmp_path / "originals"))
 
 
 def test_put_and_get_roundtrip(storage):
@@ -1364,11 +1397,19 @@ def test_put_and_get_roundtrip(storage):
     assert storage.get(key) == b"<eInvoice/>"
 
 
-def test_presigned_url(storage):
-    key = storage.put("test/url.pdf", b"%PDF-1.4", "application/pdf")
-    url = storage.presigned_url(key)
-    assert url.startswith("http")
-    assert key in url
+def test_put_creates_nested_dirs(storage, tmp_path):
+    storage.put("a/b/c.pdf", b"%PDF-1.4", "application/pdf")
+    assert (tmp_path / "originals" / "a" / "b" / "c.pdf").read_bytes() == b"%PDF-1.4"
+
+
+def test_path_traversal_rejected(storage):
+    with pytest.raises(ValueError, match="非法路径"):
+        storage.put("../escape.pdf", b"x", "application/pdf")
+
+
+def test_get_missing_raises(storage):
+    with pytest.raises(FileNotFoundError):
+        storage.get("nope/missing.xml")
 ```
 
 - [ ] **Step 2: 运行测试，确认失败**
@@ -1379,16 +1420,57 @@ Expected: FAIL（invoicing.storage 不存在）
 - [ ] **Step 3: 实现 storage.py**
 
 ```python
-import boto3
-from botocore.client import Config
+import logging
+from pathlib import Path
 
 from invoicing.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 class ObjectStorage:
-    def __init__(
-        self, endpoint: str, access_key: str, secret_key: str, bucket: str, secure: bool
-    ):
+    def put(self, key: str, data: bytes, content_type: str) -> str:  # pragma: no cover
+        raise NotImplementedError
+
+    def get(self, key: str) -> bytes:  # pragma: no cover
+        raise NotImplementedError
+
+
+def _safe_path(key: str) -> str:
+    """规范化 key：拒绝绝对路径与 .. 越界，保留子目录结构。"""
+    normalized = key.replace("\\", "/").strip("/")
+    parts = normalized.split("/")
+    if ":" in parts[0] or ".." in parts:
+        raise ValueError(f"非法路径: {key}")
+    return normalized
+
+
+class LocalFileStorage(ObjectStorage):
+    def __init__(self, root: str):
+        self.root = Path(root)
+
+    def put(self, key: str, data: bytes, content_type: str) -> str:
+        safe = _safe_path(key)
+        target = self.root / safe
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        return safe
+
+    def get(self, key: str) -> bytes:
+        safe = _safe_path(key)
+        target = self.root / safe
+        if not target.is_file():
+            raise FileNotFoundError(f"对象不存在: {key}")
+        return target.read_bytes()
+
+
+class S3Storage(ObjectStorage):
+    """S3/MinIO 后端（生产对齐用；开发默认 local，不触发 boto3 依赖）。"""
+
+    def __init__(self, endpoint, access_key, secret_key, bucket, secure):
+        import boto3
+        from botocore.client import Config
+
         self.bucket = bucket
         self.client = boto3.client(
             "s3",
@@ -1425,26 +1507,31 @@ _storage: ObjectStorage | None = None
 def get_storage() -> ObjectStorage:
     global _storage
     if _storage is None:
-        _storage = ObjectStorage(
-            endpoint=settings.minio_endpoint,
-            access_key=settings.minio_access_key,
-            secret_key=settings.minio_secret_key,
-            bucket=settings.minio_bucket,
-            secure=settings.minio_secure,
-        )
+        if settings.storage_backend == "local":
+            _storage = LocalFileStorage(root=settings.storage_root)
+        elif settings.storage_backend == "s3":
+            _storage = S3Storage(
+                endpoint=settings.minio_endpoint,
+                access_key=settings.minio_access_key,
+                secret_key=settings.minio_secret_key,
+                bucket=settings.minio_bucket,
+                secure=settings.minio_secure,
+            )
+        else:
+            raise ValueError(f"未知存储后端: {settings.storage_backend}")
     return _storage
 ```
 
 - [ ] **Step 4: 运行测试，确认通过**
 
 Run: `cd backend && uv run pytest ../test/test_storage.py -v`
-Expected: 2 PASS
+Expected: 4 PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add backend/src/invoicing/storage.py test/test_storage.py
-git commit -m "feat(backend): MinIO 对象存储封装"
+git commit -m "feat(backend): 对象存储（本地文件系统后端 + S3 后端）"
 ```
 
 ---
@@ -2071,24 +2158,14 @@ from pathlib import Path
 import pytest
 
 from invoicing.models import Invoice
-from invoicing.storage import ObjectStorage
+from invoicing.storage import LocalFileStorage
 
 FIXTURES = Path(__file__).parent / "fixtures" / "invoices"
 
 
-@pytest.fixture(scope="module")
-def storage():
-    from invoicing.config import settings
-
-    st = ObjectStorage(
-        endpoint=settings.minio_endpoint,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
-        bucket=settings.minio_bucket,
-        secure=settings.minio_secure,
-    )
-    st.ensure_bucket()
-    return st
+@pytest.fixture()
+def storage(tmp_path):
+    return LocalFileStorage(root=str(tmp_path / "originals"))
 
 
 def _make_invoice(db, storage, filename="dianzi.xml", file_type="XML"):
@@ -2166,6 +2243,12 @@ async def enqueue_verify(invoice_id: int) -> None:
 
 
 def enqueue_parse_sync(invoice_id: int) -> None:
+    if settings.queue_backend == "local":
+        # 本地模式：同步内联执行（开发确定性优先；生产 redis 模式走 arq worker）
+        from invoicing.workers.tasks import _parse_invoice
+
+        _parse_invoice(invoice_id)
+        return
     try:
         asyncio.run(enqueue_parse(invoice_id))
     except Exception:
@@ -2173,6 +2256,15 @@ def enqueue_parse_sync(invoice_id: int) -> None:
 
 
 def enqueue_verify_sync(invoice_id: int) -> None:
+    if settings.queue_backend == "local":
+        try:
+            from invoicing.workers.tasks import _verify_invoice
+
+            _verify_invoice(invoice_id)
+        except Exception:
+            # _verify_invoice 在 Task 11 落地前不存在属预期（Task 10 期间仅记日志）
+            logger.exception("内联验真执行失败 invoice_id=%s", invoice_id)
+        return
     try:
         asyncio.run(enqueue_verify(invoice_id))
     except Exception:
@@ -2518,6 +2610,7 @@ def find_duplicate(db: Session, invoice: Invoice) -> Invoice | None:
 ```python
 # 追加到 workers/tasks.py
 from invoicing.models import VerifyStatus
+from invoicing.models.fields import utcnow
 from invoicing.verify.dedup import find_duplicate
 from invoicing.verify.provider import get_provider
 
@@ -2544,7 +2637,7 @@ def _verify_invoice(invoice_id: int) -> None:
 
         result = get_provider().verify(inv)
         inv.verify_detail = {"status": result.status, **result.detail}
-        inv.verified_at = datetime.now(timezone.utc)
+        inv.verified_at = utcnow()
         if result.status == "passed":
             inv.verify_status = VerifyStatus.passed.value
             transition(inv, InvoiceStatus.pending_submit.value)
@@ -2713,7 +2806,9 @@ def test_poll_receives_xml_invoice(db):
     assert result.received == 1
     assert result.rejected_images == 0
     inv = db.query(Invoice).filter(Invoice.email_message_id == "<msg1@example.com>").one()
-    assert inv.status == "received"
+    # 本地队列模式：收取后同步内联完成解析+验真（生产 redis 模式此处为 received）
+    assert inv.status == "pending_submit"
+    assert inv.parse_source == "XML"
     assert inv.file_type == "XML"
     assert mb.last_uid == 1
     assert fetcher.seen == [1]
@@ -2998,8 +3093,7 @@ class ImapMailFetcher(MailFetcher):
 ```python
 # fetch/service.py
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -3010,6 +3104,7 @@ from invoicing.fetch.imap import ImapMailFetcher
 from invoicing.fetch.protocol import MailFetcher, RawAttachment, RawMailMessage
 from invoicing.fetch.reply import send_reject_reply
 from invoicing.models import Invoice, Mailbox
+from invoicing.models.fields import utcnow
 from invoicing.storage import get_storage
 from invoicing.workers.queue import enqueue_parse_sync
 
@@ -3112,7 +3207,7 @@ def poll_mailbox(db: Session, mailbox: Mailbox, fetcher: MailFetcher | None = No
                 continue
             for att in msg.attachments:
                 _process_attachment(db, get_storage(), mailbox, msg, att, result, to_enqueue)
-        mailbox.last_polled_at = datetime.now(timezone.utc)
+        mailbox.last_polled_at = utcnow()
         if messages:
             mailbox.last_uid = max(m.uid for m in messages)
         db.commit()
@@ -3737,13 +3832,12 @@ class ReviewRequest(BaseModel):
 
 ```python
 # workflow/services.py
-from datetime import datetime, timezone
-
-from sqlalchemy import func, or_
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from invoicing.audit import write_audit
 from invoicing.models import Invoice, InvoiceStatus, Role, User
+from invoicing.models.fields import utcnow
 from invoicing.schemas.invoice import InvoiceListResponse
 from invoicing.workflow.state import transition
 from invoicing.workers.queue import enqueue_verify_sync
@@ -3810,7 +3904,7 @@ def review_invoice(db: Session, current_user: User, invoice_id: int, action: str
     transition(inv, to_status)
     inv.review_note = note
     inv.reviewed_by = current_user.id
-    inv.reviewed_at = datetime.now(timezone.utc)
+    inv.reviewed_at = utcnow()
     write_audit(
         db, action="REVIEW", user_id=current_user.id, invoice_id=inv.id, channel="web",
         detail={"action": action, "note": note},
@@ -3847,8 +3941,8 @@ def re_verify_invoice(db: Session, current_user: User, invoice_id: int) -> Invoi
 # api/invoices.py
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from invoicing.db import get_db
@@ -3891,13 +3985,20 @@ def download_file(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # 统一流式返回（本地/S3 两后端同路径）；presigned 直传优化留 Plan D 生产对齐
     inv = services.get_invoice(db, user, invoice_id)
     key = inv.xml_url if kind == "xml" else inv.file_url
     if kind == "xml" and not key:
         from fastapi import HTTPException
 
         raise HTTPException(404, "该发票无 XML 原件")
-    return RedirectResponse(get_storage().presigned_url(key))
+    data = get_storage().get(key)
+    filename = key.rsplit("/", 1)[-1]
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/{invoice_id}/review", response_model=InvoiceOut)
@@ -4293,13 +4394,14 @@ def trigger_poll(mailbox_id: int, db: Session = Depends(get_db), _: User = Depen
 
 ```python
 # api/stats.py
-from datetime import date, datetime, time
+from datetime import datetime, time
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from invoicing.db import get_db
 from invoicing.models import Invoice, User
+from invoicing.models.fields import utcnow
 from invoicing.schemas.stats import StatsOverviewOut
 from invoicing.security import get_current_user
 
@@ -4308,8 +4410,9 @@ router = APIRouter(prefix="/stats", tags=["stats"])
 
 @router.get("/overview", response_model=StatsOverviewOut)
 def overview(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    today_start = datetime.combine(date.today(), time.min)
-    month_start = datetime.combine(date.today().replace(day=1), time.min)
+    today = utcnow().date()  # naive-UTC，与库内时间戳一致
+    today_start = datetime.combine(today, time.min)
+    month_start = datetime.combine(today.replace(day=1), time.min)
     return StatsOverviewOut(
         pending_review=db.query(Invoice).filter(Invoice.status == "pending_review").count(),
         pending_submit=db.query(Invoice).filter(Invoice.status == "pending_submit").count(),
@@ -4367,7 +4470,7 @@ def list_audit_logs(
 # scheduler.py
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
@@ -4376,6 +4479,7 @@ from invoicing.config import settings
 from invoicing.db import SessionLocal
 from invoicing.fetch.service import poll_mailbox
 from invoicing.models import Mailbox
+from invoicing.models.fields import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -4383,7 +4487,7 @@ logger = logging.getLogger(__name__)
 def _due_mailboxes() -> list[int]:
     with SessionLocal() as db:
         mailboxes = db.query(Mailbox).filter(Mailbox.enabled.is_(True)).all()
-        now = datetime.now(timezone.utc)
+        now = utcnow()
         due = [
             mb.id
             for mb in mailboxes
@@ -4499,7 +4603,6 @@ from invoicing.fetch.service import poll_mailbox
 from invoicing.main import create_app
 from invoicing.models import Invoice, Mailbox, Role, User
 from invoicing.security import hash_password
-from invoicing.workers.tasks import _parse_invoice, _verify_invoice
 
 FIXTURES = Path(__file__).parent / "fixtures" / "invoices"
 
@@ -4559,17 +4662,14 @@ def test_full_pipeline_xml_invoice(db, client):
     assert result.received == 1
     assert result.rejected_images == 1
 
-    # 3. 消费解析与验真任务（直调同步核心，等价于 arq worker 执行）
+    # 3. 本地队列模式：收取后同步内联完成解析+验真（生产 redis 模式此处由 worker 异步消费）
     inv = db.query(Invoice).filter(Invoice.email_message_id == "<e2e1@example.com>").one()
-    _parse_invoice(inv.id)
-    db.refresh(inv)
-    assert inv.status == "parsed"
-    assert inv.total_amount is not None
-
-    _verify_invoice(inv.id)
-    db.refresh(inv)
     assert inv.status == "pending_submit"
     assert inv.verify_status == "passed"
+    assert inv.parse_source == "XML"
+    assert inv.invoice_number == "24312000000012345678"
+    assert inv.total_amount is not None
+    assert inv.xml_url is not None  # XML 原件归档（合规硬约束）
 
     # 4. 财务专员通过 API 看到发票
     db.add(User(username="caiwu", password_hash=hash_password("pass123"), role=Role.finance_staff.value))
@@ -4595,7 +4695,7 @@ def test_full_pipeline_xml_invoice(db, client):
 - [ ] **Step 2: 运行测试，确认失败或通过**
 
 Run: `cd backend && uv run pytest ../test/test_e2e.py -v`
-Expected: 通过（所有依赖已就绪；若失败按报错修复，常见问题：`_store_original` 的 object key 重复——每次测试 DB 回滚但 MinIO 对象持久，key 含 uid+filename 因此不受影响）
+Expected: 通过（所有依赖已就绪；若失败按报错修复）
 
 - [ ] **Step 3: 写 docs/开发环境指南.md**
 
@@ -4605,13 +4705,7 @@ Expected: 通过（所有依赖已就绪；若失败按报错修复，常见问�
 ## 前置要求
 
 - Python 3.11+、uv（`pip install uv`）
-- Docker（用于 postgres/redis/minio）
-
-## 启动开发依赖
-
-```bash
-docker compose -f deploy/dev-compose.yml up -d
-```
+- 无需 Docker：开发模式默认 SQLite + 本地文件存储 + 进程内队列
 
 ## 安装与初始化
 
@@ -4624,10 +4718,10 @@ uv run alembic upgrade head
 ## 启动服务
 
 ```bash
-# REST API（含 MCP 端点 /mcp，Plan B 后启用）
+# REST API（本地模式：收取后同步内联执行解析/验真）
 uv run uvicorn invoicing.main:app --host 0.0.0.0 --port 8000 --reload
 
-# 任务 worker（另开终端）
+# 任务 worker（仅 queue_backend=redis 时需要，开发默认不需要）
 uv run arq invoicing.workers.queue.WorkerSettings
 ```
 
@@ -4644,8 +4738,9 @@ uv run pytest ../test -v
 
 | 变量 | 说明 |
 |------|------|
-| `INVOICING_DATABASE_URL` | PostgreSQL 连接串 |
-| `INVOICING_REDIS_URL` | Redis 连接串 |
+| `INVOICING_DATABASE_URL` | 默认 `sqlite:///./invoicing.db`；生产对齐时指向 PostgreSQL |
+| `INVOICING_STORAGE_BACKEND` | `local`（默认，本地文件系统，根目录 `INVOICING_STORAGE_ROOT`）/ `s3`（MinIO/OSS） |
+| `INVOICING_QUEUE_BACKEND` | `local`（默认，同步内联执行）/ `redis`（arq worker 异步消费） |
 | `INVOICING_JWT_SECRET` | JWT 签名密钥（生产必改） |
 | `INVOICING_FERNET_KEY` | 邮箱密码加密密钥，用 `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成 |
 | `INVOICING_MOCK_VERIFY_RULES` | Mock 验真规则 JSON |
@@ -4660,12 +4755,11 @@ uv run pytest ../test -v
 ## 构建与测试
 
 ```bash
-docker compose -f deploy/dev-compose.yml up -d   # 开发依赖（postgres/redis/minio）
 cd backend && uv sync                             # 安装依赖
-cd backend && uv run alembic upgrade head         # 初始化数据库
+cd backend && uv run alembic upgrade head         # 初始化数据库（默认 SQLite，无需外部服务）
 cd backend && uv run pytest ../test -v            # 运行全部测试
-cd backend && uv run uvicorn invoicing.main:app --reload   # 启动 API
-cd backend && uv run arq invoicing.workers.queue.WorkerSettings  # 启动任务 worker
+cd backend && uv run uvicorn invoicing.main:app --reload   # 启动 API（本地模式收取后同步解析/验真）
+cd backend && uv run arq invoicing.workers.queue.WorkerSettings  # 任务 worker（仅 queue_backend=redis 时需要）
 ```
 ```
 

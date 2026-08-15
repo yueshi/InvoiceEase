@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<eInvoice xmlns="http://www.chinatax.gov.cn/eip">
+  <EInvoiceHeader>
+    <EInvoiceNumber>24312000000012345678</EInvoiceNumber>
+    <EInvoiceType>81</EInvoiceType>
+    <IssueDate>2026-08-01</IssueDate>
+    <TotalAmountExcludingTax>909.09</TotalAmountExcludingTax>
+    <TotalTaxAmount>90.91</TotalTaxAmount>
+    <AmountInFigures>1000.00</AmountInFigures>
+    <AmountInWords>壹仟元整</AmountInWords>
+  </EInvoiceHeader>
+  <EInvoiceSellerInformation>
+    <SellerName>示例科技有限公司</SellerName>
+    <SellerTaxpayerIdentificationNumber>91310000MA1FL0A000</SellerTaxpayerIdentificationNumber>
+  </EInvoiceSellerInformation>
+  <EInvoiceBuyerInformation>
+    <BuyerName>测试采购有限公司</BuyerName>
+    <BuyerTaxpayerIdentificationNumber>91310000MA1FL0B000</BuyerTaxpayerIdentificationNumber>
+  </EInvoiceBuyerInformation>
+</eInvoice>
