@@ -58,3 +58,23 @@ def test_mailbox_crud_admin_only(client, db):
     resp = client.post("/api/v1/auth/login", json={"username": "caiwu", "password": "pass123"})
     staff_token = resp.json()["access_token"]
     assert client.get("/api/v1/mailboxes", headers=_h(staff_token)).status_code == 403
+
+
+def test_poll_endpoint_returns_result(client, db):
+    token = _admin_token(client, db)
+    resp = client.post(
+        "/api/v1/mailboxes",
+        json={
+            "name": "冒烟邮箱",
+            "imap_host": "127.0.0.1",
+            "imap_port": 1,
+            "use_ssl": False,
+            "username": "smoke@example.com",
+            "password": "secret123",
+        },
+        headers=_h(token),
+    )
+    mailbox_id = resp.json()["id"]
+    resp2 = client.post(f"/api/v1/mailboxes/{mailbox_id}/poll", headers=_h(token))
+    assert resp2.status_code == 200  # 连接失败也返回结构化结果（errors>=1）
+    assert "received" in resp2.json() and "errors" in resp2.json()

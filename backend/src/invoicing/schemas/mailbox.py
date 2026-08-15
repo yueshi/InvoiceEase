@@ -59,6 +59,8 @@ class MailboxUpdate(BaseModel):
 
 
 class PollResultOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     received: int
     rejected_images: int
     ignored: int
