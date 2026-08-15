@@ -1,6 +1,7 @@
 import json
 import logging
 import smtplib
+import time
 from email.mime.text import MIMEText
 
 from invoicing.fetch.crypto import decrypt_secret
@@ -48,12 +49,14 @@ def _reply_agently(mailbox: Mailbox, provider_message_id: str | None, body: str)
     if not provider_message_id:
         logger.info("agently 拒收回复缺少 provider_message_id，跳过 mailbox_id=%s", mailbox.id)
         return
-    from invoicing.fetch.agently import run_cli  # 延迟导入避免循环
+    from invoicing.fetch.agently import REQUEST_INTERVAL, run_cli  # 延迟导入避免循环
 
+    time.sleep(REQUEST_INTERVAL)  # 每次请求前限流
     first = run_cli(mailbox, ["message", "+reply", "--id", provider_message_id, "--body", body])
     token = (first.get("data") or {}).get("confirmation_token")
     if not token:
         raise ValueError(f"agently +reply 未返回 confirmation_token: {json.dumps(first, ensure_ascii=False)[:200]}")
+    time.sleep(REQUEST_INTERVAL)  # 每次请求前限流
     run_cli(
         mailbox,
         ["message", "+reply", "--id", provider_message_id, "--body", body, "--confirmation-token", token],

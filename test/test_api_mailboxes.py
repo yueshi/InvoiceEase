@@ -153,3 +153,22 @@ def test_update_agently_token_encrypted(client, db):
     assert mb.agently_token_encrypted is not None
     assert mb.agently_token_encrypted != "tok-abc"
     assert decrypt_secret(mb.agently_token_encrypted) == "tok-abc"
+
+
+def test_test_connection_agently(client, db, monkeypatch):
+    import invoicing.api.mailboxes as mailboxes_mod
+
+    token = _admin_token(client, db)
+    resp = client.post(
+        "/api/v1/mailboxes",
+        json={"name": "Agently", "mailbox_type": "agently"},
+        headers=_h(token),
+    )
+    mailbox_id = resp.json()["id"]
+    monkeypatch.setattr(
+        "invoicing.fetch.agently.run_cli",
+        lambda mb, args, timeout=30: {"ok": True, "data": {"aliases": [{"email": "aken123@agent.qq.com"}]}},
+    )
+    resp2 = client.post(f"/api/v1/mailboxes/{mailbox_id}/test", headers=_h(token))
+    assert resp2.status_code == 200
+    assert resp2.json()["ok"] is True

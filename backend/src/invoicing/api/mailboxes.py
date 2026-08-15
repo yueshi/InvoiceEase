@@ -85,6 +85,16 @@ def test_connection(mailbox_id: int, db: Session = Depends(get_db), _: User = De
     mb = db.get(Mailbox, mailbox_id)
     if mb is None:
         raise HTTPException(404, "邮箱配置不存在")
+    if mb.mailbox_type == "agently":
+        from invoicing.fetch.agently import AgentlyCliError, run_cli
+
+        try:
+            payload = run_cli(mb, ["+me"])
+            aliases = (payload.get("data") or {}).get("aliases") or []
+            email = aliases[0].get("email", "未知") if aliases else "未知"
+            return {"ok": True, "message": f"CLI 可用，邮箱 {email}"}
+        except AgentlyCliError as e:
+            return {"ok": False, "message": str(e)}
     try:
         fetcher = ImapMailFetcher(mb)
         conn = fetcher._connect()

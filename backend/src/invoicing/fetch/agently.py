@@ -11,8 +11,10 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
+from time import monotonic, sleep
 
 import httpx
 
@@ -26,6 +28,26 @@ BATCH_LIMIT = 8
 REQUEST_INTERVAL = 8.0  # 间隔 8s：任意 60 秒窗口请求数 ≤ 10
 LIST_LIMIT = 50
 MAX_PAGES = 10  # +list 分页循环硬上限
+
+MAX_PER_MIN = 10
+MAX_PER_HOUR = 200
+WINDOW_MIN = 60.0
+WINDOW_HOUR = 3600.0
+
+_hour_request_times: deque[float] = deque()
+
+
+def _throttle_hour() -> None:
+    """200 次/小时硬约束：窗口已满则休眠至最早请求滑出窗口。"""
+    global _hour_request_times
+    now = monotonic()
+    while _hour_request_times and now - _hour_request_times[0] > WINDOW_HOUR:
+        _hour_request_times.popleft()
+    if len(_hour_request_times) >= MAX_PER_HOUR:
+        wait = WINDOW_HOUR - (now - _hour_request_times[0]) + 1.0
+        logger.warning("agently 请求达到小时限流预算，休眠 %.0f 秒", wait)
+        sleep(wait)
+    _hour_request_times.append(monotonic())
 
 
 class AgentlyCliError(Exception):
@@ -44,6 +66,7 @@ def _cli_env(mailbox: Mailbox) -> dict:
 def run_cli(mailbox: Mailbox, args: list[str], timeout: int = 30, cwd: str | os.PathLike | None = None) -> dict:
     if not shutil.which("agently-cli"):
         raise AgentlyCliError("agently-cli 未安装")
+    _throttle_hour()  # 200 次/小时硬约束（所有 CLI 调用统一计数）
     try:
         proc = subprocess.run(
             ["agently-cli", *args],
@@ -72,8 +95,13 @@ class AgentlyFetcher(MailFetcher):
         self.mailbox = mailbox
 
     def fetch_new(self, last_uid: int) -> list[RawMailMessage]:
-        messages = self._list_messages()
-        candidates = [m for m in messages if _to_unix(m["created_at"]) >= last_uid]
+        messages = self._list_messages(last_uid)
+        candidates = [
+            m for m in messages
+            if m.get("created_at") is not None  # 缺时间戳消息跳过，防裸 KeyError
+            and _to_unix(m["created_at"]) >= last_uid
+            and self._subject_matches_keywords(m.get("subject") or "")
+        ]
         candidates.sort(key=lambda m: m["created_at"])  # 旧→新，游标只推进到已处理处
         # 游标（last_uid）由 service 层以返回消息的最大 uid 推进（poll_mailbox 内 max(uid)）
         result: list[RawMailMessage] = []
@@ -101,25 +129,37 @@ class AgentlyFetcher(MailFetcher):
                 )
         return result
 
-    def _list_messages(self) -> list[dict]:
-        """+list 支持 --cursor 分页（探测自 --help），循环翻页直到 has_more=false。"""
-        messages: list[dict] = []
+    def _list_messages(self, last_uid: int) -> list[dict]:
+        """分页收集 >= 游标的消息。契约：+list 按新→旧排序——
+        遇到整页早于游标即停止翻页（>500 封存量时不会空转也不漏新消息）。"""
+        collected: list[dict] = []
         cursor: str | None = None
         for _ in range(MAX_PAGES):
-            time.sleep(REQUEST_INTERVAL)  # 每次请求前限流
+            time.sleep(REQUEST_INTERVAL)  # 每次请求前限流（分钟窗口）
             args = ["message", "+list", "--limit", str(LIST_LIMIT)]
             if cursor:
                 args += ["--cursor", cursor]
             payload = run_cli(self.mailbox, args)
-            page = payload.get("data") or {}
-            messages.extend(page.get("data") or [])
-            pagination = page.get("pagination") or {}
-            if not pagination.get("has_more") or not pagination.get("next_cursor"):
+            page = (payload.get("data") or {}).get("data") or []
+            reached_old = False
+            for m in page:
+                if _to_unix(m["created_at"]) >= last_uid:
+                    collected.append(m)
+                else:
+                    reached_old = True
+            pagination = (payload.get("data") or {}).get("pagination") or {}
+            if reached_old or not pagination.get("has_more") or not pagination.get("next_cursor"):
                 break
             cursor = pagination["next_cursor"]
         else:
             logger.warning("agently 分页超过 %s 页，截断", MAX_PAGES)
-        return messages
+        return collected
+
+    def _subject_matches_keywords(self, subject: str) -> bool:
+        keywords = [k.strip() for k in (self.mailbox.keywords or "").split(",") if k.strip()]
+        if not keywords:
+            return True
+        return any(k in subject for k in keywords)
 
     def _download_attachments(self, msg: dict, tmp: Path) -> list[RawAttachment]:
         time.sleep(REQUEST_INTERVAL)  # 每次请求前限流
@@ -156,6 +196,10 @@ class AgentlyFetcher(MailFetcher):
         return attachments
 
     def _download_url(self, url: str) -> bytes:
+        if not url.startswith("https://"):
+            raise AgentlyCliError(f"download_url 非 https，拒绝: {url[:50]}")
+        _throttle_hour()  # download_url 不经过 run_cli，单独计入小时限流
+        time.sleep(REQUEST_INTERVAL)  # 每次请求前限流（分钟窗口）
         headers = {}
         if self.mailbox.agently_token_encrypted:
             headers["Authorization"] = f"Bearer {decrypt_secret(self.mailbox.agently_token_encrypted)}"

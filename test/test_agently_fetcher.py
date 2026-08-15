@@ -12,8 +12,10 @@ from invoicing.models import Mailbox
 FIXTURES = Path(__file__).parent / "fixtures" / "agently"
 
 
-def _mailbox(db) -> Mailbox:
-    mb = Mailbox(name="Agently", mailbox_type="agently", agently_workspace=None)
+def _mailbox(db, keywords: str = "") -> Mailbox:
+    # keywords 默认空串：关键词过滤语义由 test_fetch_new_keyword_filter_before_download 单独覆盖，
+    # 其余测试（批上限/分页/计数）不受默认「发票,Invoice」干扰。
+    mb = Mailbox(name="Agently", mailbox_type="agently", agently_workspace=None, keywords=keywords)
     db.add(mb)
     db.flush()
     return mb
@@ -118,3 +120,58 @@ def test_run_cli_nonzero_raises(db, monkeypatch):
     fetcher = AgentlyFetcher(_mailbox(db))
     with pytest.raises(AgentlyCliError, match="退出码"):
         fetcher.fetch_new(0)
+
+
+def test_list_messages_early_break_on_old_page(db, monkeypatch, tmp_path):
+    import invoicing.fetch.agently as agently_mod
+
+    old = "2026-08-14T00:00:00Z"
+    new = "2026-08-15T08:11:27Z"
+    calls = []
+
+    def fake_run_cli(mailbox, args, timeout=30):
+        calls.append(args)
+        if "--cursor" in args:
+            return {"ok": True, "data": {"data": [{"created_at": old, "from": {"email": "u@x.com"}, "has_attachments": False, "message_id": "msg_old", "rfc_message_id": "<old@qq.com>", "subject": "s"}], "pagination": {"has_more": False}}}
+        return {"ok": True, "data": {"data": [{"created_at": new, "from": {"email": "u@x.com"}, "has_attachments": True, "message_id": "msg_new", "rfc_message_id": "<new@qq.com>", "subject": "s"}], "pagination": {"has_more": True, "next_cursor": "cur2"}}}
+
+    monkeypatch.setattr(agently_mod, "run_cli", fake_run_cli)
+    monkeypatch.setattr(agently_mod, "REQUEST_INTERVAL", 0.0)
+    fetcher = AgentlyFetcher(_mailbox(db))
+    result = fetcher.fetch_new(int(datetime.fromisoformat("2026-08-15T00:00:00Z").timestamp()))
+    assert len(result) == 1
+    assert result[0].provider_message_id == "msg_new"
+    # 第二页整页早于游标即停（第三页不会请求）。按 +list 调用计数：
+    # 消息处理还会产生 +read 请求，故不数总调用数。
+    assert sum(1 for c in calls if c[:2] == ["message", "+list"]) == 2
+
+
+def test_fetch_new_keyword_filter_before_download(db, monkeypatch, tmp_path):
+    import invoicing.fetch.agently as agently_mod
+
+    list_messages = json.loads((FIXTURES / "list_page.json").read_text())["data"]["data"]
+    calls = []
+    read_attachments = [{"attachment_id": "att_x", "content_type": "text/xml", "filename": "dianzi.xml", "size": "888"}]
+
+    def fake_run_cli(mailbox, args, timeout=30):
+        calls.append(args)
+        if args[:2] == ["message", "+list"]:
+            return {"ok": True, "data": {"data": list_messages, "pagination": {"has_more": False}}}
+        if args[:2] == ["message", "+read"]:
+            return {"ok": True, "data": {"attachments": read_attachments}}
+        if args[:2] == ["attachment", "+download"]:
+            name = args[args.index("--att") + 1]
+            path = tmp_path / f"{name}.xml"
+            path.write_bytes(b"<eInvoice/>")
+            return {"ok": True, "data": {"filename": f"{name}.xml", "saved_to": str(path), "size": 11}}
+        raise AssertionError(f"unexpected args: {args}")
+
+    monkeypatch.setattr(agently_mod, "run_cli", fake_run_cli)
+    monkeypatch.setattr(agently_mod, "REQUEST_INTERVAL", 0.0)
+    mb = _mailbox(db)
+    mb.keywords = "报销"  # 与「发票测试-数电票」不匹配
+    db.flush()
+    fetcher = AgentlyFetcher(mb)
+    result = fetcher.fetch_new(0)
+    assert result == []
+    assert sum(1 for c in calls if c[:2] == ["message", "+read"]) == 0  # 未下载即被过滤

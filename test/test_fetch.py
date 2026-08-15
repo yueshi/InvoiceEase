@@ -179,6 +179,7 @@ def test_reject_reply_agently_two_step(db, monkeypatch):
         return {"ok": True, "data": {"confirmation_required": True, "confirmation_token": "ctk_x"}}
 
     monkeypatch.setattr("invoicing.fetch.agently.run_cli", fake_run_cli)
+    monkeypatch.setattr("invoicing.fetch.agently.REQUEST_INTERVAL", 0.0)  # 测试不等待（+reply 前置限流 sleep）
     send_reject_reply(mb, "user@agent.qq.com", "发票照片", provider_message_id="msg_1")
     assert len(calls) == 2  # 首跑 + 确认重跑
     assert calls[0][:3] == ["message", "+reply", "--id"]
