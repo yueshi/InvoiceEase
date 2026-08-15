@@ -25,7 +25,7 @@ def _mock_cli(monkeypatch, tmp_path, list_messages=None, read_attachments=None):
 
     calls = []
 
-    def fake_run_cli(mailbox, args, timeout=30):
+    def fake_run_cli(mailbox, args, timeout=30, cwd=None):
         calls.append(args)
         if args[:2] == ["message", "+list"]:
             payload = {"ok": True, "data": {"data": list_messages or [], "pagination": {"has_more": False}}}
@@ -34,7 +34,10 @@ def _mock_cli(monkeypatch, tmp_path, list_messages=None, read_attachments=None):
             return {"ok": True, "data": {"attachments": read_attachments or []}}
         if args[:2] == ["attachment", "+download"]:
             name = args[args.index("--att") + 1]
-            path = tmp_path / f"{name}.xml"
+            out = args[args.index("--output") + 1]
+            assert not Path(out).is_absolute(), f"--output 必须为相对路径（真实 CLI 契约）: {out}"
+            base = Path(cwd) if cwd else tmp_path  # 真实 CLI 以自身 cwd 解析相对输出目录
+            path = base / f"{name}.xml"
             path.write_bytes(b"<eInvoice/>")
             return {"ok": True, "data": {"filename": f"{name}.xml", "saved_to": str(path), "size": 11}}
         raise AssertionError(f"unexpected args: {args}")

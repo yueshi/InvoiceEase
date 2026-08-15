@@ -41,13 +41,13 @@ def _cli_env(mailbox: Mailbox) -> dict:
     return env
 
 
-def run_cli(mailbox: Mailbox, args: list[str], timeout: int = 30) -> dict:
+def run_cli(mailbox: Mailbox, args: list[str], timeout: int = 30, cwd: str | os.PathLike | None = None) -> dict:
     if not shutil.which("agently-cli"):
         raise AgentlyCliError("agently-cli 未安装")
     try:
         proc = subprocess.run(
             ["agently-cli", *args],
-            capture_output=True, text=True, timeout=timeout, env=_cli_env(mailbox),
+            capture_output=True, text=True, timeout=timeout, env=_cli_env(mailbox), cwd=cwd,
         )
     except subprocess.TimeoutExpired as e:
         raise AgentlyCliError(f"agently-cli 超时: {e}") from e
@@ -128,12 +128,19 @@ class AgentlyFetcher(MailFetcher):
         for att in (payload.get("data") or {}).get("attachments") or []:
             if att.get("attachment_id"):
                 time.sleep(REQUEST_INTERVAL)  # 每次请求前限流
+                # 契约（实测）：--output 必须为相对路径目录，CLI 以自身 cwd 解析；
+                # 故子进程 cwd 指向临时目录并传相对路径 "."。saved_to 返回绝对路径。
                 dl = run_cli(
                     self.mailbox,
                     ["attachment", "+download", "--msg", msg["message_id"],
-                     "--att", att["attachment_id"], "--output", str(tmp)],
+                     "--att", att["attachment_id"], "--output", "."],
+                    cwd=str(tmp),
                 )
-                content = Path(dl["data"]["saved_to"]).read_bytes()
+                saved = dl["data"]["saved_to"]
+                p = Path(saved)
+                if not p.is_absolute():  # 防御：契约返回绝对路径，若未来变相对则按 cwd 归位
+                    p = tmp / p
+                content = p.read_bytes()
             elif att.get("download_url"):
                 content = self._download_url(att["download_url"])
             else:
