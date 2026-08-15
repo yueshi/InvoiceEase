@@ -52,6 +52,8 @@ cd backend && uv run pytest ../test -v            # 运行全部测试
 cd backend && uv run pytest ../test/test_mcp_integration.py -v  # MCP 协议级集成测试（需端口可用）
 cd backend && uv run uvicorn invoicing.main:app --reload   # 启动 API（本地模式收取后同步解析/验真）
 cd backend && uv run arq invoicing.workers.queue.WorkerSettings  # 任务 worker（仅 queue_backend=redis 时需要）
+cd web && npm install && npm run dev   # Web 管理后台（Vue 3，端口 5173，代理 /api → 8000）
+cd web && npm run test                 # 前端冒烟测试
 ```
 
 ## 工作约定

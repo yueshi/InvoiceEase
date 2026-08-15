@@ -79,3 +79,24 @@ export const INVOICE_STATUS_LABELS: Record<string, string> = {
 export const VERIFY_STATUS_LABELS: Record<string, string> = {
   pending: "待验真", passed: "通过", failed: "失败",
 };
+
+export interface AuditOut {
+  id: number; user_id: number | null; action: string; invoice_id: number | null;
+  detail: Record<string, unknown> | null; ip_address: string | null;
+  channel: string; created_at: string;
+}
+export interface AuditListResponse { items: AuditOut[]; total: number; page: number; page_size: number; }
+
+export interface MailboxOut {
+  id: number; name: string; imap_host: string; imap_port: number; use_ssl: boolean;
+  username: string; folder: string; keywords: string; poll_interval_seconds: number;
+  smtp_host: string | null; smtp_port: number | null; smtp_username: string | null;
+  enabled: boolean; last_polled_at: string | null; last_uid: number;
+  created_at: string; updated_at: string;
+}
+export interface MailboxCreate { name: string; imap_host: string; imap_port?: number; use_ssl?: boolean; username: string; password: string; folder?: string; keywords?: string; poll_interval_seconds?: number; smtp_host?: string | null; smtp_port?: number | null; smtp_username?: string | null; smtp_password?: string | null; }
+export type MailboxUpdate = Partial<MailboxCreate>;
+export interface PollResultOut { received: number; rejected_images: number; ignored: number; duplicates: number; errors: number; }
+
+export interface UserCreate { username: string; password: string; role: Role; }
+export interface UserUpdate { password?: string | null; role?: Role; }
