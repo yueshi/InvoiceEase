@@ -33,9 +33,11 @@ class Invoice(Base):
             "invoice_number",
             unique=True,
         ),
+        # 一信多票：同一邮件可含多张发票，按 (message_id, file_url) 复合去重
         Index(
             "uq_invoices_email_message_id",
             "email_message_id",
+            "file_url",
             unique=True,
             postgresql_where=text("email_message_id IS NOT NULL"),
             sqlite_where=text("email_message_id IS NOT NULL"),
