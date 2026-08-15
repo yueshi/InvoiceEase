@@ -29,6 +29,13 @@ function onDownload(kind: "file" | "xml") {
         <a-descriptions-item label="解析来源">{{ invoice.parse_source || "—" }}（置信度 {{ invoice.confidence_score ?? "—" }}）</a-descriptions-item>
         <a-descriptions-item label="来源邮件">{{ invoice.email_subject || "—" }}</a-descriptions-item>
         <a-descriptions-item label="重复标记">{{ invoice.duplicate_flag ? "是" : "否" }}</a-descriptions-item>
+        <a-descriptions-item v-if="invoice.validation_errors && invoice.validation_errors.length" label="校验/解析问题">
+          <ul style="margin: 0; padding-left: 16px">
+            <li v-for="(err, idx) in invoice.validation_errors" :key="idx">
+              {{ err.code }}：{{ err.message }}
+            </li>
+          </ul>
+        </a-descriptions-item>
       </a-descriptions>
       <a-space style="margin-top: 16px">
         <a-button @click="onDownload('file')">下载原件</a-button>

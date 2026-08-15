@@ -108,6 +108,10 @@ const columns = [
         <template v-else-if="column.key === 'verify_status'">
           {{ VERIFY_STATUS_LABELS[record.verify_status] || record.verify_status }}
         </template>
+        <template v-else-if="column.key === 'invoice_number' || column.key === 'seller_name' || column.key === 'issue_date' || column.key === 'total_amount'">
+          <!-- 待复核/解析失败记录无结构化字段，显示占位符而非空白 -->
+          <span :style="record[column.dataIndex] ? {} : { color: '#bbb' }">{{ record[column.dataIndex] || "—" }}</span>
+        </template>
         <template v-else-if="column.key === 'actions'">
           <a-space>
             <a @click="showDetail(record)">详情</a>
