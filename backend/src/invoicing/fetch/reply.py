@@ -26,7 +26,7 @@ def send_reject_reply(
     if not mailbox.smtp_host or not to_addr:
         logger.info("SMTP 未配置或收件人为空，跳过拒收回复 mailbox_id=%s", mailbox.id)
         return
-    msg = MIMEText(REJECT_TEMPLATE, "plain", "utf-8")
+    msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = f"Re: {subject}"
     msg["From"] = mailbox.smtp_username or mailbox.username
     msg["To"] = to_addr

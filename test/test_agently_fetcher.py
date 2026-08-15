@@ -95,6 +95,7 @@ def test_cli_missing_raises(db, monkeypatch):
     import invoicing.fetch.agently as agently_mod
 
     monkeypatch.setattr(agently_mod.shutil, "which", lambda _: None)
+    monkeypatch.setattr(agently_mod, "REQUEST_INTERVAL", 0.0)  # 测试不等待
     fetcher = AgentlyFetcher(_mailbox(db))
     with pytest.raises(AgentlyCliError, match="未安装"):
         fetcher.fetch_new(0)
@@ -110,6 +111,7 @@ def test_run_cli_nonzero_raises(db, monkeypatch):
 
     monkeypatch.setattr(agently_mod.shutil, "which", lambda _: "/usr/local/bin/agently-cli")
     monkeypatch.setattr(agently_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(agently_mod, "REQUEST_INTERVAL", 0.0)  # 测试不等待
     fetcher = AgentlyFetcher(_mailbox(db))
     with pytest.raises(AgentlyCliError, match="退出码"):
         fetcher.fetch_new(0)
