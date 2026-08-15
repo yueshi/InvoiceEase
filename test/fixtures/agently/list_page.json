@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "data": {
+    "data": [
+      {
+        "created_at": "2026-08-15T08:11:27Z",
+        "from": {"email": "aken123@agent.qq.com", "name": "aken123"},
+        "has_attachments": true,
+        "is_read": false,
+        "message_id": "msg_V6HF_D-vUXxlEs_csGIpRYhgppPIzpGr703DUqi32v-bYA",
+        "rfc_message_id": "<tencent_20D41DB7025E2102E1FC56AC5024638EFF08@qq.com>",
+        "subject": "发票测试-数电票",
+        "snippet": "附件为测试数电票 XML 原件"
+      },
+      {
+        "created_at": "2026-08-15T08:10:20Z",
+        "from": {"email": "admin@agent.qq.com", "name": "Agent Mail 团队"},
+        "has_attachments": false,
+        "is_read": false,
+        "message_id": "msg_noatt",
+        "rfc_message_id": "<tencent_noatt@qq.com>",
+        "subject": "无附件邮件",
+        "snippet": ""
+      }
+    ],
+    "pagination": {"has_more": false, "next_cursor": ""}
+  }
+}

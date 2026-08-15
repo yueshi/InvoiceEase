@@ -15,6 +15,7 @@ class RawMailMessage:
     message_id: str | None
     subject: str
     sender: str
+    provider_message_id: str | None = None
     attachments: list[RawAttachment] = field(default_factory=list)
 
 
