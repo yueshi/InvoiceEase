@@ -1,12 +1,11 @@
 # invoicing/mcp/tools.py
 """MCP 工具实现：薄适配器，直接调用 workflow service 层。"""
 from datetime import date
-from typing import Any
 
 from invoicing.audit import write_audit
 from invoicing.db import SessionLocal
 from invoicing.fetch.service import poll_mailbox
-from invoicing.models import Invoice, Mailbox, Role, User
+from invoicing.models import Mailbox, Role, User
 from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut
 from invoicing.schemas.mailbox import PollResultOut
 from invoicing.workflow import services
@@ -47,11 +46,16 @@ def list_invoices_mcp(
     page_size: int = 20,
 ) -> InvoiceListResponse:
     with SessionLocal() as db:
-        return services.list_invoices(
+        result = services.list_invoices(
             db, _mcp_admin_user(), status, date_from, date_to, keyword, page, page_size
         )
+    # MCP 返回需 pydantic 模型（REST 由 response_model 转换，MCP 无此层）
+    result.items = [InvoiceOut.model_validate(item, from_attributes=True) for item in result.items]
+    return result
 
 
 def get_invoice_mcp(invoice_id: int) -> InvoiceOut:
     with SessionLocal() as db:
-        return services.get_invoice(db, _mcp_admin_user(), invoice_id)
+        return InvoiceOut.model_validate(
+            services.get_invoice(db, _mcp_admin_user(), invoice_id), from_attributes=True
+        )

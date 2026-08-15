@@ -9,6 +9,7 @@ from invoicing.db import SessionLocal
 from invoicing.mcp.server import mcp
 from invoicing.mcp.tools import fetch_invoices, get_invoice_mcp, list_invoices_mcp
 from invoicing.models import AuditLog, Invoice, Mailbox, User
+from invoicing.schemas.invoice import InvoiceOut
 from invoicing.security import hash_password
 
 
@@ -33,6 +34,7 @@ def test_list_invoices_mcp(db):
     result = list_invoices_mcp(page=1, page_size=20)
     assert result.total == 1
     assert result.items[0].invoice_number == "24312000000012345678"
+    assert isinstance(result.items[0], InvoiceOut)
 
 
 def test_get_invoice_mcp(db):
@@ -41,6 +43,7 @@ def test_get_invoice_mcp(db):
         inv_id = s.query(Invoice).first().id
     result = get_invoice_mcp(invoice_id=inv_id)
     assert result.invoice_number == "24312000000012345678"
+    assert isinstance(result, InvoiceOut)
 
 
 def test_fetch_invoices_mcp_writes_mcp_audit(db, monkeypatch):
