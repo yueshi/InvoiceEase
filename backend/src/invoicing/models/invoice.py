@@ -72,7 +72,7 @@ class Invoice(Base):
 
     parse_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    validation_errors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    validation_errors: Mapped[list | None] = mapped_column(JSON, nullable=True)  # list[dict]：校验错误数组
 
     verify_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=VerifyStatus.pending.value

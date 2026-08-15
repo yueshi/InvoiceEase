@@ -29,7 +29,7 @@ class InvoiceOut(BaseModel):
     file_type: str
     parse_source: str | None
     confidence_score: float | None
-    validation_errors: dict | None
+    validation_errors: list[dict] | None  # 写入方恒为 list[dict]（parse 校验错误/任务兜底错误）
     verify_status: str
     verify_detail: dict | None
     verified_at: datetime | None

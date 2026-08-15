@@ -149,3 +149,24 @@ def test_download_file_chinese_filename(client, db, monkeypatch):
     assert resp.status_code == 200
     assert resp.headers["content-disposition"].startswith("attachment;")
     assert "filename*" in resp.headers["content-disposition"]
+
+
+def test_list_invoices_with_list_validation_errors(client, db):
+    """回归：validation_errors 为 list[dict]（写入方形态）时列表不得 500。"""
+    _seed(db, "caiwu1", Role.finance_staff.value)
+    inv = Invoice(
+        file_url="a.xml",
+        file_type="XML",
+        invoice_number="24312000000055555555",
+        status="pending_review",
+        parse_source="PDF_UNSTRUCTURED",
+        confidence_score=0.0,
+        validation_errors=[{"code": "XML_PARSE_ERROR", "message": "不是数电票 XML"}],
+    )
+    db.add(inv)
+    db.flush()
+    token = _login(client, "caiwu1")
+    resp = client.get("/api/v1/invoices", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["validation_errors"] == [{"code": "XML_PARSE_ERROR", "message": "不是数电票 XML"}]

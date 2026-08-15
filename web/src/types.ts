@@ -42,7 +42,7 @@ export interface InvoiceOut {
   file_type: string;
   parse_source: string | null;
   confidence_score: number | null;
-  validation_errors: Record<string, unknown> | null;
+  validation_errors: Array<Record<string, unknown>> | null;
   verify_status: string;
   verify_detail: Record<string, unknown> | null;
   verified_at: string | null;
