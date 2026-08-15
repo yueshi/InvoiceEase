@@ -24,3 +24,10 @@ class ParsedInvoice(BaseModel):
 class ParseError(BaseModel):
     code: str
     message: str
+
+
+class ParseOutcome(BaseModel):
+    source: str | None
+    parsed: ParsedInvoice | None
+    errors: list[ParseError]
+    xml_data: bytes | None = None  # 提取出的 XML 原文（合规归档用）
