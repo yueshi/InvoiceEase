@@ -23,6 +23,13 @@ dependencies = [
     "httpx>=0.28.1",
 ]
 
+[project.optional-dependencies]
+ocr = [
+    "paddleocr>=3.7.0",
+    "paddlepaddle>=2.5,<3",
+    "pymupdf>=1.28.2",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.2",
