@@ -44,6 +44,8 @@ class ImapMailFetcher(MailFetcher):
             if part.get_content_maintype() == "multipart":
                 continue
             filename = part.get_filename() or ""
+            if not filename and part.get_content_maintype() == "text":
+                continue  # 正文非附件，避免幽灵 ignored 计数
             content_type = part.get_content_type()
             payload = part.get_payload(decode=True)
             if payload:
