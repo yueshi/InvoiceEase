@@ -109,3 +109,78 @@ def test_verify_invoice_task_duplicate_blocks(db, storage, monkeypatch):
     assert inv.status == "blocked"
     assert inv.duplicate_flag is True
     assert inv.duplicate_of_id == other.id
+
+
+def test_parse_invoice_task_failure_falls_to_review(db, storage, monkeypatch):
+    from invoicing.models import AuditLog
+    from invoicing.workers.tasks import _parse_invoice
+
+    inv = _make_invoice(db, storage)
+
+    class BoomStorage:
+        def get(self, key):
+            raise IOError("storage down")
+
+    monkeypatch.setattr("invoicing.workers.tasks.get_storage", lambda: BoomStorage())
+    with pytest.raises(IOError):
+        _parse_invoice(inv.id)
+    db.refresh(inv)
+    assert inv.status == "pending_review"
+    assert inv.validation_errors is not None and any(
+        e.get("result") == "error" for e in inv.validation_errors
+    )
+    assert (
+        db.query(AuditLog)
+        .filter(AuditLog.invoice_id == inv.id, AuditLog.action == "PARSE")
+        .count()
+        >= 1
+    )
+
+
+def test_verify_invoice_task_failure_falls_to_review(db, storage, monkeypatch):
+    from invoicing.models import AuditLog
+    from invoicing.workers.tasks import _parse_invoice, _verify_invoice
+
+    inv = _make_invoice(db, storage)
+    _parse_invoice(inv.id)
+    db.refresh(inv)
+    assert inv.status == "parsed"
+
+    class BoomProvider:
+        def verify(self, inv):
+            raise IOError("provider down")
+
+    monkeypatch.setattr("invoicing.workers.tasks.get_provider", lambda: BoomProvider())
+    with pytest.raises(IOError):
+        _verify_invoice(inv.id)
+    db.refresh(inv)
+    assert inv.status == "pending_review"
+    assert (
+        db.query(AuditLog)
+        .filter(AuditLog.invoice_id == inv.id, AuditLog.action == "VERIFY")
+        .count()
+        >= 1
+    )
+
+
+def test_parse_invoice_task_duplicate_number_blocks(db, storage):
+    from invoicing.workers.tasks import _parse_invoice
+
+    first = _make_invoice(db, storage)
+    _parse_invoice(first.id)
+    db.refresh(first)
+    assert first.status == "parsed"  # autouse fixture 隔离内联验真
+
+    second = Invoice(
+        file_url="test-worker/dup.xml",
+        file_type="XML",
+        status="parsing",
+        invoice_number=None,
+    )
+    db.add(second)
+    db.commit()
+    storage.put(second.file_url, (FIXTURES / "dianzi.xml").read_bytes(), "application/xml")
+    _parse_invoice(second.id)
+    db.refresh(second)
+    assert second.status == "blocked"
+    assert second.duplicate_of_id == first.id

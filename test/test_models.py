@@ -36,9 +36,18 @@ def test_duplicate_dedup_key_raises_integrity_error(db):
         db.flush()
 
 
-def test_duplicate_email_message_id_raises_integrity_error(db):
+def test_email_message_id_composite_unique_allows_multi_invoice(db):
+    # 一信多票（正常场景）：同 message_id 不同附件（file_url 不同）允许并存
     db.add(Invoice(file_url="a.xml", file_type="XML", email_message_id="<m1@x.com>"))
     db.flush()
     db.add(Invoice(file_url="b.xml", file_type="XML", email_message_id="<m1@x.com>"))
+    db.flush()  # 不抛异常
+
+
+def test_email_message_id_composite_unique_blocks_same_file(db):
+    # 同一 message_id + 同一 file_url（同 uid 同文件名重复收取）→ 复合唯一索引拦截
+    db.add(Invoice(file_url="a.xml", file_type="XML", email_message_id="<m1@x.com>"))
+    db.flush()
+    db.add(Invoice(file_url="a.xml", file_type="XML", email_message_id="<m1@x.com>"))
     with pytest.raises(IntegrityError):
         db.flush()

@@ -64,3 +64,31 @@ def test_list_users(client, db):
     resp = client.get("/api/v1/users", headers=_headers(token))
     assert resp.status_code == 200
     assert len(resp.json()) >= 1
+
+
+def test_create_user_invalid_role_422(client, db):
+    _seed(db, "root", Role.admin.value)
+    token = _login(client, "root")
+    resp = client.post(
+        "/api/v1/users",
+        json={"username": "bad1", "password": "pass123", "role": "Finance"},
+        headers=_headers(token),
+    )
+    assert resp.status_code == 422
+
+
+def test_update_user_invalid_role_422(client, db):
+    _seed(db, "root", Role.admin.value)
+    token = _login(client, "root")
+    resp = client.post(
+        "/api/v1/users",
+        json={"username": "caiwu1", "password": "pass123", "role": "finance_staff"},
+        headers=_headers(token),
+    )
+    user_id = resp.json()["id"]
+    resp2 = client.put(
+        f"/api/v1/users/{user_id}",
+        json={"role": "Boss"},
+        headers=_headers(token),
+    )
+    assert resp2.status_code == 422

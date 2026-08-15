@@ -124,3 +124,28 @@ def test_review_forbidden_for_employee(client, db):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
+
+
+def test_download_file_chinese_filename(client, db, monkeypatch):
+    _seed(db, "caiwu1", Role.finance_staff.value)
+    token = _login(client, "caiwu1")
+    inv = Invoice(
+        file_url="tenant-default/mailbox-1/1-发票.pdf",
+        file_type="PDF",
+        invoice_number="24312000000044444444",
+    )
+    db.add(inv)
+    db.flush()
+
+    class FakeStorage:
+        def get(self, key):
+            return b"%PDF-1.4"
+
+    monkeypatch.setattr("invoicing.api.invoices.get_storage", lambda: FakeStorage())
+    resp = client.get(
+        f"/api/v1/invoices/{inv.id}/file",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-disposition"].startswith("attachment;")
+    assert "filename*" in resp.headers["content-disposition"]

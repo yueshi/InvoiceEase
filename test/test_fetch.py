@@ -113,13 +113,28 @@ def test_poll_skips_already_seen_uids(db):
     assert result.received == 0
 
 
-def test_poll_duplicate_email_ignored(db):
+def test_poll_same_email_two_invoices_both_stored(db):
+    # 一信多票（正常场景）：同一 message_id 含两张发票附件，均须入库
     mb = _mailbox(db)
     fetcher = FakeFetcher(
         [
             _msg(1, "发票", [RawAttachment("dianzi.xml", "application/xml", INVOICE_XML)]),
-            # 同一 message_id 重复到达（异常场景），email_message_id 唯一索引兜底
-            _msg(2, "发票", [RawAttachment("dianzi.xml", "application/xml", INVOICE_XML)], message_id="<msg1@example.com>"),
+            _msg(2, "发票", [RawAttachment("dianzi2.xml", "application/xml", INVOICE_XML)], message_id="<msg1@example.com>"),
+        ]
+    )
+    result = poll_mailbox(db, mb, fetcher)
+    assert result.received == 2
+    assert result.duplicates == 0
+    assert db.query(Invoice).filter(Invoice.email_message_id == "<msg1@example.com>").count() == 2
+
+
+def test_poll_duplicate_email_same_file_blocked(db):
+    # 同一 message_id + 同 uid + 同文件名 → 同一 file_url key，复合唯一索引兜底拦截
+    mb = _mailbox(db)
+    fetcher = FakeFetcher(
+        [
+            _msg(1, "发票", [RawAttachment("dianzi.xml", "application/xml", INVOICE_XML)]),
+            _msg(1, "发票", [RawAttachment("dianzi.xml", "application/xml", INVOICE_XML)], message_id="<msg1@example.com>"),
         ]
     )
     result = poll_mailbox(db, mb, fetcher)

@@ -60,6 +60,24 @@ def test_mailbox_crud_admin_only(client, db):
     assert client.get("/api/v1/mailboxes", headers=_h(staff_token)).status_code == 403
 
 
+def test_update_mailbox_null_password_skips(client, db):
+    token = _admin_token(client, db)
+    resp = client.post(
+        "/api/v1/mailboxes",
+        json={"name": "M1", "imap_host": "h", "username": "u@x.com", "password": "secret123"},
+        headers=_h(token),
+    )
+    mailbox_id = resp.json()["id"]
+    # password/smtp_password 传 null 均须跳过（不修改），否则 password 写 None 会触发 NOT NULL 500
+    resp2 = client.put(
+        f"/api/v1/mailboxes/{mailbox_id}",
+        json={"smtp_password": None, "password": None, "name": "M2"},
+        headers=_h(token),
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["name"] == "M2"
+
+
 def test_poll_endpoint_returns_result(client, db):
     token = _admin_token(client, db)
     resp = client.post(
