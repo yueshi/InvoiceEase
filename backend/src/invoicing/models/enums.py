@@ -32,6 +32,8 @@ class ParseSource(str, Enum):
     XML = "XML"
     OFD_XBRL = "OFD_XBRL"
     PDF_XBRL = "PDF_XBRL"
+    PDF_TEXT = "PDF_TEXT"
+    OFD_TEXT = "OFD_TEXT"
     PDF_UNSTRUCTURED = "PDF_UNSTRUCTURED"
 
 
