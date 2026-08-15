@@ -16,8 +16,15 @@ async def lifespan(app: FastAPI):
     from invoicing import scheduler as scheduler_mod
 
     scheduler_mod.setup_scheduler(app)
-    # MCP 挂载模式下宿主负责运行 session_manager（SDK v2 要求）
-    async with mcp.session_manager.run():
+    # MCP 挂载模式下宿主负责运行 session_manager（SDK v2 要求）。
+    # 必须运行本 app 实例自带的 manager：streamable_http_app() 每次调用都会
+    # 重建并覆盖 mcp 单例的 session_manager 引用，若读单例最新值会串到别的
+    # app 实例上（已 run 过的 manager 再次 run 抛 RuntimeError，全量测试可复现）
+    mgr = getattr(app.state, "mcp_session_manager", None)
+    if mgr is not None:
+        async with mgr.run():
+            yield
+    else:
         yield
     sched = getattr(app.state, "scheduler", None)
     if sched is not None:
@@ -33,7 +40,13 @@ def create_app() -> FastAPI:
         return {"status": "ok", "service": "invoicing", "version": "0.1.0"}
 
     app.include_router(api_router)
-    app.mount("/mcp", mcp.streamable_http_app(json_response=True))
+    # SDK v2 的 streamable_http_app 内部路由为 /mcp：挂载到根路径使
+    # http://<host>:8000/mcp 直达（挂载到 /mcp 会因 Mount 要求尾斜杠产生 307，
+    # 而 /mcp/ 又不匹配内部 /mcp 路由，官方客户端（不跟随重定向）将失败）
+    mcp_app = mcp.streamable_http_app(json_response=True)
+    # 立刻取走刚创建的 manager 绑定到本 app（后续 create_app() 会覆盖 mcp 单例引用）
+    app.state.mcp_session_manager = mcp.session_manager
+    app.mount("/", mcp_app)
     return app
 
 

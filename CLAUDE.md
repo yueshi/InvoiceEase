@@ -49,6 +49,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cd backend && uv sync                             # 安装依赖
 cd backend && uv run alembic upgrade head         # 初始化数据库（默认 SQLite，无需外部服务）
 cd backend && uv run pytest ../test -v            # 运行全部测试
+cd backend && uv run pytest ../test/test_mcp_integration.py -v  # MCP 协议级集成测试（需端口可用）
 cd backend && uv run uvicorn invoicing.main:app --reload   # 启动 API（本地模式收取后同步解析/验真）
 cd backend && uv run arq invoicing.workers.queue.WorkerSettings  # 任务 worker（仅 queue_backend=redis 时需要）
 ```
