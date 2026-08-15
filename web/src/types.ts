@@ -20,3 +20,62 @@ export const ROLE_LABELS: Record<Role, string> = {
   finance_manager: "财务主管",
   admin: "系统管理员",
 };
+
+export interface InvoiceOut {
+  id: number;
+  tenant_id: string;
+  user_id: number | null;
+  mailbox_id: number | null;
+  email_subject: string | null;
+  invoice_code: string | null;
+  invoice_number: string | null;
+  issue_date: string | null;
+  amount_without_tax: string | null;
+  tax_amount: string | null;
+  total_amount: string | null;
+  total_amount_cn: string | null;
+  seller_name: string | null;
+  seller_tax_id: string | null;
+  buyer_name: string | null;
+  buyer_tax_id: string | null;
+  invoice_type: string | null;
+  file_type: string;
+  parse_source: string | null;
+  confidence_score: number | null;
+  validation_errors: Record<string, unknown> | null;
+  verify_status: string;
+  verify_detail: Record<string, unknown> | null;
+  verified_at: string | null;
+  duplicate_flag: boolean;
+  duplicate_of_id: number | null;
+  status: string;
+  review_note: string | null;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvoiceListResponse {
+  items: InvoiceOut[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface StatsOverviewOut {
+  pending_review: number;
+  pending_submit: number;
+  today_new: number;
+  month_total: number;
+}
+
+export const INVOICE_STATUS_LABELS: Record<string, string> = {
+  receiving: "收取中", received: "已收取", parsing: "解析中", parsed: "解析完成",
+  verifying: "验真查重中", pending_submit: "待提交", pending_review: "待复核",
+  blocked: "已拦截", rejected: "已驳回", submitted: "已提交", archived: "已归档",
+};
+
+export const VERIFY_STATUS_LABELS: Record<string, string> = {
+  pending: "待验真", passed: "通过", failed: "失败",
+};
