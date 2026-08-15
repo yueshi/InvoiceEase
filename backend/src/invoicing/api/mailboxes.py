@@ -18,13 +18,26 @@ def list_mailboxes(db: Session = Depends(get_db), _: User = Depends(require_role
 
 @router.post("", response_model=MailboxOut)
 def create_mailbox(body: MailboxCreate, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    if body.mailbox_type == "imap":
+        if not (body.imap_host and body.username and body.password):
+            raise HTTPException(422, "IMAP 类型邮箱必须提供 imap_host/username/password")
+        agently_token = None
+        agently_workspace = None
+    elif body.mailbox_type == "agently":
+        agently_token = encrypt_secret(body.agently_token) if body.agently_token else None
+        agently_workspace = body.agently_workspace
+    else:
+        raise HTTPException(422, f"非法邮箱类型: {body.mailbox_type}")
     mb = Mailbox(
         name=body.name,
-        imap_host=body.imap_host,
+        mailbox_type=body.mailbox_type,
+        agently_workspace=agently_workspace,
+        agently_token_encrypted=agently_token,
+        imap_host=body.imap_host if body.mailbox_type == "imap" else None,
         imap_port=body.imap_port,
         use_ssl=body.use_ssl,
-        username=body.username,
-        password_encrypted=encrypt_secret(body.password),
+        username=body.username if body.mailbox_type == "imap" else None,
+        password_encrypted=encrypt_secret(body.password) if body.mailbox_type == "imap" else None,
         folder=body.folder,
         keywords=body.keywords,
         poll_interval_seconds=body.poll_interval_seconds,
@@ -56,6 +69,9 @@ def update_mailbox(
         elif field == "smtp_password":
             if value:
                 mb.smtp_password_encrypted = encrypt_secret(value)
+        elif field == "agently_token":
+            if value:
+                mb.agently_token_encrypted = encrypt_secret(value)
         else:
             setattr(mb, field, value)
     db.commit()

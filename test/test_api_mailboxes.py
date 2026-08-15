@@ -96,3 +96,50 @@ def test_poll_endpoint_returns_result(client, db):
     resp2 = client.post(f"/api/v1/mailboxes/{mailbox_id}/poll", headers=_h(token))
     assert resp2.status_code == 200  # 连接失败也返回结构化结果（errors>=1）
     assert "received" in resp2.json() and "errors" in resp2.json()
+
+
+def test_create_agently_mailbox_without_imap_fields(client, db):
+    token = _admin_token(client, db)
+    resp = client.post(
+        "/api/v1/mailboxes",
+        json={"name": "Agently 邮箱", "mailbox_type": "agently", "agently_workspace": "claude-code"},
+        headers=_h(token),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mailbox_type"] == "agently"
+    assert body["agently_workspace"] == "claude-code"
+    assert "agently_token" not in body and "password" not in body  # 凭据不回显
+
+
+def test_create_imap_missing_fields_422(client, db):
+    token = _admin_token(client, db)
+    resp = client.post(
+        "/api/v1/mailboxes",
+        json={"name": "坏 IMAP", "mailbox_type": "imap", "imap_host": "h"},
+        headers=_h(token),
+    )
+    assert resp.status_code == 422
+
+
+def test_update_agently_token_encrypted(client, db):
+    from invoicing.fetch.crypto import decrypt_secret
+    from invoicing.models import Mailbox
+
+    token = _admin_token(client, db)
+    resp = client.post(
+        "/api/v1/mailboxes",
+        json={"name": "M1", "mailbox_type": "imap", "imap_host": "h", "username": "u@x.com", "password": "secret123"},
+        headers=_h(token),
+    )
+    mailbox_id = resp.json()["id"]
+    resp2 = client.put(
+        f"/api/v1/mailboxes/{mailbox_id}",
+        json={"mailbox_type": "agently", "agently_token": "tok-abc"},
+        headers=_h(token),
+    )
+    assert resp2.status_code == 200
+    mb = db.get(Mailbox, mailbox_id)
+    assert mb.agently_token_encrypted is not None
+    assert mb.agently_token_encrypted != "tok-abc"
+    assert decrypt_secret(mb.agently_token_encrypted) == "tok-abc"

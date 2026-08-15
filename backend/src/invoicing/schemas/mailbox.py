@@ -8,10 +8,12 @@ class MailboxOut(BaseModel):
 
     id: int
     name: str
-    imap_host: str
+    mailbox_type: str
+    agently_workspace: str | None
+    imap_host: str | None
     imap_port: int
     use_ssl: bool
-    username: str
+    username: str | None
     folder: str
     keywords: str
     poll_interval_seconds: int
@@ -27,11 +29,14 @@ class MailboxOut(BaseModel):
 
 class MailboxCreate(BaseModel):
     name: str
-    imap_host: str
+    mailbox_type: str = "imap"
+    agently_workspace: str | None = None
+    agently_token: str | None = None
+    imap_host: str | None = None
     imap_port: int = 993
     use_ssl: bool = True
-    username: str
-    password: str
+    username: str | None = None
+    password: str | None = None
     folder: str = "INBOX"
     keywords: str = "发票,Invoice"
     poll_interval_seconds: int = 300
@@ -43,6 +48,9 @@ class MailboxCreate(BaseModel):
 
 class MailboxUpdate(BaseModel):
     name: str | None = None
+    mailbox_type: str | None = None
+    agently_workspace: str | None = None
+    agently_token: str | None = None
     imap_host: str | None = None
     imap_port: int | None = None
     use_ssl: bool | None = None
