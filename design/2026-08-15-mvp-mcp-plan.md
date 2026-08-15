@@ -26,6 +26,7 @@
 ### Task 1: MCP Server 定义与 3 个 Tool（in-memory 协议级测试）
 
 **Files:**
+- Modify: `backend/pyproject.toml`（Step 0：`uv add mcp` 添加 MCP SDK 依赖，uv.lock 随之更新）
 - Create: `backend/src/invoicing/mcp/__init__.py`
 - Create: `backend/src/invoicing/mcp/tools.py`
 - Create: `backend/src/invoicing/mcp/server.py`
@@ -37,6 +38,11 @@
   - `invoicing.mcp.server.build_server() -> MCPServer`（名为「发票易」的 MCP Server，注册 3 个 tool）
   - `mcp` 模块级单例：`mcp = build_server()`（供 main.py 挂载与 in-memory 测试共用）
   - tool 函数：`fetch_invoices(mailbox_id: int | None = None) -> PollResultOut`、`list_invoices_mcp(status=None, date_from=None, date_to=None, keyword=None, page=1, page_size=20) -> InvoiceListResponse`、`get_invoice_mcp(invoice_id: int) -> InvoiceOut`（各自实现于 tools.py，decorator 注册于 server.py）
+
+- [ ] **Step 0: 添加依赖**
+
+Run: `cd backend && uv add mcp`
+Expected: pyproject.toml 依赖区新增 `mcp>=...`，uv.lock 更新
 
 - [ ] **Step 1: 写失败测试 test/test_mcp_tools.py**
 
@@ -116,7 +122,7 @@ async def test_in_memory_client_lists_tools():
 - [ ] **Step 2: 运行测试，确认失败**
 
 Run: `cd backend && uv run pytest ../test/test_mcp_tools.py -v`
-Expected: FAIL（`invoicing.mcp` 不存在 / 若 mcp SDK 版本过旧无 `mcp.Client`，报 ImportError 亦为预期失败）
+Expected: FAIL（`invoicing.mcp` 模块不存在；若已安装 SDK 无 `mcp.Client` in-memory API，报 ImportError 亦为预期失败）
 
 - [ ] **Step 3: 实现 tools.py 与 server.py**
 
