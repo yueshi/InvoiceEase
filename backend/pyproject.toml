@@ -21,6 +21,7 @@ dependencies = [
     "PyJWT>=2.8",
     "mcp>=2.0.0",
     "httpx>=0.28.1",
+    "openai>=1.60",
 ]
 
 [project.optional-dependencies]

@@ -37,6 +37,8 @@ class ParseSource(str, Enum):
     PDF_OCR = "PDF_OCR"
     OFD_OCR = "OFD_OCR"
     IMAGE_OCR = "IMAGE_OCR"
+    LLM_TEXT = "LLM_TEXT"
+    VLM = "VLM"
     PDF_UNSTRUCTURED = "PDF_UNSTRUCTURED"
 
 

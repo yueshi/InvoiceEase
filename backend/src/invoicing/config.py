@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "admin123"
     mock_verify_rules: str = '{"fail_prefixes": ["0000"], "error_prefixes": ["0001"]}'
+    # LLM 引擎（OpenAI 兼容协议；未启用时解析链路降级为现状行为）
+    llm_enabled: bool = False
+    llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    llm_api_key: str = ""
+    llm_model_text: str = "qwen-plus"
+    llm_model_vlm: str = "qwen-vl-plus"
+    llm_timeout_seconds: float = 25.0
+    llm_max_retries: int = 1
     scheduler_enabled: bool = True
     log_level: str = "INFO"
 
