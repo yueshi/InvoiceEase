@@ -148,6 +148,8 @@ class LlmEngine:
     def extract_from_image(self, image: bytes) -> ParsedInvoice | None:
         if not self.enabled:
             return None
+        if not self._model_vlm:
+            return None  # VLM 模型未配置（llm_model_vlm 为空）→ 图像通道禁用，链末落待复核
         key = sha1(image).hexdigest()
         if key in self._image_cache:
             return self._image_cache[key]

@@ -127,6 +127,14 @@ def test_disabled_engine_returns_none():
     assert engine.extract_from_text("x") is None
 
 
+def test_vlm_disabled_when_model_empty():
+    """VLM 模型未配置（空串）→ 图像通道禁用返回 None，文本通道不受影响。"""
+    engine = _engine(GOOD_JSON)
+    engine._model_vlm = ""
+    assert engine.extract_from_image(b"\x89PNG fake") is None
+    assert engine.extract_from_text("发票文本") is not None  # 文本通道照常
+
+
 def test_extract_from_image_jpeg_mime_sniffed():
     engine = _engine(GOOD_JSON)
     assert engine.extract_from_image(b"\xff\xd8\xff\xe0 fake jpeg") is not None
