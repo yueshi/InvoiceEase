@@ -183,3 +183,58 @@ def company_info_delete(id: int) -> dict:
         )
         db.commit()
         return {"ok": True}
+
+
+def _http_to_value_error(fn, *args, **kwargs):
+    """REST service 层抛 HTTPException；MCP 工具语义转 ValueError（与既有工具约定一致）。"""
+    from fastapi import HTTPException
+
+    try:
+        return fn(*args, **kwargs)
+    except HTTPException as e:
+        raise ValueError(str(e.detail)) from e
+
+
+def invoice_update(
+    invoice_id: int,
+    invoice_number: str | None = None,
+    issue_date: str | None = None,
+    amount_without_tax: str | None = None,
+    tax_amount: str | None = None,
+    total_amount: str | None = None,
+    total_amount_cn: str | None = None,
+    seller_name: str | None = None,
+    seller_tax_id: str | None = None,
+    buyer_name: str | None = None,
+    buyer_tax_id: str | None = None,
+    invoice_type: str | None = None,
+    review_note: str | None = None,
+) -> InvoiceOut:
+    """更新发票业务字段（人工复核纠正）；仅传入非 None 字段生效，状态变更走 review/verify。"""
+    from invoicing.schemas.invoice import InvoiceUpdate
+
+    body = InvoiceUpdate(
+        invoice_number=invoice_number,
+        issue_date=issue_date,
+        amount_without_tax=amount_without_tax,
+        tax_amount=tax_amount,
+        total_amount=total_amount,
+        total_amount_cn=total_amount_cn,
+        seller_name=seller_name,
+        seller_tax_id=seller_tax_id,
+        buyer_name=buyer_name,
+        buyer_tax_id=buyer_tax_id,
+        invoice_type=invoice_type,
+        review_note=review_note,
+    )
+    with SessionLocal() as db:
+        inv = _http_to_value_error(
+            services.update_invoice, db, None, invoice_id, body.model_dump(exclude_none=True)
+        )
+        return InvoiceOut.model_validate(inv, from_attributes=True)
+
+
+def invoice_delete(invoice_id: int) -> dict:
+    """删除发票（审计全字段快照 + 原件清理）；不存在抛 ValueError。"""
+    with SessionLocal() as db:
+        return _http_to_value_error(services.delete_invoice, db, None, invoice_id)

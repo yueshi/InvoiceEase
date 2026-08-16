@@ -69,6 +69,32 @@ def build_server() -> MCPServer:
     def company_info_delete(id: int) -> dict:
         return mcp_tools.company_info_delete(id)
 
+    @server.tool(description="更新发票业务字段（人工复核纠正用；仅传入字段生效，状态变更走 review/verify）。")
+    def invoice_update(
+        invoice_id: int,
+        invoice_number: str | None = None,
+        issue_date: str | None = None,
+        amount_without_tax: str | None = None,
+        tax_amount: str | None = None,
+        total_amount: str | None = None,
+        total_amount_cn: str | None = None,
+        seller_name: str | None = None,
+        seller_tax_id: str | None = None,
+        buyer_name: str | None = None,
+        buyer_tax_id: str | None = None,
+        invoice_type: str | None = None,
+        review_note: str | None = None,
+    ) -> InvoiceOut:
+        return mcp_tools.invoice_update(
+            invoice_id, invoice_number, issue_date, amount_without_tax, tax_amount,
+            total_amount, total_amount_cn, seller_name, seller_tax_id, buyer_name,
+            buyer_tax_id, invoice_type, review_note,
+        )
+
+    @server.tool(description="删除发票（审计全字段快照 + 原件清理）。")
+    def invoice_delete(invoice_id: int) -> dict:
+        return mcp_tools.invoice_delete(invoice_id)
+
     return server
 
 

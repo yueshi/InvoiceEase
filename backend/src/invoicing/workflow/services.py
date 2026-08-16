@@ -115,8 +115,10 @@ _SNAPSHOT_COLS = (
 )
 
 
-def update_invoice(db: Session, current_user: User, invoice_id: int, data: dict) -> Invoice:
-    """更新发票业务字段（人工复核纠正）；状态变更走 review/verify 专用端点。"""
+def update_invoice(db: Session, current_user: User | None, invoice_id: int, data: dict) -> Invoice:
+    """更新发票业务字段（人工复核纠正）；状态变更走 review/verify 专用端点。
+
+    current_user 可为 None（MCP 通道无用户上下文，审计 user_id 留空）。"""
     from fastapi import HTTPException
 
     inv = db.get(Invoice, invoice_id)
@@ -132,14 +134,15 @@ def update_invoice(db: Session, current_user: User, invoice_id: int, data: dict)
             changed[field] = str(value)
     if changed:
         write_audit(
-            db, action="INVOICE_UPDATE", user_id=current_user.id, invoice_id=inv.id, channel="web",
+            db, action="INVOICE_UPDATE", user_id=current_user.id if current_user else None,
+            invoice_id=inv.id, channel="web" if current_user else "mcp",
             detail={"changed": changed},
         )
     db.commit()
     return inv
 
 
-def delete_invoice(db: Session, current_user: User, invoice_id: int) -> dict:
+def delete_invoice(db: Session, current_user: User | None, invoice_id: int) -> dict:
     """删除发票：先写全字段快照审计（合规留痕），再删原件与记录。"""
     import logging
 
@@ -151,7 +154,8 @@ def delete_invoice(db: Session, current_user: User, invoice_id: int) -> dict:
         raise HTTPException(404, "发票不存在")
     snapshot = {col: str(getattr(inv, col)) for col in _SNAPSHOT_COLS}
     write_audit(
-        db, action="INVOICE_DELETE", user_id=current_user.id, invoice_id=inv.id, channel="web",
+        db, action="INVOICE_DELETE", user_id=current_user.id if current_user else None,
+        invoice_id=inv.id, channel="web" if current_user else "mcp",
         detail={"snapshot": snapshot},
     )
     storage = get_storage()
