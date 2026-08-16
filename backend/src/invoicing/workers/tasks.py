@@ -58,15 +58,30 @@ def _parse_invoice(invoice_id: int) -> None:
         outcome = parse_file(inv.file_type, data)
 
         if outcome.parsed is not None and not outcome.errors:
+            # 纠错字典 + 购买方归属校验：仅文本/OCR 来源（confidence < 1.0），结构化来源原件数据优先
+            extra = []
+            if outcome.parsed.confidence_score is not None and outcome.parsed.confidence_score < 1.0:
+                from invoicing.parse.company_dict import enrich_parsed
+
+                extra = enrich_parsed(outcome.parsed, db)
             parsed_code = outcome.parsed.invoice_code
             parsed_number = outcome.parsed.invoice_number
             _apply_parsed_fields(inv, outcome.parsed)
             _save_xml_original(storage, inv, outcome.xml_data)
-            transition(inv, InvoiceStatus.parsed.value)
-            write_audit(
-                db, action="PARSE", invoice_id=inv.id, channel="system",
-                detail={"source": outcome.source, "confidence": outcome.parsed.confidence_score},
-            )
+            if extra:
+                # BUYER_MISMATCH 从严：购买方与预设本司不匹配 → 待复核
+                inv.validation_errors = [{"code": e.code, "message": e.message} for e in extra]
+                transition(inv, InvoiceStatus.pending_review.value)
+                write_audit(
+                    db, action="PARSE", invoice_id=inv.id, channel="system",
+                    detail={"source": outcome.source, "errors": inv.validation_errors},
+                )
+            else:
+                transition(inv, InvoiceStatus.parsed.value)
+                write_audit(
+                    db, action="PARSE", invoice_id=inv.id, channel="system",
+                    detail={"source": outcome.source, "confidence": outcome.parsed.confidence_score},
+                )
         else:
             # 结构化数据不可得 → 待复核（Phase 2 OCR 接入后此路径升级）
             inv.parse_source = outcome.source
@@ -78,7 +93,7 @@ def _parse_invoice(invoice_id: int) -> None:
                 detail={"source": outcome.source, "errors": inv.validation_errors},
             )
         db.commit()
-        if outcome.parsed is not None and not outcome.errors:
+        if outcome.parsed is not None and not outcome.errors and not extra:
             enqueue_verify_sync(inv.id)
     except IntegrityError:
         # 解析出的「发票代码+号码」与库中已有发票冲突（唯一索引兜底并发）→ 查重拦截
