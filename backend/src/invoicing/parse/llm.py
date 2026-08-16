@@ -5,6 +5,8 @@ openai SDK 对接任意 OpenAI-compatible endpoint（DashScope 兼容模式 / vL
 策略链自动降级为现状行为。
 """
 import json
+import logging
+import time
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from hashlib import sha1
@@ -13,6 +15,8 @@ from typing import Callable
 from invoicing.config import settings
 from invoicing.models.enums import ParseSource
 from invoicing.parse.schemas import ParsedInvoice
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "你是资深财务审核员，负责从发票 OCR 文本中提取结构化字段。规则：\n"
@@ -170,6 +174,7 @@ class LlmEngine:
         return parsed
 
     def _chat(self, model: str, messages: list[dict]) -> str | None:
+        t0 = time.perf_counter()
         try:
             client = self._get_client()
             resp = client.chat.completions.create(
@@ -178,8 +183,12 @@ class LlmEngine:
                 response_format={"type": "json_object"},
                 temperature=0,
             )
+            # 成本观测：每次调用记录通道模型与耗时
+            logger.info("LLM 调用成功 model=%s 耗时=%.1fs", model, time.perf_counter() - t0)
             return resp.choices[0].message.content
         except Exception:
+            # 异常信号：保留返回 None 的降级行为，同时落 ERROR 日志便于运维定位
+            logger.error("LLM 调用失败 model=%s", model, exc_info=True)
             return None
 
     def _parse_response(self, content: str | None, source: ParseSource, confidence: float) -> ParsedInvoice | None:

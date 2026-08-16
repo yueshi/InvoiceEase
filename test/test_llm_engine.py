@@ -1,4 +1,5 @@
 """LLM 引擎双通道测试（fake client 注入，不真调 API）。"""
+import logging
 from datetime import date
 from decimal import Decimal
 
@@ -137,3 +138,22 @@ def test_non_finite_decimal_rejected():
     bad = GOOD_JSON.replace('"amount_without_tax": "65.48"', '"amount_without_tax": "NaN"')
     engine = _engine(bad)
     assert engine.extract_from_text("x") is None
+
+
+def test_chat_failure_logs_error(caplog):
+    def boom(**kwargs):
+        raise RuntimeError("api down")
+
+    class BoomClient:
+        class chat:
+            @property
+            def completions(self):
+                return type("C", (), {"create": staticmethod(boom)})()
+
+    engine = LlmEngine(
+        base_url="http://fake", api_key="k", model_text="m1", model_vlm="m2",
+        timeout=5.0, max_retries=0, enabled=True, client_factory=lambda: BoomClient(),
+    )
+    with caplog.at_level(logging.ERROR):
+        assert engine.extract_from_text("x") is None
+    assert "LLM 调用失败" in caplog.text
