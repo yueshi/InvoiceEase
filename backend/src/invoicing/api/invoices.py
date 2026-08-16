@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from invoicing.db import get_db
 from invoicing.models import Role, User
-from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut, ReviewRequest
+from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut, InvoiceUpdate, ReviewRequest
 from invoicing.security import get_current_user, require_role
 from invoicing.storage import get_storage
 from invoicing.workflow import services
@@ -85,3 +85,22 @@ def re_verify(
     user: User = Depends(require_role(Role.finance_staff.value, Role.finance_manager.value, Role.admin.value)),
 ):
     return services.re_verify_invoice(db, user, invoice_id)
+
+
+@router.put("/{invoice_id}", response_model=InvoiceOut)
+def update_invoice(
+    invoice_id: int,
+    body: InvoiceUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(Role.finance_staff.value, Role.finance_manager.value, Role.admin.value)),
+):
+    return services.update_invoice(db, user, invoice_id, body.model_dump(exclude_unset=True))
+
+
+@router.delete("/{invoice_id}")
+def delete_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(Role.finance_manager.value, Role.admin.value)),
+):
+    return services.delete_invoice(db, user, invoice_id)

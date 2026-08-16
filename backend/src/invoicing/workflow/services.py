@@ -6,6 +6,7 @@ from invoicing.audit import write_audit
 from invoicing.models import Invoice, InvoiceStatus, Role, User
 from invoicing.models.fields import utcnow
 from invoicing.schemas.invoice import InvoiceListResponse
+from invoicing.storage import get_storage
 from invoicing.workflow.state import transition
 from invoicing.workers.queue import enqueue_verify_sync
 
@@ -104,3 +105,63 @@ def re_verify_invoice(db: Session, current_user: User, invoice_id: int) -> Invoi
     # 本地队列模式内联完成验真：刷新会话后再返回，响应反映验真后状态（redis 模式为尽力读取当前值）
     db.refresh(inv)
     return inv
+
+
+_SNAPSHOT_COLS = (
+    "invoice_code", "invoice_number", "issue_date", "amount_without_tax", "tax_amount",
+    "total_amount", "total_amount_cn", "seller_name", "seller_tax_id", "buyer_name",
+    "buyer_tax_id", "invoice_type", "file_url", "file_type", "xml_url", "parse_source",
+    "confidence_score", "verify_status", "status", "email_message_id",
+)
+
+
+def update_invoice(db: Session, current_user: User, invoice_id: int, data: dict) -> Invoice:
+    """更新发票业务字段（人工复核纠正）；状态变更走 review/verify 专用端点。"""
+    from fastapi import HTTPException
+
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        raise HTTPException(404, "发票不存在")
+    changed: dict = {}
+    for field, value in data.items():
+        if value is None:
+            continue  # 显式 null 不落库（str 清空用空串表达，防 NOT NULL 字段崩）
+        old = getattr(inv, field)
+        if old != value:
+            setattr(inv, field, value)
+            changed[field] = str(value)
+    if changed:
+        write_audit(
+            db, action="INVOICE_UPDATE", user_id=current_user.id, invoice_id=inv.id, channel="web",
+            detail={"changed": changed},
+        )
+    db.commit()
+    return inv
+
+
+def delete_invoice(db: Session, current_user: User, invoice_id: int) -> dict:
+    """删除发票：先写全字段快照审计（合规留痕），再删原件与记录。"""
+    import logging
+
+    from fastapi import HTTPException
+
+    logger = logging.getLogger(__name__)
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        raise HTTPException(404, "发票不存在")
+    snapshot = {col: str(getattr(inv, col)) for col in _SNAPSHOT_COLS}
+    write_audit(
+        db, action="INVOICE_DELETE", user_id=current_user.id, invoice_id=inv.id, channel="web",
+        detail={"snapshot": snapshot},
+    )
+    storage = get_storage()
+    for key in (inv.file_url, inv.xml_url):
+        if not key:
+            continue
+        try:
+            storage.delete(key)
+        except Exception:  # 原件删除失败不阻塞记录删除（审计已留痕，文件残留可清理）
+            logger.warning("原件删除失败 invoice_id=%s key=%s", invoice_id, key, exc_info=True)
+    db.delete(inv)
+    db.commit()
+    return {"ok": True}

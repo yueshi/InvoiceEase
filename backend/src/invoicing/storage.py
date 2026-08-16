@@ -13,6 +13,9 @@ class ObjectStorage:
     def get(self, key: str) -> bytes:  # pragma: no cover
         raise NotImplementedError
 
+    def delete(self, key: str) -> None:  # pragma: no cover
+        raise NotImplementedError
+
 
 def _safe_path(key: str) -> str:
     """规范化 key：拒绝绝对路径与 .. 越界，保留子目录结构。"""
@@ -40,6 +43,14 @@ class LocalFileStorage(ObjectStorage):
         if not target.is_file():
             raise FileNotFoundError(f"对象不存在: {key}")
         return target.read_bytes()
+
+    def delete(self, key: str) -> None:
+        safe = _safe_path(key)
+        target = self.root / safe
+        try:
+            target.unlink()
+        except FileNotFoundError:
+            pass  # 幂等：对象已不存在视为删除成功
 
 
 class S3Storage(ObjectStorage):
@@ -70,6 +81,9 @@ class S3Storage(ObjectStorage):
 
     def get(self, key: str) -> bytes:
         return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+
+    def delete(self, key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=key)
 
     def presigned_url(self, key: str, expires: int = 3600) -> str:
         return self.client.generate_presigned_url(

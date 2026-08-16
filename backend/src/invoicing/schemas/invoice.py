@@ -54,3 +54,24 @@ class InvoiceListResponse(BaseModel):
 class ReviewRequest(BaseModel):
     action: Literal["approve", "reject"]
     note: str | None = None
+
+
+class InvoiceUpdate(BaseModel):
+    """发票业务字段更新（人工复核纠正用）；状态变更走 review/verify 专用端点。
+
+    全字段可选；显式 null 表示清空（str 字段清为 ""，其余字段跳过）。
+    """
+
+    invoice_code: str | None = None
+    invoice_number: str | None = None
+    issue_date: date | None = None
+    amount_without_tax: Decimal | None = None
+    tax_amount: Decimal | None = None
+    total_amount: Decimal | None = None
+    total_amount_cn: str | None = None
+    seller_name: str | None = None
+    seller_tax_id: str | None = None
+    buyer_name: str | None = None
+    buyer_tax_id: str | None = None
+    invoice_type: str | None = None
+    review_note: str | None = None

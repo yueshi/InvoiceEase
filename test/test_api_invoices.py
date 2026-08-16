@@ -170,3 +170,62 @@ def test_list_invoices_with_list_validation_errors(client, db):
     assert resp.status_code == 200
     item = resp.json()["items"][0]
     assert item["validation_errors"] == [{"code": "XML_PARSE_ERROR", "message": "不是数电票 XML"}]
+
+
+def test_put_invoice_updates_fields_and_audits(client, db):
+    from invoicing.models import AuditLog
+
+    _seed(db, "caiwu2", Role.finance_staff.value)
+    inv = _invoice(db)
+    token = _login(client, "caiwu2")
+    resp = client.put(
+        f"/api/v1/invoices/{inv.id}",
+        json={"total_amount": "999.99", "seller_name": "更正后的销售方", "review_note": "复核修正"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total_amount"] == "999.99"
+    assert resp.json()["seller_name"] == "更正后的销售方"
+    db.flush()
+    logs = db.query(AuditLog).filter(AuditLog.action == "INVOICE_UPDATE").all()
+    assert len(logs) == 1
+    assert logs[0].invoice_id == inv.id
+    assert "total_amount" in logs[0].detail.get("changed", {})
+
+
+def test_put_invoice_forbidden_for_employee(client, db):
+    _seed(db, "yuangong", Role.employee.value)
+    inv = _invoice(db)
+    token = _login(client, "yuangong")
+    resp = client.put(
+        f"/api/v1/invoices/{inv.id}",
+        json={"review_note": "x"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 403
+
+
+def test_delete_invoice_snapshots_audit_and_removes(client, db):
+    from invoicing.models import AuditLog
+
+    _seed(db, "zhuguan", Role.finance_manager.value)
+    inv = _invoice(db)
+    token = _login(client, "zhuguan")
+    resp = client.delete(f"/api/v1/invoices/{inv.id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    db.flush()
+    assert db.get(Invoice, inv.id) is None
+    logs = db.query(AuditLog).filter(AuditLog.action == "INVOICE_DELETE").all()
+    assert len(logs) == 1
+    assert logs[0].detail["snapshot"]["invoice_number"] == "24312000000012345678"
+
+
+def test_delete_invoice_forbidden_for_finance_staff(client, db):
+    _seed(db, "caiwu3", Role.finance_staff.value)
+    inv = _invoice(db)
+    token = _login(client, "caiwu3")
+    resp = client.delete(f"/api/v1/invoices/{inv.id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+    db.flush()
+    assert db.get(Invoice, inv.id) is not None
