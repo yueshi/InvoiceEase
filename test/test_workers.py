@@ -236,3 +236,48 @@ def test_parse_invoice_task_duplicate_number_blocks(db, storage):
     db.refresh(second)
     assert second.status == "blocked"
     assert second.duplicate_of_id == first.id
+
+
+def test_parse_invoice_validation_error_keeps_fields(db, storage):
+    """回归：校验矛盾票（字段齐全但金额矛盾）→ 待复核且已提取字段入库，复核人只改单字段。"""
+    import io
+    import zipfile
+
+    from invoicing.workers.tasks import _parse_invoice
+
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<ofd:Page xmlns:ofd="http://www.ofdspec.org/2016">
+  <ofd:Content>
+    <ofd:Layer>
+      <ofd:TextObject>
+        <ofd:TextCode X="10" Y="100">电子发票（普通发票） 发票号码：26617000000309516967</ofd:TextCode>
+        <ofd:TextCode X="10" Y="120">开票日期：2026年07月09日</ofd:TextCode>
+        <ofd:TextCode X="10" Y="140">名称：测试采购有限公司</ofd:TextCode>
+        <ofd:TextCode X="10" Y="160">统一社会信用代码/纳税人识别号：91310000MA1FL0B000</ofd:TextCode>
+        <ofd:TextCode X="10" Y="180">名称：示例出行科技有限公司</ofd:TextCode>
+        <ofd:TextCode X="10" Y="200">统一社会信用代码/纳税人识别号：91310000MA1FL0A000</ofd:TextCode>
+        <ofd:TextCode X="10" Y="220">价税合计（大写）壹佰圆整</ofd:TextCode>
+        <ofd:TextCode X="10" Y="240">合    计 ¥65.48 ¥1.96</ofd:TextCode>
+      </ofd:TextObject>
+    </ofd:Layer>
+  </ofd:Content>
+</ofd:Page>
+"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("OFD.xml", "<ofd:OFD xmlns:ofd='http://www.ofdspec.org/2016'/>")
+        zf.writestr("Doc_0/Pages/Page_0/Content.xml", content)
+    key = "test-worker/conflict.ofd"
+    storage.put(key, buf.getvalue(), "application/ofd")
+    inv = Invoice(file_url=key, file_type="OFD", status="parsing", invoice_number="26617000000309516967")
+    db.add(inv)
+    db.commit()
+
+    _parse_invoice(inv.id)
+    db.refresh(inv)
+    assert inv.status == "pending_review"  # 金额矛盾 → 待复核
+    # 已提取字段已入库：复核人只需改金额，不必从原件重录
+    assert inv.invoice_number == "26617000000309516967"
+    assert inv.total_amount is not None
+    assert inv.seller_name == "示例出行科技有限公司"
+    assert inv.buyer_name == "测试采购有限公司"

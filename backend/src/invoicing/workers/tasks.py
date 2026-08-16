@@ -82,9 +82,15 @@ def _parse_invoice(invoice_id: int) -> None:
                     detail={"source": outcome.source, "confidence": outcome.parsed.confidence_score},
                 )
         else:
-            # 结构化数据不可得 → 待复核（Phase 2 OCR 接入后此路径升级）
+            # 解析失败或校验错误 → 待复核；parsed 存在（如金额矛盾票）时先把
+            # 已提取字段落库，人工复核只改单字段而非从原件重录
+            if outcome.parsed is not None:
+                _apply_parsed_fields(inv, outcome.parsed)
             inv.parse_source = outcome.source
-            inv.confidence_score = 0.0
+            if outcome.parsed is not None:
+                inv.confidence_score = outcome.parsed.confidence_score
+            else:
+                inv.confidence_score = 0.0
             inv.validation_errors = [e.model_dump() for e in outcome.errors]
             transition(inv, InvoiceStatus.pending_review.value)
             write_audit(
