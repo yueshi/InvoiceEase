@@ -36,8 +36,15 @@ def test_ingest_image_with_ocr_full_pipeline(tmp_path, monkeypatch):
 
     class FakeProvider:
         def ocr_image(self, image_bytes):
+            # 完整字段文本：质量门（GATE_FIELDS 缺 ≥2 → 交 LLM/待复核）需放行才能走到验真
             return OcrText(
-                text="发票号码：26617000000309516967\n开票日期：2026年07月09日\n合 计 ¥65.48 ¥1.96\n",
+                text="电子发票（普通发票） 发票号码：26617000000309516967\n"
+                     "开票日期：2026年07月09日\n"
+                     "名称：测试采购有限公司\n"
+                     "统一社会信用代码/纳税人识别号：91310000MA1FL0B000\n"
+                     "名称：示例出行科技有限公司\n"
+                     "统一社会信用代码/纳税人识别号：91310000MA1FL0A000\n"
+                     "合    计 ¥65.48 ¥1.96\n",
                 confidence=0.91,
             )
 

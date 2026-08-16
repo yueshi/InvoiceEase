@@ -6,6 +6,7 @@
 from typing import Callable
 
 from invoicing.models.enums import FileType, ParseSource
+from invoicing.parse.llm import get_llm_engine  # 模块级绑定：策略统一引用此处（测试注入点）
 from invoicing.parse.schemas import ParseError, ParseOutcome, ParsedInvoice
 
 
@@ -25,6 +26,41 @@ class ParseContext:
 
 Strategy = Callable[[ParseContext], ParseOutcome | None]
 
+GATE_FIELDS = ("buyer_name", "buyer_tax_id", "seller_name", "seller_tax_id", "total_amount")
+
+
+def _needs_llm(parsed: ParsedInvoice | None, ocr_confidence: float | None) -> bool:
+    """质量门（设计 §3.1）：① 文本规则失败 ② 5 关键字段缺 ≥2 ③ OCR 置信度 < 0.8。
+
+    注意：validate() 的金额矛盾类 errors 不触发 LLM——矛盾票 LLM 重提一般同样矛盾，
+    避免无效调用，直接走待复核。
+    """
+    if parsed is None:
+        return True
+    missing = sum(1 for f in GATE_FIELDS if not getattr(parsed, f))
+    if missing >= 2:
+        return True
+    if ocr_confidence is not None and ocr_confidence < 0.8:
+        return True
+    return False
+
+
+def _llm_text_outcome(ctx: ParseContext) -> ParseOutcome | None:
+    """LLM 文本通道（设计 §3.1）：engine 缺失/失败 → None（继续链）。"""
+    from invoicing.parse.validation import validate
+
+    engine = get_llm_engine()
+    if engine is None:
+        return None
+    text = ctx.ocr_text.text if ctx.ocr_text is not None else (ctx.text or "")
+    if not text:
+        return None
+    parsed = engine.extract_from_text(text)
+    if parsed is None:
+        return None
+    errors = validate(parsed)
+    return ParseOutcome(source=ParseSource.LLM_TEXT.value, parsed=parsed, errors=errors)
+
 
 def _parse_structured(xml: bytes, source: ParseSource, xml_data: bytes) -> ParseOutcome:
     from invoicing.parse.validation import validate
@@ -42,33 +78,24 @@ def _parse_structured(xml: bytes, source: ParseSource, xml_data: bytes) -> Parse
     return ParseOutcome(source=source.value, parsed=parsed, errors=errors, xml_data=xml_data)
 
 
-def _parse_text_outcome(text: str, source: ParseSource) -> ParseOutcome | None:
+def _text_strategy(ctx: ParseContext, extractor, source: ParseSource) -> ParseOutcome | None:
+    """文本层策略：文本规则提取 → 质量门不通过则 LLM 文本通道兜底。"""
+    if ctx.text is None:
+        ctx.text = extractor(ctx.data)
+    if not ctx.text:
+        return None
+    parsed = None
     from invoicing.parse.text_rules import extract_fields_from_text
     from invoicing.parse.validation import validate
 
-    parsed = extract_fields_from_text(text)
-    if parsed is None:
-        return None
-    parsed.parse_source = source.value
-    errors = validate(parsed)
-    return ParseOutcome(source=source.value, parsed=parsed, errors=errors)
-
-
-def _parse_ocr_outcome(image_bytes: bytes, source: ParseSource) -> ParseOutcome | None:
-    from invoicing.parse.ocr import get_ocr_provider
-    from invoicing.parse.text_rules import extract_fields_from_text
-    from invoicing.parse.validation import validate
-
-    provider = get_ocr_provider()
-    if provider is None:
-        return None
-    ocr_text = provider.ocr_image(image_bytes)
-    if ocr_text is None:
-        return None
-    parsed = extract_fields_from_text(ocr_text.text, confidence=ocr_text.confidence)
-    if parsed is None:
-        return None
-    parsed.parse_source = source.value
+    parsed = extract_fields_from_text(ctx.text)
+    if parsed is not None:
+        parsed.parse_source = source.value
+    if _needs_llm(parsed, None):
+        llm_outcome = _llm_text_outcome(ctx)
+        if llm_outcome is not None:
+            return llm_outcome
+        return None  # LLM 也失败 → 继续链（VLM/待复核），不返回半成品
     errors = validate(parsed)
     return ParseOutcome(source=source.value, parsed=parsed, errors=errors)
 
@@ -101,25 +128,42 @@ def strategy_xbrl_pdf(ctx: ParseContext) -> ParseOutcome | None:
 def strategy_text_ofd(ctx: ParseContext) -> ParseOutcome | None:
     from invoicing.parse.ofd_text import extract_text_from_ofd
 
-    if ctx.text is None:
-        ctx.text = extract_text_from_ofd(ctx.data)
-    if not ctx.text:
-        return None
-    return _parse_text_outcome(ctx.text, ParseSource.OFD_TEXT)
+    return _text_strategy(ctx, extract_text_from_ofd, ParseSource.OFD_TEXT)
 
 
 def strategy_text_pdf(ctx: ParseContext) -> ParseOutcome | None:
     from invoicing.parse.pdf_text_parser import extract_pdf_text
 
-    if ctx.text is None:
-        ctx.text = extract_pdf_text(ctx.data)
-    if not ctx.text:
+    return _text_strategy(ctx, extract_pdf_text, ParseSource.PDF_TEXT)
+
+
+def _ocr_strategy(ctx: ParseContext, image: bytes, source: ParseSource) -> ParseOutcome | None:
+    """OCR 策略：OCR → 文本规则 → 质量门不通过则 LLM 文本通道兜底。"""
+    from invoicing.parse.ocr import get_ocr_provider
+    from invoicing.parse.text_rules import extract_fields_from_text
+    from invoicing.parse.validation import validate
+
+    provider = get_ocr_provider()
+    if provider is None:
         return None
-    return _parse_text_outcome(ctx.text, ParseSource.PDF_TEXT)
+    ocr_text = provider.ocr_image(image)
+    if ocr_text is None:
+        return None
+    ctx.ocr_text = ocr_text
+    parsed = extract_fields_from_text(ocr_text.text, confidence=ocr_text.confidence)
+    if parsed is not None:
+        parsed.parse_source = source.value
+    if _needs_llm(parsed, ocr_text.confidence):
+        llm_outcome = _llm_text_outcome(ctx)
+        if llm_outcome is not None:
+            return llm_outcome
+        return None  # LLM 也失败 → 继续链
+    errors = validate(parsed)
+    return ParseOutcome(source=source.value, parsed=parsed, errors=errors)
 
 
 def strategy_ocr_image(ctx: ParseContext) -> ParseOutcome | None:
-    return _parse_ocr_outcome(ctx.data, ParseSource.IMAGE_OCR)
+    return _ocr_strategy(ctx, ctx.data, ParseSource.IMAGE_OCR)
 
 
 def strategy_ocr_pdf(ctx: ParseContext) -> ParseOutcome | None:
@@ -129,7 +173,7 @@ def strategy_ocr_pdf(ctx: ParseContext) -> ParseOutcome | None:
         ctx.image = render_pdf_first_page(ctx.data)
     if ctx.image is None:
         return None
-    return _parse_ocr_outcome(ctx.image, ParseSource.PDF_OCR)
+    return _ocr_strategy(ctx, ctx.image, ParseSource.PDF_OCR)
 
 
 def strategy_ocr_ofd(ctx: ParseContext) -> ParseOutcome | None:
@@ -139,22 +183,37 @@ def strategy_ocr_ofd(ctx: ParseContext) -> ParseOutcome | None:
 
     img = render_ofd_page_to_png(ctx.data)
     if img:
-        outcome = _parse_ocr_outcome(img, ParseSource.OFD_OCR)
+        ctx.image = img
+        outcome = _ocr_strategy(ctx, img, ParseSource.OFD_OCR)
         if outcome is not None:
-            ctx.image = img
             return outcome
     img = extract_ofd_page_image(ctx.data)
     if img:
         ctx.image = img
-        return _parse_ocr_outcome(img, ParseSource.OFD_OCR)
+        return _ocr_strategy(ctx, img, ParseSource.OFD_OCR)
     return None
+
+
+def strategy_llm_vlm(ctx: ParseContext) -> ParseOutcome | None:
+    """VLM 兜底（设计 §3.2）：直接看图提取；engine 缺失/失败 → None。"""
+    from invoicing.parse.validation import validate
+
+    engine = get_llm_engine()
+    if engine is None:
+        return None
+    image = ctx.image if ctx.image is not None else ctx.data  # IMAGE 文件本身即图
+    parsed = engine.extract_from_image(image)
+    if parsed is None:
+        return None
+    errors = validate(parsed)
+    return ParseOutcome(source=ParseSource.VLM.value, parsed=parsed, errors=errors)
 
 
 CHAINS: dict[str, list[Strategy]] = {
     FileType.XML.value: [strategy_structured_xml],
-    FileType.OFD.value: [strategy_xbrl_ofd, strategy_text_ofd, strategy_ocr_ofd],
-    FileType.PDF.value: [strategy_xbrl_pdf, strategy_text_pdf, strategy_ocr_pdf],
-    FileType.IMAGE.value: [strategy_ocr_image],
+    FileType.OFD.value: [strategy_xbrl_ofd, strategy_text_ofd, strategy_ocr_ofd, strategy_llm_vlm],
+    FileType.PDF.value: [strategy_xbrl_pdf, strategy_text_pdf, strategy_ocr_pdf, strategy_llm_vlm],
+    FileType.IMAGE.value: [strategy_ocr_image, strategy_llm_vlm],
 }
 
 
