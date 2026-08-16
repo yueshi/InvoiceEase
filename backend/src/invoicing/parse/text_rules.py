@@ -21,14 +21,19 @@ _LABEL_DATE_CN = re.compile(r"开票日期\s*[:：]?\s*(\d{4})\s*年\s*(\d{1,2})
 _LABEL_DATE_ISO = re.compile(r"开票日期\s*[:：]?\s*(\d{4}-\d{1,2}-\d{1,2})")
 _LABEL_NAME = re.compile(r"名称\s*[:：]\s*([^\s:：，,]+)")
 _LABEL_TAX_ID = re.compile(r"统一社会信用代码/纳税人识别号\s*[:：]\s*([0-9A-Z]{18})")
-_LABEL_TOTAL = re.compile(r"合\s*计.*?¥\s*([\d.]+)\s*¥\s*([\d.]+)", re.S)
+# ¥ 与数字间、两个 ¥ 之间仅限水平空白（不跨行）：防止无开票人时
+# 「¥1270.00\n¥1198.11」把价税合计与明细不含税错配成一对
+_LABEL_TOTAL = re.compile(r"合\s*计.*?¥[ \t]*([\d.]+)[ \t]*¥[ \t]*([\d.]+)", re.S)
 _LABEL_CN = re.compile(r"价税合计\s*[（(]大写[)）]\s*([零壹贰叁肆伍陆柒捌玖拾佰仟万亿元圆整角分]+)")
 _AMOUNTS = re.compile(r"\d+\.\d{2}")
 _GENERIC_NO = re.compile(r"(\d{20,})")  # 20 位票号；粘连场景（票号+日期）取前 20 位
 _GENERIC_DATE_CN = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
 _GENERIC_TAX_IDS = re.compile(r"[0-9A-Z]{18}")
 # 非贪婪到第一个「公司」结尾；(?<![0-9]) 防「09日澜铮鸿欣…」把日期尾字吞进名称
-_COMPANY = re.compile(r"(?<![0-9])[\u4e00-\u9fa5（()）·]{2,30}?公司")
+# 后缀分支仅允许「分公司/支公司/子公司/分理处/营业部」类特定词——防误吞两个公司名
+_COMPANY = re.compile(
+    r"(?<![0-9])[\u4e00-\u9fa5（()）·]{2,30}?公司(?:[\u4e00-\u9fa5]{1,8}?(?:分公司|支公司|子公司|分理处|营业部))?"
+)
 
 
 def _to_date(m) -> str | None:
@@ -42,9 +47,10 @@ def _to_date(m) -> str | None:
 
 def extract_fields_from_text(text: str, confidence: float = TEXT_CONFIDENCE) -> ParsedInvoice | None:
     text = text.replace("　", " ").replace("￥", "¥")  # 全角空格与全角人民币符号归一
-    # OCR 数字内空格归一（"65. 48" → "65.48"）
-    text = re.sub(r"(?<=\d)\s+(?=\d)", "", text)
-    text = re.sub(r"(?<=\d)\s+(?=\.)|(?<=\.)\s+(?=\d)", "", text)
+    # OCR 数字内空格归一（"65. 48" → "65.48"）——仅折叠水平空白（空格/制表符），
+    # 不得跨换行（否则金额行尾与下一行日期数字粘连，如 ¥71.89\n2026 → 71.892026）
+    text = re.sub(r"(?<=\d)[ \t]+(?=\d)", "", text)
+    text = re.sub(r"(?<=\d)[ \t]+(?=\.)|(?<=\.)[ \t]+(?=\d)", "", text)
 
     number = None
     m = _LABEL_NO.search(text)

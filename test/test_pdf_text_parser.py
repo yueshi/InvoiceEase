@@ -78,3 +78,67 @@ def test_squashed_invoice_number_and_date():
     assert parsed.invoice_number == "26327000001251594557"
     assert parsed.issue_date.isoformat() == "2026-07-09"
     assert parsed.total_amount == Decimal("130.69")
+
+
+def test_amount_not_glued_across_newline():
+    """回归：金额行尾与下一行日期数字不得跨行粘连（携程票 71.892026 事故）。"""
+    text = (
+        "电子发票（普通发票） 发票号码：26617000000303223886\n"
+        "开票日期：2026年07月09日\n"
+        "名称：澜铮鸿欣（上海）数字科技有限公司\n"
+        "统一社会信用代码/纳税人识别号：91310101MAELA36R35\n"
+        "名称：成都携程旅行社有限公司西安分公司\n"
+        "统一社会信用代码/纳税人识别号：916101123111642482\n"
+        "合        计\n"
+        "壹仟贰佰柒拾圆整 ¥1270.00\n"
+        "韩贇斐\n"
+        "¥1198.11 ¥71.89\n"
+        "2026/6/28 西安-福州\n"
+    )
+    parsed = extract_fields_from_text(text)
+    assert parsed is not None
+    assert parsed.tax_amount == Decimal("71.89")
+    assert parsed.total_amount == Decimal("1270.00")
+
+
+def test_no_cashier_total_not_mispair():
+    """回归：无开票人时价税合计与明细行只隔换行——不得错配成 1270.00+1198.11。"""
+    text = (
+        "电子发票（普通发票） 发票号码：26617000000303223886\n"
+        "开票日期：2026年07月09日\n"
+        "名称：澜铮鸿欣（上海）数字科技有限公司\n"
+        "统一社会信用代码/纳税人识别号：91310101MAELA36R35\n"
+        "名称：成都携程旅行社有限公司西安分公司\n"
+        "统一社会信用代码/纳税人识别号：916101123111642482\n"
+        "合        计\n"
+        "壹仟贰佰柒拾圆整 ¥1270.00\n"
+        "¥1198.11 ¥71.89\n"
+    )
+    parsed = extract_fields_from_text(text)
+    assert parsed is not None
+    assert parsed.amount_without_tax == Decimal("1198.11")
+    assert parsed.tax_amount == Decimal("71.89")
+    assert parsed.total_amount == Decimal("1270.00")
+
+
+def test_company_name_keeps_branch_suffix():
+    """回归：破碎布局（标签与值分离）下公司名保留「分公司」后缀（成都携程事故）。"""
+    text = (
+        "电子发票（普通发票） 发票号码：\n"
+        "开票日期：\n"
+        "名称：\n"
+        "统一社会信用代码/纳税人识别号：\n"
+        "名称：\n"
+        "26617000000303223886\n"
+        "2026年07月09日\n"
+        "澜铮鸿欣（上海）数字科技有限公司\n"
+        "91310101MAELA36R35\n"
+        "成都携程旅行社有限公司西安分公司\n"
+        "916101123111642482\n"
+        "合        计\n"
+        "壹仟贰佰柒拾圆整 ¥1270.00\n"
+        "¥1198.11 ¥71.89\n"
+    )
+    parsed = extract_fields_from_text(text)
+    assert parsed is not None
+    assert parsed.seller_name == "成都携程旅行社有限公司西安分公司"
