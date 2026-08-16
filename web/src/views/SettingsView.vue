@@ -1,11 +1,14 @@
-<!-- 系统配置：邮箱配置 + 用户管理 双 tab -->
+<!-- 系统配置：邮箱配置 + 用户管理 + 常用税号/公司 三 tab -->
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
-import { message } from "ant-design-vue";
+import { Modal, message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
+import { createCompanyInfo, deleteCompanyInfo, listCompanyInfos, updateCompanyInfo } from "../api/companyInfos";
 import { createMailbox, listMailboxes, pollMailbox, testMailbox, updateMailbox } from "../api/mailboxes";
 import { createUser, listUsers, updateUser } from "../api/users";
-import { ROLE_LABELS, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut } from "../types";
+import { COMPANY_KIND_LABELS, ROLE_LABELS, type CompanyInfoCreate, type CompanyInfoOut, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut } from "../types";
+
+const TAX_ID_RE = /^[0-9A-Z]{18}$/;
 
 const activeTab = ref("mailboxes");
 const mailboxes = ref<MailboxOut[]>([]);
@@ -20,11 +23,16 @@ const mailboxForm = reactive({
 const userModalOpen = ref(false);
 const editingUser = ref<UserOut | null>(null);
 const userForm = reactive<UserCreate>({ username: "", password: "", role: "employee" });
+const companyInfos = ref<CompanyInfoOut[]>([]);
+const companyModalOpen = ref(false);
+const editingCompanyId = ref<number | null>(null);
+const companyForm = reactive({ name: "", tax_id: "", kind: "other", is_default: false, remark: "" });
 
 async function loadAll() {
   try {
     mailboxes.value = await listMailboxes();
     users.value = await listUsers();
+    companyInfos.value = await listCompanyInfos();
   } catch (e) {
     errorMessage(e, "配置加载失败");
   }
@@ -93,6 +101,64 @@ async function saveUser() {
   }
 }
 
+function openCompanyModal(record: CompanyInfoOut | null) {
+  editingCompanyId.value = record ? record.id : null;
+  Object.assign(companyForm, {
+    name: record?.name ?? "",
+    tax_id: record?.tax_id ?? "",
+    kind: record?.kind ?? "other",
+    is_default: record?.is_default ?? false,
+    remark: record?.remark ?? "",
+  });
+  companyModalOpen.value = true;
+}
+
+async function saveCompany() {
+  if (!companyForm.name.trim()) {
+    message.warning("请输入公司名称");
+    return;
+  }
+  if (!TAX_ID_RE.test(companyForm.tax_id)) {
+    message.warning("税号需为 18 位字母数字");
+    return;
+  }
+  try {
+    const body: CompanyInfoCreate = {
+      name: companyForm.name.trim(),
+      tax_id: companyForm.tax_id,
+      kind: companyForm.kind,
+      is_default: companyForm.kind === "self" && companyForm.is_default,
+      remark: companyForm.remark || null,
+    };
+    if (editingCompanyId.value) await updateCompanyInfo(editingCompanyId.value, body);
+    else await createCompanyInfo(body);
+    message.success("已保存");
+    companyModalOpen.value = false;
+    loadAll();
+  } catch (e) {
+    errorMessage(e, "公司保存失败");
+  }
+}
+
+function onDeleteCompany(record: CompanyInfoOut) {
+  Modal.confirm({
+    title: "删除确认",
+    content: `确定删除「${record.name}」吗？`,
+    okText: "删除",
+    okType: "danger",
+    cancelText: "取消",
+    onOk: async () => {
+      try {
+        await deleteCompanyInfo(record.id);
+        message.success("已删除");
+        loadAll();
+      } catch (e) {
+        errorMessage(e, "删除失败");
+      }
+    },
+  });
+}
+
 const mailboxColumns = [
   { title: "名称", dataIndex: "name", key: "name" },
   { title: "IMAP", dataIndex: "imap_host", key: "imap_host" },
@@ -105,6 +171,13 @@ const userColumns = [
   { title: "用户名", dataIndex: "username", key: "username" },
   { title: "角色", dataIndex: "role", key: "role" },
   { title: "创建时间", dataIndex: "created_at", key: "created_at" },
+  { title: "操作", key: "actions" },
+];
+const companyColumns = [
+  { title: "名称", dataIndex: "name", key: "name" },
+  { title: "税号", dataIndex: "tax_id", key: "tax_id" },
+  { title: "类型", dataIndex: "kind", key: "kind" },
+  { title: "默认", dataIndex: "is_default", key: "is_default" },
   { title: "操作", key: "actions" },
 ];
 </script>
@@ -134,6 +207,21 @@ const userColumns = [
             <template v-if="column.key === 'role'">{{ ROLE_LABELS[record.role as Role] || record.role }}</template>
             <template v-else-if="column.key === 'actions'">
               <a @click="editingUser = record; Object.assign(userForm, { username: record.username, password: '', role: record.role }); userModalOpen = true">编辑角色</a>
+            </template>
+          </template>
+        </a-table>
+      </a-tab-pane>
+      <a-tab-pane key="company" tab="常用税号/公司">
+        <a-button type="primary" style="margin-bottom: 12px" @click="openCompanyModal(null)">新建公司</a-button>
+        <a-table :columns="companyColumns" :data-source="companyInfos" row-key="id" :pagination="false">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'kind'">{{ COMPANY_KIND_LABELS[record.kind as string] || record.kind }}</template>
+            <template v-else-if="column.key === 'is_default'">{{ record.is_default ? '是' : '' }}</template>
+            <template v-else-if="column.key === 'actions'">
+              <a-space>
+                <a @click="openCompanyModal(record)">编辑</a>
+                <a @click="onDeleteCompany(record)">删除</a>
+              </a-space>
             </template>
           </template>
         </a-table>
@@ -172,6 +260,22 @@ const userColumns = [
             <a-select-option v-for="(label, value) in ROLE_LABELS" :key="value" :value="value">{{ label }}</a-select-option>
           </a-select>
         </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="companyModalOpen" :title="editingCompanyId ? '编辑公司' : '新建公司'" @ok="saveCompany">
+      <a-form layout="vertical">
+        <a-form-item label="公司名称"><a-input v-model:value="companyForm.name" /></a-form-item>
+        <a-form-item label="税号"><a-input v-model:value="companyForm.tax_id" placeholder="18 位字母数字" /></a-form-item>
+        <a-form-item label="类型">
+          <a-select v-model:value="companyForm.kind">
+            <a-select-option v-for="(label, value) in COMPANY_KIND_LABELS" :key="value" :value="value">{{ label }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="默认">
+          <a-checkbox v-model:checked="companyForm.is_default" :disabled="companyForm.kind !== 'self'">本司默认</a-checkbox>
+        </a-form-item>
+        <a-form-item label="备注"><a-input v-model:value="companyForm.remark" /></a-form-item>
       </a-form>
     </a-modal>
   </div>

@@ -101,3 +101,25 @@ export interface PollResultOut { received: number; rejected_images: number; igno
 
 export interface UserCreate { username: string; password: string; role: Role; }
 export interface UserUpdate { password?: string | null; role?: Role; }
+
+export interface CompanyInfoOut {
+  id: number;
+  name: string;
+  tax_id: string;
+  kind: string;
+  is_default: boolean;
+  remark: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface CompanyInfoCreate {
+  name: string;
+  tax_id: string;
+  kind?: string;
+  is_default?: boolean;
+  remark?: string | null;
+}
+export type CompanyInfoUpdate = Partial<CompanyInfoCreate>;
+export const COMPANY_KIND_LABELS: Record<string, string> = {
+  self: "本司", supplier: "供应商", other: "其他",
+};
