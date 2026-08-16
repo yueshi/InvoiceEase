@@ -363,3 +363,24 @@ def test_delete_clears_dangling_duplicate_refs(client, db):
     assert dep.duplicate_flag is False
     assert dep.duplicate_of_id is None
     assert dep.status == "pending_review"  # 被拦截的依赖票转待复核
+
+
+def test_put_amount_fields_recalculates_validation_errors(client, db):
+    """回归：用户修正大写金额后 validation_errors 重算，CN_MISMATCH 告警消除（飞猪票事故）。"""
+    _seed(db, "caiwu9", Role.finance_staff.value)
+    inv = _invoice(db, status="pending_review", total_amount=Decimal("364.70"))
+    inv.amount_without_tax = Decimal("364.70")
+    inv.tax_amount = Decimal("0.00")
+    inv.total_amount_cn = "叁佰陆拾肆元柒角"  # 源文件瑕疵：缺「整」
+    inv.validation_errors = [
+        {"code": "CN_MISMATCH", "message": "大小写金额不一致: 364.70 对应 '叁佰陆拾肆元柒角整'，实际 '叁佰陆拾肆元柒角'"}
+    ]
+    db.flush()
+    token = _login(client, "caiwu9")
+    resp = client.put(
+        f"/api/v1/invoices/{inv.id}",
+        json={"total_amount_cn": "叁佰陆拾肆元柒角整"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["validation_errors"] is None  # 用户修正值参与校验，告警消除

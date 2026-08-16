@@ -115,6 +115,40 @@ _SNAPSHOT_COLS = (
 )
 
 
+_AMOUNT_FIELDS = ("amount_without_tax", "tax_amount", "total_amount", "total_amount_cn")
+
+
+def _revalidate_invoice(inv: Invoice) -> None:
+    """金额字段变更后重算 validation_errors：用户修正值参与校验，覆盖源文件提取告警。"""
+    from invoicing.parse.schemas import ParsedInvoice
+    from invoicing.parse.validation import validate
+
+    if (
+        inv.invoice_number is None
+        or inv.issue_date is None
+        or inv.amount_without_tax is None
+        or inv.tax_amount is None
+        or inv.total_amount is None
+    ):
+        return  # 字段不全无法校验，保留既有错误
+    parsed = ParsedInvoice(
+        invoice_number=inv.invoice_number,
+        issue_date=inv.issue_date,
+        amount_without_tax=inv.amount_without_tax,
+        tax_amount=inv.tax_amount,
+        total_amount=inv.total_amount,
+        total_amount_cn=inv.total_amount_cn or "",
+        seller_name=inv.seller_name or "",
+        seller_tax_id=inv.seller_tax_id or "",
+        buyer_name=inv.buyer_name or "",
+        buyer_tax_id=inv.buyer_tax_id or "",
+        confidence_score=inv.confidence_score or 0.0,
+        parse_source=inv.parse_source or "",
+    )
+    errs = validate(parsed)
+    inv.validation_errors = [e.model_dump() for e in errs] if errs else None
+
+
 def update_invoice(db: Session, current_user: User | None, invoice_id: int, data: dict) -> Invoice:
     """更新发票业务字段（人工复核纠正）；状态变更走 review/verify 专用端点。
 
@@ -132,6 +166,8 @@ def update_invoice(db: Session, current_user: User | None, invoice_id: int, data
         if old != value:
             setattr(inv, field, value)
             changed[field] = str(value)
+    if any(f in changed for f in _AMOUNT_FIELDS):
+        _revalidate_invoice(inv)  # 用户修正金额/大写 → 校验告警重算
     if changed:
         write_audit(
             db, action="INVOICE_UPDATE", user_id=current_user.id if current_user else None,

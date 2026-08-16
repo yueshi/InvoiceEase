@@ -1,4 +1,5 @@
 import pytest
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -61,3 +62,42 @@ def test_cn_yuan_variant_accepted():
         parse_source="PDF_TEXT",
     )
     assert validate(parsed) == []
+
+
+def test_validate_cn_extra_zheng_tolerated():
+    """容错：尾部「整」字有无视为等价（如「叁佰陆拾肆元柒角整」vs 标准「叁佰陆拾肆元柒角」）。"""
+    from invoicing.parse.schemas import ParsedInvoice
+    from invoicing.parse.validation import validate
+
+    parsed = ParsedInvoice(
+        invoice_number="N1",
+        issue_date=date(2026, 7, 9),
+        amount_without_tax=Decimal("364.70"),
+        tax_amount=Decimal("0.00"),
+        total_amount=Decimal("364.70"),
+        total_amount_cn="叁佰陆拾肆元柒角整",  # 多「整」
+        seller_name="s", seller_tax_id="t",
+        buyer_name="b", buyer_tax_id="t2",
+        confidence_score=0.9, parse_source="LLM_TEXT",
+    )
+    errors = validate(parsed)
+    assert not any(e.code == "CN_MISMATCH" for e in errors)
+
+
+def test_validate_cn_genuine_mismatch_still_caught():
+    """真错误仍拦截：数字金额不同的写法不得因容错而通过。"""
+    from invoicing.parse.schemas import ParsedInvoice
+    from invoicing.parse.validation import validate
+
+    parsed = ParsedInvoice(
+        invoice_number="N1",
+        issue_date=date(2026, 7, 9),
+        amount_without_tax=Decimal("364.70"),
+        tax_amount=Decimal("0.00"),
+        total_amount=Decimal("364.70"),
+        total_amount_cn="叁佰陆拾元柒角",
+        seller_name="s", seller_tax_id="t",
+        buyer_name="b", buyer_tax_id="t2",
+        confidence_score=0.9, parse_source="LLM_TEXT",
+    )
+    assert any(e.code == "CN_MISMATCH" for e in validate(parsed))

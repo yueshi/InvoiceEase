@@ -81,9 +81,11 @@ def validate(parsed: ParsedInvoice) -> list[ParseError]:
             )
         )
     if parsed.total_amount_cn:
-        # 圆/元 等价归一（真实发票常见「圆」写法）
+        # 圆/元 等价归一（真实发票常见「圆」写法）；尾部「整」字有无等价
+        # （开票方书写瑕疵：标准「柒角」被写成「柒角整」或反之，数字金额一致即通过）
         cn = parsed.total_amount_cn.replace(" ", "").replace("　", "").replace("圆", "元").replace("元零", "元")
-        if amount_to_cn(parsed.total_amount) != cn:
+        expected_cn = amount_to_cn(parsed.total_amount)
+        if cn != expected_cn and cn.rstrip("整") != expected_cn.rstrip("整"):
             errors.append(
                 ParseError(
                     code="CN_MISMATCH",
