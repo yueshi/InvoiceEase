@@ -30,3 +30,7 @@
 ## 业务功能（FRD Phase 2）
 
 13. 多邮箱支持、批量提交（金蝶/用友 API）、RBAC 完整实现、报表导出、WorkBuddy 深度集成（6 Tool + 自然语言）、OCR 引擎（= 第 2 条）。
+
+## 常用税号及公司信息（Plan K，2026-08-16 已合并）遗留项
+
+14. ~~常用税号及公司信息功能~~ **已完成（Plan K，2026-08-16）**：company_infos 表 + REST CRUD（admin）+ MCP 3 工具 + OCR 纠错字典 + BUYER_MISMATCH 归属校验 + Web UI 系统设置 tab。真机验收：预存「澜铮鸿欣」后及时用车 OFD（字体转曲→OCR）名称自动纠错 ✓。遗留 Minor：① worker BUYER_MISMATCH 用例未断言审计日志写入 ② REST PUT 显式传 null 字段（name/tax_id/is_default）→ IntegrityError 500，应归一化或 422 ③ 前端测试 a-button 断言依赖未注册 antd 的隐式条件 ④ 纠错阈值 0.75/长度差≤4 待真机样本积累后调参。
