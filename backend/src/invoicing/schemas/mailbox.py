@@ -74,3 +74,4 @@ class PollResultOut(BaseModel):
     ignored: int
     duplicates: int
     errors: int
+    active_mailboxes: list[str] = []  # 本次实际轮询的启用邮箱地址（未绑定邮箱时可诊断）

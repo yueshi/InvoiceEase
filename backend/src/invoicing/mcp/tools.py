@@ -38,7 +38,7 @@ def fetch_invoices(mailbox_id: int | None = None) -> PollResultOut:
             detail={"mailbox_ids": [mb.id for mb in mailboxes], "result": total},
         )
         db.commit()
-    return PollResultOut(**total)
+    return PollResultOut(**total, active_mailboxes=[mb.username or mb.name for mb in mailboxes])
 
 
 def list_invoices_mcp(
