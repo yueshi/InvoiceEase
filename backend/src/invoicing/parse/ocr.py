@@ -4,10 +4,15 @@
 未安装时 get_ocr_provider() 返回 None，路由落待复核，服务不故障。
 """
 import io
+import logging
+import threading
+import time
 import zipfile
 from hashlib import sha1
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -23,12 +28,17 @@ class OcrProvider(ABC):
 
 _cache: dict[str, OcrText] = {}
 _CACHE_MAX = 64
+# 闲置超阈值丢弃引擎：长时间空闲后 paddle 推理易卡死（内存换页/线程池回收），重载慢但确定
+_IDLE_RESET_SECONDS = 30 * 60
+# 单次 OCR 调用看门狗：超时判定引擎卡死 → 重置 + 本单降级返回 None，不无限阻塞服务
+_OCR_TIMEOUT_SECONDS = 90.0
 
 
 class PaddleOcrProvider(OcrProvider):
     def __init__(self) -> None:
         self._engine = None
         self._init_failed = False
+        self._last_used = 0.0  # time.monotonic：引擎上次成功调用时间
 
     def _ensure_engine(self):
         if self._engine is None and not self._init_failed:
@@ -41,17 +51,46 @@ class PaddleOcrProvider(OcrProvider):
                 self._init_failed = True
         return self._engine
 
-    def ocr_image(self, image_bytes: bytes) -> OcrText | None:
+    def ocr_image(
+        self, image_bytes: bytes, timeout_seconds: float = _OCR_TIMEOUT_SECONDS
+    ) -> OcrText | None:
         # 结果缓存：同一图片（如 WorkBuddy 对同一文件重复调用）秒回
         key = sha1(image_bytes).hexdigest()
         if key in _cache:
             return _cache[key]
-        result = self._ocr_uncached(image_bytes)
+        # 闲置重置：距上次调用超阈值 → 丢弃引擎，下次 _ensure_engine 重新加载
+        # （长时间空闲后 paddle 推理易卡死：内存换页/线程池回收；重载慢但确定）
+        if self._engine is not None and time.monotonic() - self._last_used > _IDLE_RESET_SECONDS:
+            self._engine = None
+        result = self._ocr_with_timeout(image_bytes, timeout_seconds)
         if result is not None:
+            self._last_used = time.monotonic()
             if len(_cache) >= _CACHE_MAX:
                 _cache.pop(next(iter(_cache)))
             _cache[key] = result
         return result
+
+    def _ocr_with_timeout(self, image_bytes: bytes, timeout_seconds: float) -> OcrText | None:
+        """看门狗：OCR 在独立线程执行；超时未完成 → 判定引擎卡死，重置并本单降级。"""
+        holder: dict = {}
+
+        def _run() -> None:
+            try:
+                holder["result"] = self._ocr_uncached(image_bytes)
+            except Exception:
+                holder["result"] = None
+
+        worker = threading.Thread(target=_run, daemon=True)
+        worker.start()
+        worker.join(timeout_seconds)
+        if worker.is_alive():
+            logger.warning(
+                "OCR 调用超时（%.0fs），判定引擎卡死：重置引擎，本单降级走待复核", timeout_seconds
+            )
+            self._engine = None
+            self._init_failed = False
+            return None
+        return holder.get("result")
 
     def _ocr_uncached(self, image_bytes: bytes) -> OcrText | None:
         engine = self._ensure_engine()
