@@ -42,3 +42,9 @@ export function errorMessage(e: unknown, fallback = "请求失败"): void {
   const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
   message.error(detail || fallback);
 }
+
+export async function fetchBlobUrl(path: string): Promise<string> {
+  // 带鉴权头的 blob 拉取（iframe/img 无法附加 Authorization header，故用 axios + objectURL）
+  const resp = await api.get(path, { responseType: "blob", timeout: 120000 });
+  return URL.createObjectURL(resp.data);
+}

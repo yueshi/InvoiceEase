@@ -8,6 +8,7 @@ import { listInvoices, reVerify, reviewInvoice } from "../api/invoices";
 import { useAuthStore } from "../stores/auth";
 import { INVOICE_STATUS_LABELS, VERIFY_STATUS_LABELS, type InvoiceListResponse, type InvoiceOut } from "../types";
 import InvoiceDetailDrawer from "../components/InvoiceDetailDrawer.vue";
+import PreviewModal from "../components/PreviewModal.vue";
 
 const auth = useAuthStore();
 const data = ref<InvoiceListResponse>({ items: [], total: 0, page: 1, page_size: 20 });
@@ -15,6 +16,13 @@ const loading = ref(false);
 const filters = reactive({ status: undefined as string | undefined, keyword: "", dateRange: undefined as [Dayjs, Dayjs] | undefined });
 const drawerOpen = ref(false);
 const current = ref<InvoiceOut | null>(null);
+const previewOpen = ref(false);
+const previewTarget = ref<InvoiceOut | null>(null);
+
+function showPreview(record: InvoiceOut) {
+  previewTarget.value = record;
+  previewOpen.value = true;
+}
 
 const canReview = () => ["finance_staff", "finance_manager", "admin"].includes(auth.role ?? "");
 
@@ -115,6 +123,7 @@ const columns = [
         <template v-else-if="column.key === 'actions'">
           <a-space>
             <a @click="showDetail(record)">详情</a>
+            <a @click="showPreview(record)">预览</a>
             <template v-if="canReview() && record.status === 'pending_review'">
               <a @click="onReview(record, 'approve')">通过</a>
               <a @click="onReview(record, 'reject')">驳回</a>
@@ -125,5 +134,6 @@ const columns = [
       </template>
     </a-table>
     <InvoiceDetailDrawer v-model:open="drawerOpen" :invoice="current" @refresh="load" />
+    <PreviewModal v-model:open="previewOpen" :invoice="previewTarget" />
   </div>
 </template>

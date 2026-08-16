@@ -7,6 +7,7 @@ vi.mock("../../api/invoices", () => ({
   listInvoices: vi.fn().mockResolvedValue({
     items: [], total: 0, page: 1, page_size: 20,
   }),
+  previewInvoiceFile: vi.fn().mockResolvedValue({ url: "blob:fake", kind: "pdf", filename: "x" }),
 }));
 
 describe("InvoiceListView", () => {
