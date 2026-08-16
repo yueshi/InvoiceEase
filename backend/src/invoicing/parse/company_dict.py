@@ -1,8 +1,8 @@
 """常用公司字典：OCR 纠错 + 购买方归属校验（设计 V0.1）。
 
-只作用于 confidence < 1.0 的来源（文本规则/OCR）——结构化来源（XML/XBRL）
-以原件数据为准，不做纠错。调用方需自行保证该前提。
-"""
+只作用于 confidence < 1.0 的来源（文本规则/OCR）——结构化来源（XML/XBRL，
+confidence=1.0）以原件数据为准，不做纠错。门控内置在 enrich_parsed 内部，
+调用方无需自行判断。"""
 import difflib
 
 from sqlalchemy.orm import Session
@@ -26,7 +26,13 @@ def _best_match(name: str, infos: list[CompanyInfo]) -> CompanyInfo | None:
 
 
 def enrich_parsed(parsed: ParsedInvoice, db: Session) -> list[ParseError]:
-    """纠错字典 + 购买方归属校验；返回追加的校验错误。"""
+    """纠错字典 + 购买方归属校验；返回追加的校验错误。
+
+    防御性门控：confidence 为 None 或 >= 1.0（结构化来源）时直接跳过，
+    保证 XML/XBRL 原件数据永不被字典覆盖。
+    """
+    if parsed.confidence_score is None or parsed.confidence_score >= 1.0:
+        return []
     errors: list[ParseError] = []
     infos = db.query(CompanyInfo).all()
     if not infos:

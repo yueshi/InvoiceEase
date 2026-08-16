@@ -79,8 +79,9 @@ def extract_invoice_file(file_path: str) -> ExtractResult:
             return ExtractResult(success=False, error=UNSTRUCTURED)
         parsed.parse_source = "IMAGE_OCR"
         errors = [{"code": e.code, "message": e.message} for e in validate(parsed)]
-        # 纠错字典 + 购买方归属校验（OCR 来源 confidence < 1.0）
-        if parsed.confidence_score is not None and parsed.confidence_score < 1.0:
+        # 纠错字典 + 购买方归属校验（confidence<1.0 门控在 enrich_parsed 内部）；
+        # 已存在校验错误时跳过，语义与 worker 一致
+        if not errors:
             from invoicing.db import SessionLocal
             from invoicing.parse.company_dict import enrich_parsed
 
@@ -103,8 +104,9 @@ def extract_invoice_file(file_path: str) -> ExtractResult:
             detail = outcome.errors[0].message if outcome.errors else "解析失败"
             return ExtractResult(success=False, error=f"解析失败: {detail}")
         validation_errors = [{"code": e.code, "message": e.message} for e in outcome.errors]
-        # 纠错字典 + 购买方归属校验（仅文本/OCR 来源，confidence < 1.0；结构化来源原件数据优先）
-        if outcome.parsed.confidence_score is not None and outcome.parsed.confidence_score < 1.0:
+        # 纠错字典 + 购买方归属校验（confidence<1.0 门控在 enrich_parsed 内部）；
+        # 已存在校验错误时跳过，语义与 worker 一致
+        if not validation_errors:
             from invoicing.db import SessionLocal
             from invoicing.parse.company_dict import enrich_parsed
 

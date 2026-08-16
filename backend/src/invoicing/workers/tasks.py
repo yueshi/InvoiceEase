@@ -57,13 +57,12 @@ def _parse_invoice(invoice_id: int) -> None:
         data = storage.get(inv.file_url)
         outcome = parse_file(inv.file_type, data)
 
+        # 纠错字典 + 购买方归属校验追加错误：仅成功分支填充（confidence<1.0 门控在 enrich_parsed 内部）
+        extra: list = []
         if outcome.parsed is not None and not outcome.errors:
-            # 纠错字典 + 购买方归属校验：仅文本/OCR 来源（confidence < 1.0），结构化来源原件数据优先
-            extra = []
-            if outcome.parsed.confidence_score is not None and outcome.parsed.confidence_score < 1.0:
-                from invoicing.parse.company_dict import enrich_parsed
+            from invoicing.parse.company_dict import enrich_parsed
 
-                extra = enrich_parsed(outcome.parsed, db)
+            extra = enrich_parsed(outcome.parsed, db)
             parsed_code = outcome.parsed.invoice_code
             parsed_number = outcome.parsed.invoice_number
             _apply_parsed_fields(inv, outcome.parsed)

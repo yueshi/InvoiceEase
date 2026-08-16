@@ -142,3 +142,77 @@ def test_extract_image_ocr_unavailable(tmp_path, monkeypatch):
     result = extract_invoice_file(str(p))
     assert result.success is False
     assert "OCR 引擎未安装" in result.error
+
+
+def test_extract_image_ocr_dict_corrects_name(db, tmp_path, monkeypatch):
+    """OCR 路径：预设字典对漏字名称纠错，纠错结果并入返回数据。"""
+    from invoicing.models import CompanyInfo
+    from invoicing.parse.ocr import OcrText
+
+    # 预存本司；extract 内部用独立 SessionLocal，必须 commit 才可见
+    db.add(CompanyInfo(name="澜铮鸿欣（上海）数字科技有限公司", tax_id="91310101MAELA36R35", kind="self"))
+    db.commit()
+
+    class FakeProvider:
+        def ocr_image(self, image_bytes):
+            return OcrText(
+                text=(
+                    "发票号码：26617000000309516967\n"
+                    "开票日期：2026年07月09日\n"
+                    "名称：澜鸿欣（上海）数字科技有限公司\n"
+                    "统一社会信用代码/纳税人识别号：91310101MAELA36R35\n"
+                    "名称：山东及时雨汽车科技有限公司西安分公司\n"
+                    "统一社会信用代码/纳税人识别号：91610132MA6UY02A5U\n"
+                    "合 计 ¥65.48 ¥1.96\n"
+                ),
+                confidence=0.91,
+            )
+
+    monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: FakeProvider())
+    p = tmp_path / "photo.jpg"
+    p.write_bytes(b"\xff\xd8\xff\xe0")
+    result = extract_invoice_file(str(p))
+    assert result.success is True
+    assert result.data.buyer.name == "澜铮鸿欣（上海）数字科技有限公司"  # OCR 漏字「铮」被纠错
+    assert result.data.buyer.taxId == "91310101MAELA36R35"
+    assert result.validation.valid is True  # 税号匹配本司，无 BUYER_MISMATCH
+
+
+def test_extract_ofd_text_buyer_mismatch_in_validation(db, tmp_path):
+    """文本路径：购买方税号与预设本司不匹配 → BUYER_MISMATCH 并入校验错误。"""
+    import io
+    import zipfile
+
+    from invoicing.models import CompanyInfo
+
+    db.add(CompanyInfo(name="澜铮鸿欣（上海）数字科技有限公司", tax_id="91310101MAELA36R35", kind="self"))
+    db.commit()
+
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<ofd:Page xmlns:ofd="http://www.ofdspec.org/2016">
+  <ofd:Content>
+    <ofd:Layer>
+      <ofd:TextObject>
+        <ofd:TextCode X="10" Y="100">电子发票（普通发票） 发票号码：26617000000309516967</ofd:TextCode>
+        <ofd:TextCode X="10" Y="120">开票日期：2026年07月09日</ofd:TextCode>
+        <ofd:TextCode X="10" Y="140">名称：测试采购有限公司</ofd:TextCode>
+        <ofd:TextCode X="10" Y="160">统一社会信用代码/纳税人识别号：91310000MA1FL0B000</ofd:TextCode>
+        <ofd:TextCode X="10" Y="180">名称：示例出行科技有限公司</ofd:TextCode>
+        <ofd:TextCode X="10" Y="200">统一社会信用代码/纳税人识别号：91310000MA1FL0A000</ofd:TextCode>
+        <ofd:TextCode X="10" Y="240">合    计 ¥65.48 ¥1.96</ofd:TextCode>
+      </ofd:TextObject>
+    </ofd:Layer>
+  </ofd:Content>
+</ofd:Page>
+"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("OFD.xml", "<ofd:OFD xmlns:ofd='http://www.ofdspec.org/2016'/>")
+        zf.writestr("Doc_0/Pages/Page_0/Content.xml", content)
+    p = tmp_path / "invoice.ofd"
+    p.write_bytes(buf.getvalue())
+    result = extract_invoice_file(str(p))
+    assert result.success is True
+    assert result.validation.valid is False
+    # errors 为 list[ValidationError]（pydantic 模型），属性访问
+    assert any(e.code == "BUYER_MISMATCH" for e in result.validation.errors)

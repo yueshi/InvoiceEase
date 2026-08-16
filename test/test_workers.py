@@ -163,6 +163,58 @@ def test_verify_invoice_task_failure_falls_to_review(db, storage, monkeypatch):
     )
 
 
+def test_parse_invoice_buyer_mismatch_goes_review(db, storage, monkeypatch):
+    """预存本司 + 解析购买方税号不匹配 → BUYER_MISMATCH 走待复核且不入验真队列。"""
+    import io
+    import zipfile
+
+    from invoicing.models import CompanyInfo
+    from invoicing.workers.tasks import _parse_invoice
+
+    # 预存本司（kind=self）；worker 独立会话只读已提交数据
+    db.add(CompanyInfo(name="澜铮鸿欣（上海）数字科技有限公司", tax_id="91310101MAELA36R35", kind="self"))
+    db.commit()
+
+    # 记录入队调用：归属校验未通过时不应产生验真任务
+    calls = []
+    monkeypatch.setattr("invoicing.workers.tasks.enqueue_verify_sync", lambda invoice_id: calls.append(invoice_id))
+
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<ofd:Page xmlns:ofd="http://www.ofdspec.org/2016">
+  <ofd:Content>
+    <ofd:Layer>
+      <ofd:TextObject>
+        <ofd:TextCode X="10" Y="100">电子发票（普通发票） 发票号码：26617000000309516967</ofd:TextCode>
+        <ofd:TextCode X="10" Y="120">开票日期：2026年07月09日</ofd:TextCode>
+        <ofd:TextCode X="10" Y="140">名称：测试采购有限公司</ofd:TextCode>
+        <ofd:TextCode X="10" Y="160">统一社会信用代码/纳税人识别号：91310000MA1FL0B000</ofd:TextCode>
+        <ofd:TextCode X="10" Y="180">名称：示例出行科技有限公司</ofd:TextCode>
+        <ofd:TextCode X="10" Y="200">统一社会信用代码/纳税人识别号：91310000MA1FL0A000</ofd:TextCode>
+        <ofd:TextCode X="10" Y="240">合    计 ¥65.48 ¥1.96</ofd:TextCode>
+      </ofd:TextObject>
+    </ofd:Layer>
+  </ofd:Content>
+</ofd:Page>
+"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("OFD.xml", "<ofd:OFD xmlns:ofd='http://www.ofdspec.org/2016'/>")
+        zf.writestr("Doc_0/Pages/Page_0/Content.xml", content)
+    key = "test-worker/mismatch.ofd"
+    storage.put(key, buf.getvalue(), "application/ofd")
+    inv = Invoice(file_url=key, file_type="OFD", status="parsing", invoice_number="26617000000309516967")
+    db.add(inv)
+    db.commit()
+
+    _parse_invoice(inv.id)
+    db.refresh(inv)
+    assert inv.status == "pending_review"  # BUYER_MISMATCH 从严：走待复核
+    assert inv.validation_errors is not None and any(
+        e.get("code") == "BUYER_MISMATCH" for e in inv.validation_errors
+    )
+    assert calls == []  # 不进入验真队列
+
+
 def test_parse_invoice_task_duplicate_number_blocks(db, storage):
     from invoicing.workers.tasks import _parse_invoice
 
