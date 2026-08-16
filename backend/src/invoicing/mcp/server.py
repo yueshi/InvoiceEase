@@ -1,5 +1,5 @@
 # invoicing/mcp/server.py
-"""MCP Server 装配：7 个 Tool 注册（收取/查询/详情 + WorkBuddy 识别/校验/归档）。"""
+"""MCP Server 装配：10 个 Tool 注册（收取/查询/详情 + WorkBuddy 识别/校验/归档 + 常用公司管理）。"""
 from datetime import date
 
 from mcp.server.mcpserver import MCPServer
