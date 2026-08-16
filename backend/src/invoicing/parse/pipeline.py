@@ -30,10 +30,11 @@ GATE_FIELDS = ("buyer_name", "buyer_tax_id", "seller_name", "seller_tax_id", "to
 
 
 def _needs_llm(parsed: ParsedInvoice | None, ocr_confidence: float | None) -> bool:
-    """质量门（设计 §3.1）：① 文本规则失败 ② 5 关键字段缺 ≥2 ③ OCR 置信度 < 0.8。
+    """规则结果质量门（LLM 优先架构下的规则降级路径把关）：
+    ① 规则提取失败 ② 5 关键字段缺 ≥2 ③ OCR 置信度 < 0.8。
+    任一命中 → 规则结果不可用，继续链（不产出半成品）。
 
-    注意：validate() 的金额矛盾类 errors 不触发 LLM——矛盾票 LLM 重提一般同样矛盾，
-    避免无效调用，直接走待复核。
+    注意：validate() 的金额矛盾类 errors 不进此判定——矛盾票直接待复核。
     """
     if parsed is None:
         return True
@@ -46,7 +47,7 @@ def _needs_llm(parsed: ParsedInvoice | None, ocr_confidence: float | None) -> bo
 
 
 def _llm_text_outcome(ctx: ParseContext) -> ParseOutcome | None:
-    """LLM 文本通道（设计 §3.1）：engine 缺失/失败 → None（继续链）。"""
+    """LLM 文本通道：engine 缺失/失败 → None（继续链）。"""
     from invoicing.parse.validation import validate
 
     engine = get_llm_engine()
@@ -79,23 +80,24 @@ def _parse_structured(xml: bytes, source: ParseSource, xml_data: bytes) -> Parse
 
 
 def _text_strategy(ctx: ParseContext, extractor, source: ParseSource) -> ParseOutcome | None:
-    """文本层策略：文本规则提取 → 质量门不通过则 LLM 文本通道兜底。"""
+    """文本层策略：LLM 文本通道优先（FRD 原意：版式 PDF 走 OCR+大模型）——
+    不可用/失败时降级文本规则；规则结果经质量门（缺 ≥2 字段）把关，不产半成品。"""
     if ctx.text is None:
         ctx.text = extractor(ctx.data)
     if not ctx.text:
         return None
-    parsed = None
+    # 1. LLM 优先
+    llm_outcome = _llm_text_outcome(ctx)
+    if llm_outcome is not None:
+        return llm_outcome
+    # 2. 规则降级
     from invoicing.parse.text_rules import extract_fields_from_text
     from invoicing.parse.validation import validate
 
     parsed = extract_fields_from_text(ctx.text)
-    if parsed is not None:
-        parsed.parse_source = source.value
-    if _needs_llm(parsed, None):
-        llm_outcome = _llm_text_outcome(ctx)
-        if llm_outcome is not None:
-            return llm_outcome
-        return None  # LLM 也失败 → 继续链（VLM/待复核），不返回半成品
+    if parsed is None or _needs_llm(parsed, None):
+        return None  # 规则也失败/质量不过 → 继续链（VLM/待复核）
+    parsed.parse_source = source.value
     errors = validate(parsed)
     return ParseOutcome(source=source.value, parsed=parsed, errors=errors)
 
@@ -138,7 +140,7 @@ def strategy_text_pdf(ctx: ParseContext) -> ParseOutcome | None:
 
 
 def _ocr_strategy(ctx: ParseContext, image: bytes, source: ParseSource) -> ParseOutcome | None:
-    """OCR 策略：OCR → 文本规则 → 质量门不通过则 LLM 文本通道兜底。"""
+    """OCR 策略：OCR → LLM 文本通道优先 → 规则降级（质量门把关，不产半成品）。"""
     from invoicing.parse.ocr import get_ocr_provider
     from invoicing.parse.text_rules import extract_fields_from_text
     from invoicing.parse.validation import validate
@@ -150,14 +152,15 @@ def _ocr_strategy(ctx: ParseContext, image: bytes, source: ParseSource) -> Parse
     if ocr_text is None:
         return None
     ctx.ocr_text = ocr_text
+    # 1. LLM 优先
+    llm_outcome = _llm_text_outcome(ctx)
+    if llm_outcome is not None:
+        return llm_outcome
+    # 2. 规则降级
     parsed = extract_fields_from_text(ocr_text.text, confidence=ocr_text.confidence)
-    if parsed is not None:
-        parsed.parse_source = source.value
-    if _needs_llm(parsed, ocr_text.confidence):
-        llm_outcome = _llm_text_outcome(ctx)
-        if llm_outcome is not None:
-            return llm_outcome
-        return None  # LLM 也失败 → 继续链
+    if parsed is None or _needs_llm(parsed, ocr_text.confidence):
+        return None  # 规则也失败/质量不过 → 继续链
+    parsed.parse_source = source.value
     errors = validate(parsed)
     return ParseOutcome(source=source.value, parsed=parsed, errors=errors)
 

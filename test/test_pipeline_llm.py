@@ -69,8 +69,8 @@ def _patch(monkeypatch, provider, engine):
     monkeypatch.setattr(ocr_mod, "render_pdf_first_page", lambda b: b"png-bytes")
 
 
-def test_quality_gate_text_rules_fail_triggers_llm(monkeypatch):
-    """文本层无发票内容 → 文本规则失败 → LLM 文本通道成功 → LLM_TEXT 来源。"""
+def test_text_strategy_llm_priority(monkeypatch):
+    """LLM 优先：文本层出来先走 LLM 文本通道（规则结果被忽略）。"""
     engine = FakeLlmEngine(text_result=_llm_parsed())
     _patch(monkeypatch, FakeProvider(OCR_TEXT, 0.92), engine)
     monkeypatch.setattr(ptp_mod, "extract_pdf_text", lambda data: "无发票关键字段的文本")
@@ -78,6 +78,27 @@ def test_quality_gate_text_rules_fail_triggers_llm(monkeypatch):
     assert outcome is not None
     assert outcome.source == ParseSource.LLM_TEXT.value
     assert engine.text_calls  # LLM 文本通道被调用
+    assert outcome.parsed.confidence_score == 0.9
+
+
+def test_text_strategy_llm_fail_rule_fallback(monkeypatch):
+    """LLM 失败 → 规则降级：规则可提取时返回规则来源。"""
+    engine = FakeLlmEngine(text_result=None)
+    _patch(monkeypatch, FakeProvider(OCR_TEXT, 0.92), engine)
+    monkeypatch.setattr(ptp_mod, "extract_pdf_text", lambda data: OCR_TEXT)
+    outcome = strategy_text_pdf(ParseContext("PDF", b"%PDF fake"))
+    assert outcome is not None
+    assert outcome.source == ParseSource.PDF_TEXT.value
+
+
+def test_text_strategy_llm_fail_rule_gate_fail(monkeypatch):
+    """LLM 失败 + 规则质量不过（缺关键字段）→ 返回 None 继续链，不产半成品。"""
+    engine = FakeLlmEngine(text_result=None)
+    _patch(monkeypatch, FakeProvider(OCR_TEXT, 0.92), engine)
+    monkeypatch.setattr(ptp_mod, "extract_pdf_text", lambda data: "无发票关键字段的文本")
+    assert strategy_text_pdf(ParseContext("PDF", b"%PDF fake")) is None
+
+
 # --- 质量门单测 ---
 
 def test_gate_parsed_none():
@@ -99,9 +120,10 @@ def test_gate_low_ocr_confidence():
     assert _needs_llm(_llm_parsed(), 0.92) is False
 
 
-# --- 三触发点：OCR 低置信度 → LLM 文本通道 ---
+# --- OCR 策略：LLM 优先 ---
 
-def test_ocr_low_confidence_triggers_llm(monkeypatch):
+def test_ocr_llm_priority(monkeypatch):
+    """OCR 后 LLM 无条件优先（不依赖置信度）。"""
     engine = FakeLlmEngine(text_result=_llm_parsed())
     _patch(monkeypatch, FakeProvider(OCR_TEXT, confidence=0.72), engine)
     outcome = strategy_ocr_pdf(ParseContext("PDF", b"%PDF fake"))
