@@ -95,8 +95,11 @@ _provider: OcrProvider | None = None
 _tried = False
 
 
-def preload_ocr_engine() -> None:
-    """后台预热：模型加载（首次 10-30s）移出请求路径，避免首次调用超时。"""
+def preload_ocr_engine(background: bool = True) -> None:
+    """预热 OCR 引擎：模型加载（首次 10-30s）移出请求路径，避免首次调用超时。
+
+    background=False 时同步阻塞预热（服务启动变慢约 25s，但首个 OCR 请求即热引擎）。
+    """
     import threading
 
     def _warm() -> None:
@@ -107,7 +110,10 @@ def preload_ocr_engine() -> None:
         except Exception:
             pass
 
-    threading.Thread(target=_warm, daemon=True).start()
+    if background:
+        threading.Thread(target=_warm, daemon=True).start()
+    else:
+        _warm()
 
 
 def get_ocr_provider() -> OcrProvider | None:
