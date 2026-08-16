@@ -142,6 +142,31 @@ def update_invoice(db: Session, current_user: User | None, invoice_id: int, data
     return inv
 
 
+
+
+def unblock_invoice(db: Session, current_user: User | None, invoice_id: int) -> Invoice:
+    """人工放行：blocked → 待复核（清除重复标记与悬空引用）。
+
+    current_user 可为 None（MCP 通道无用户上下文）。
+    """
+    from fastapi import HTTPException
+
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        raise HTTPException(404, "发票不存在")
+    if inv.status != InvoiceStatus.blocked.value:
+        raise HTTPException(409, "仅已拦截（blocked）状态的发票可放行")
+    inv.duplicate_flag = False
+    inv.duplicate_of_id = None
+    transition(inv, InvoiceStatus.pending_review.value)
+    write_audit(
+        db, action="UNBLOCK", user_id=current_user.id if current_user else None,
+        invoice_id=inv.id, channel="web" if current_user else "mcp",
+        detail={"from": "blocked", "to": "pending_review"},
+    )
+    db.commit()
+    return inv
+
 def delete_invoice(db: Session, current_user: User | None, invoice_id: int) -> dict:
     """删除发票：先写全字段快照审计（合规留痕），再删原件与记录。"""
     import logging
@@ -158,6 +183,13 @@ def delete_invoice(db: Session, current_user: User | None, invoice_id: int) -> d
         invoice_id=inv.id, channel="web" if current_user else "mcp",
         detail={"snapshot": snapshot},
     )
+    # 悬空引用清理：指向本记录的重复标记清除；被拦截的依赖票转待复核（人工重新判断）
+    dependents = db.query(Invoice).filter(Invoice.duplicate_of_id == invoice_id).all()
+    for dep in dependents:
+        dep.duplicate_flag = False
+        dep.duplicate_of_id = None
+        if dep.status == InvoiceStatus.blocked.value:
+            transition(dep, InvoiceStatus.pending_review.value)
     storage = get_storage()
     for key in (inv.file_url, inv.xml_url):
         if not key:

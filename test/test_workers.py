@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from invoicing.models import Invoice
+from invoicing.models import AuditLog, Invoice
 from invoicing.storage import LocalFileStorage
 
 FIXTURES = Path(__file__).parent / "fixtures" / "invoices"
@@ -233,9 +233,11 @@ def test_parse_invoice_task_duplicate_number_blocks(db, storage):
     db.commit()
     storage.put(second.file_url, (FIXTURES / "dianzi.xml").read_bytes(), "application/xml")
     _parse_invoice(second.id)
-    db.refresh(second)
-    assert second.status == "blocked"
-    assert second.duplicate_of_id == first.id
+    # 重复拦截：审计留痕 + 物理删除（不留全字段为空的 blocked 空壳）
+    db.expunge(second)  # 另一会话已删除，需先移出本会话 identity map
+    assert db.get(Invoice, second.id) is None
+    logs = db.query(AuditLog).filter(AuditLog.action == "PARSE", AuditLog.invoice_id == second.id).all()
+    assert any(l.detail.get("result") == "duplicate" and l.detail.get("duplicate_of_id") == first.id for l in logs)
 
 
 def test_parse_invoice_validation_error_keeps_fields(db, storage):

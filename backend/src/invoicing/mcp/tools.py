@@ -238,3 +238,10 @@ def invoice_delete(invoice_id: int) -> dict:
     """删除发票（审计全字段快照 + 原件清理）；不存在抛 ValueError。"""
     with SessionLocal() as db:
         return _http_to_value_error(services.delete_invoice, db, None, invoice_id)
+
+
+def invoice_unblock(invoice_id: int) -> InvoiceOut:
+    """人工放行被拦截发票：blocked → 待复核（清除重复标记）；非 blocked 抛 ValueError。"""
+    with SessionLocal() as db:
+        inv = _http_to_value_error(services.unblock_invoice, db, None, invoice_id)
+        return InvoiceOut.model_validate(inv, from_attributes=True)

@@ -117,13 +117,16 @@ def _parse_invoice(invoice_id: int) -> None:
             ),
         )
         if existing is not None:
-            inv.duplicate_flag = True
-            inv.duplicate_of_id = existing.id
-            transition(inv, InvoiceStatus.blocked.value)
+            # 重复拦截：审计留痕 + 物理删除（不留全字段为空的 blocked 空壳记录）
             write_audit(
                 db, action="PARSE", invoice_id=inv.id, channel="system",
-                detail={"result": "duplicate", "duplicate_of_id": existing.id},
+                detail={
+                    "result": "duplicate",
+                    "duplicate_of_id": existing.id,
+                    "invoice_number": parsed_number,
+                },
             )
+            db.delete(inv)
             db.commit()
         else:
             raise

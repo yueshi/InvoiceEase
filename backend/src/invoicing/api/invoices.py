@@ -125,6 +125,15 @@ def update_invoice(
     return services.update_invoice(db, user, invoice_id, body.model_dump(exclude_unset=True))
 
 
+@router.post("/{invoice_id}/unblock", response_model=InvoiceOut)
+def unblock_invoice(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(Role.finance_staff.value, Role.finance_manager.value, Role.admin.value)),
+):
+    return services.unblock_invoice(db, user, invoice_id)
+
+
 @router.delete("/{invoice_id}")
 def delete_invoice(
     invoice_id: int,

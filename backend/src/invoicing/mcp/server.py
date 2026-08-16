@@ -95,6 +95,10 @@ def build_server() -> MCPServer:
     def invoice_delete(invoice_id: int) -> dict:
         return mcp_tools.invoice_delete(invoice_id)
 
+    @server.tool(description="人工放行被拦截发票（blocked → 待复核，清除重复标记）。")
+    def invoice_unblock(invoice_id: int) -> InvoiceOut:
+        return mcp_tools.invoice_unblock(invoice_id)
+
     return server
 
 

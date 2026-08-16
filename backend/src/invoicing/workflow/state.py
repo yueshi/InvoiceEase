@@ -9,7 +9,7 @@ TRANSITIONS: dict[str, set[str]] = {
     "verifying": {"pending_submit", "pending_review", "blocked"},
     "pending_review": {"pending_submit", "rejected", "verifying"},
     "pending_submit": {"verifying", "submitted"},
-    "blocked": set(),
+    "blocked": {"pending_review"},  # 人工放行（unblock）：拦截票转待复核
     "rejected": set(),
     "submitted": {"archived"},
     "archived": set(),

@@ -319,3 +319,47 @@ def test_file_pdf_inline_disposition(client, db, storage):
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/pdf"
     assert resp.headers["content-disposition"].startswith("inline")
+
+
+def test_unblock_clears_duplicate_and_goes_review(client, db):
+    from invoicing.models import AuditLog
+
+    _seed(db, "caiwu7", Role.finance_staff.value)
+    inv = _invoice(db, status="blocked")
+    inv.duplicate_flag = True
+    inv.duplicate_of_id = 123
+    db.flush()
+    token = _login(client, "caiwu7")
+    resp = client.post(f"/api/v1/invoices/{inv.id}/unblock", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "pending_review"
+    assert resp.json()["duplicate_flag"] is False
+    assert resp.json()["duplicate_of_id"] is None
+    db.flush()
+    logs = db.query(AuditLog).filter(AuditLog.action == "UNBLOCK").all()
+    assert len(logs) == 1
+
+
+def test_unblock_non_blocked_409(client, db):
+    _seed(db, "caiwu8", Role.finance_staff.value)
+    inv = _invoice(db, status="parsed")
+    token = _login(client, "caiwu8")
+    resp = client.post(f"/api/v1/invoices/{inv.id}/unblock", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 409
+
+
+def test_delete_clears_dangling_duplicate_refs(client, db):
+    _seed(db, "zhuguan2", Role.finance_manager.value)
+    victim = _invoice(db)
+    dep = _invoice(db, invoice_number="24312000000099999999", status="blocked")
+    dep.duplicate_flag = True
+    dep.duplicate_of_id = victim.id
+    db.flush()
+    token = _login(client, "zhuguan2")
+    resp = client.delete(f"/api/v1/invoices/{victim.id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    db.flush()
+    db.refresh(dep)
+    assert dep.duplicate_flag is False
+    assert dep.duplicate_of_id is None
+    assert dep.status == "pending_review"  # 被拦截的依赖票转待复核
