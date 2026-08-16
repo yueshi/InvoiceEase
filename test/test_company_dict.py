@@ -102,3 +102,21 @@ def test_none_confidence_no_correction(db):
     parsed.confidence_score = None  # 直接赋值模拟缺失置信度（schema 未禁止运行时赋值）
     assert enrich_parsed(parsed, db) == []
     assert parsed.buyer_name == "澜鸿欣（上海）数字科技有限公司"
+
+
+def test_buyer_seller_swapped_when_seller_is_self(db):
+    """回归：LLM 把本司误放销售方（携程票事故）→ 按「本司必为购买方」交换。"""
+    db.add(CompanyInfo(name="澜铮鸿欣（上海）数字科技有限公司", tax_id="91310101MAELA36R35", kind="self"))
+    db.flush()
+    parsed = _parsed(
+        buyer_name="上海华程西南国际旅行社有限公司",
+        buyer_tax_id="91310105134638405A",
+    )
+    parsed.seller_name = "澜铮鸿欣（上海）数字科技有限公司"
+    parsed.seller_tax_id = "91310101MAELA36R35"
+    errors = enrich_parsed(parsed, db)
+    assert parsed.buyer_name == "澜铮鸿欣（上海）数字科技有限公司"
+    assert parsed.buyer_tax_id == "91310101MAELA36R35"
+    assert parsed.seller_name == "上海华程西南国际旅行社有限公司"
+    assert parsed.seller_tax_id == "91310105134638405A"
+    assert errors == []  # 交换后买方匹配本司，无 BUYER_MISMATCH

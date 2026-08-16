@@ -20,8 +20,12 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "你是资深财务审核员，负责从发票 OCR 文本中提取结构化字段。规则：\n"
-    "1. 严格区分「购买方」与「销售方」：根据字段标签（名称/纳税人识别号）出现的先后与上下文判断，"
-    "通常购买方信息先于销售方出现。\n"
+    "1. 严格区分「购买方」与「销售方」：\n"
+    "   - 标签紧邻场景（「名称：」「纳税人识别号：」标签后紧跟值）：直接按标签归属判断。\n"
+    "   - 破碎布局场景（标签与值分离，值单独成块排列）：值按「购买方组 → 销售方组」成组排列，"
+    "第一组是购买方（名称+税号）、第二组是销售方（名称+税号）；组内税号与名称可能顺序互换"
+    "（如「买方税号 → 卖方名 → 卖方税号」），税号必须与同组名称配对，不得跨组配对。\n"
+    "   - 无法确定归属时输出空字符串，不得猜测。\n"
     "2. 金额提取原文数字原值，不得四舍五入、不得改写；金额字段输出数字字符串。\n"
     "3. 价税合计（total_amount）= 不含税金额（amount_without_tax）+ 税额（tax_amount）："
     "若原文单列了价税合计请直接提取；若只给出「合计」下的两个金额（不含税与税额），"
@@ -34,8 +38,12 @@ SYSTEM_PROMPT = (
 
 VLM_SYSTEM_PROMPT = (
     "你是资深财务审核员，负责从发票图像中提取结构化字段。规则：\n"
-    "1. 严格区分「购买方」与「销售方」：根据字段标签（名称/纳税人识别号）与版式位置判断，"
-    "通常购买方信息先于销售方出现。\n"
+    "1. 严格区分「购买方」与「销售方」：\n"
+    "   - 标签紧邻场景（「名称：」「纳税人识别号：」标签后紧跟值）：直接按标签归属判断。\n"
+    "   - 破碎布局场景（标签与值分离，值单独成块排列）：值按「购买方组 → 销售方组」成组排列，"
+    "第一组是购买方（名称+税号）、第二组是销售方（名称+税号）；组内税号与名称可能顺序互换"
+    "（如「买方税号 → 卖方名 → 卖方税号」），税号必须与同组名称配对，不得跨组配对。\n"
+    "   - 无法确定归属时输出空字符串，不得猜测。\n"
     "2. 金额提取原文数字原值，不得四舍五入、不得改写；金额字段输出数字字符串。\n"
     "3. 价税合计（total_amount）= 不含税金额（amount_without_tax）+ 税额（tax_amount）："
     "若原文单列了价税合计请直接提取；若只给出「合计」下的两个金额（不含税与税额），"
@@ -136,7 +144,8 @@ class LlmEngine:
     def extract_from_text(self, text: str) -> ParsedInvoice | None:
         if not self.enabled:
             return None
-        key = sha1(text.encode("utf-8")).hexdigest()
+        # 缓存键含提示词：提示词升级后旧缓存自动失效
+        key = sha1((text + SYSTEM_PROMPT).encode("utf-8")).hexdigest()
         if key in self._text_cache:
             return self._text_cache[key]
         messages = [
@@ -156,7 +165,8 @@ class LlmEngine:
             return None
         if not self._model_vlm:
             return None  # VLM 模型未配置（llm_model_vlm 为空）→ 图像通道禁用，链末落待复核
-        key = sha1(image).hexdigest()
+        # 缓存键含提示词：提示词升级后旧缓存自动失效
+        key = sha1(image + VLM_SYSTEM_PROMPT.encode("utf-8")).hexdigest()
         if key in self._image_cache:
             return self._image_cache[key]
         import base64

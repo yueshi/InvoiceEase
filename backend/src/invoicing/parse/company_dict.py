@@ -52,6 +52,13 @@ def enrich_parsed(parsed: ParsedInvoice, db: Session) -> list[ParseError]:
                 setattr(parsed, f"{attr}_name", best.name)
 
     self_infos = [i for i in infos if i.kind == CompanyKind.self.value]
+    # 购销方颠倒纠正：销售方税号匹配预设本司 → LLM/OCR 把本司误放销售方（破碎布局
+    # 无位置依据），按「本司必为购买方」假设直接交换（进项发票场景恒成立）
+    if self_infos and parsed.seller_tax_id and any(
+        i.tax_id == parsed.seller_tax_id for i in self_infos
+    ):
+        parsed.buyer_name, parsed.seller_name = parsed.seller_name, parsed.buyer_name
+        parsed.buyer_tax_id, parsed.seller_tax_id = parsed.seller_tax_id, parsed.buyer_tax_id
     if self_infos and parsed.buyer_tax_id and all(
         i.tax_id != parsed.buyer_tax_id for i in self_infos
     ):
