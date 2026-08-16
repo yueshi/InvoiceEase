@@ -1,4 +1,4 @@
-import { api, downloadFile } from "./client";
+import { api, downloadFile, fetchBlobUrl } from "./client";
 import type { InvoiceListResponse, InvoiceOut } from "../types";
 
 export interface ListParams {
