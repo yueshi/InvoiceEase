@@ -1,6 +1,8 @@
 from invoicing.models.audit import AuditLog
+from invoicing.models.company_info import CompanyInfo
 from invoicing.models.enums import (
     AuditAction,
+    CompanyKind,
     FileType,
     InvoiceStatus,
     ParseSource,
@@ -14,6 +16,8 @@ from invoicing.models.user import User
 __all__ = [
     "AuditLog",
     "AuditAction",
+    "CompanyInfo",
+    "CompanyKind",
     "FileType",
     "Invoice",
     "InvoiceStatus",

@@ -1,0 +1,76 @@
+"""常用税号及公司信息 CRUD（admin 专属）。"""
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from invoicing.db import get_db
+from invoicing.models import CompanyInfo, CompanyKind, User
+from invoicing.schemas.company_info import CompanyInfoCreate, CompanyInfoOut, CompanyInfoUpdate
+from invoicing.security import require_role
+
+router = APIRouter(prefix="/company-infos", tags=["company-infos"])
+
+_KINDS = {k.value for k in CompanyKind}
+
+
+def _validate_kind(kind: str) -> None:
+    if kind not in _KINDS:
+        raise HTTPException(422, f"非法类型: {kind}（可选 self/supplier/other）")
+
+
+def _clear_defaults(db: Session) -> None:
+    db.query(CompanyInfo).filter(CompanyInfo.is_default.is_(True)).update({"is_default": False})
+
+
+@router.get("", response_model=list[CompanyInfoOut])
+def list_company_infos(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    return db.query(CompanyInfo).order_by(CompanyInfo.id).all()
+
+
+@router.post("", response_model=CompanyInfoOut)
+def create_company_info(body: CompanyInfoCreate, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    _validate_kind(body.kind)
+    if db.query(CompanyInfo).filter(CompanyInfo.tax_id == body.tax_id).first():
+        raise HTTPException(409, "该税号已存在")
+    if body.is_default:
+        if body.kind != CompanyKind.self.value:
+            raise HTTPException(422, "is_default 仅适用于 kind=self")
+        _clear_defaults(db)
+    info = CompanyInfo(
+        name=body.name,
+        tax_id=body.tax_id,
+        kind=body.kind,
+        is_default=body.is_default,
+        remark=body.remark,
+    )
+    db.add(info)
+    db.commit()
+    return info
+
+
+@router.put("/{info_id}", response_model=CompanyInfoOut)
+def update_company_info(info_id: int, body: CompanyInfoUpdate, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    info = db.get(CompanyInfo, info_id)
+    if info is None:
+        raise HTTPException(404, "记录不存在")
+    data = body.model_dump(exclude_unset=True)
+    if "kind" in data:
+        _validate_kind(data["kind"])
+    if data.get("is_default") and (data.get("kind") or info.kind) != CompanyKind.self.value:
+        raise HTTPException(422, "is_default 仅适用于 kind=self")
+    if data.get("is_default"):
+        _clear_defaults(db)
+        db.refresh(info)
+    for field, value in data.items():
+        setattr(info, field, value)
+    db.commit()
+    return info
+
+
+@router.delete("/{info_id}")
+def delete_company_info(info_id: int, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    info = db.get(CompanyInfo, info_id)
+    if info is None:
+        raise HTTPException(404, "记录不存在")
+    db.delete(info)
+    db.commit()
+    return {"ok": True}

@@ -47,6 +47,12 @@ class FileType(str, Enum):
     IMAGE = "IMAGE"
 
 
+class CompanyKind(str, Enum):
+    self = "self"
+    supplier = "supplier"
+    other = "other"
+
+
 class AuditAction(str, Enum):
     FETCH = "FETCH"
     PARSE = "PARSE"
