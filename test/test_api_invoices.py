@@ -4,10 +4,23 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 
+from invoicing.storage import LocalFileStorage
+
 from invoicing.db import get_db
 from invoicing.main import create_app
 from invoicing.models import Invoice, Role, User
 from invoicing.security import hash_password
+
+
+@pytest.fixture()
+def storage(tmp_path):
+    return LocalFileStorage(root=str(tmp_path / "originals"))
+
+
+@pytest.fixture(autouse=True)
+def _point_api_at_fixture_storage(monkeypatch, storage):
+    # 下载/预览端点经 get_storage() 读原件，测试中指向隔离的 tmp_path 存储
+    monkeypatch.setattr("invoicing.api.invoices.get_storage", lambda: storage)
 
 
 @pytest.fixture()
@@ -147,7 +160,7 @@ def test_download_file_chinese_filename(client, db, monkeypatch):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
-    assert resp.headers["content-disposition"].startswith("attachment;")
+    assert resp.headers["content-disposition"].startswith("inline;")  # PDF 内联预览（2026-08-16 变更）
     assert "filename*" in resp.headers["content-disposition"]
 
 
@@ -229,3 +242,80 @@ def test_delete_invoice_forbidden_for_finance_staff(client, db):
     assert resp.status_code == 403
     db.flush()
     assert db.get(Invoice, inv.id) is not None
+
+
+def _ofd_invoice(db, storage):
+    import io
+    import zipfile
+
+    from invoicing.parse import ofd_render  # noqa: F401  确保模块可导入
+
+    content = """<?xml version="1.0" encoding="UTF-8"?>
+<ofd:Page xmlns:ofd="http://www.ofdspec.org/2016">
+  <ofd:Area>
+    <ofd:PhysicalBox>0 0 210 297</ofd:PhysicalBox>
+    <ofd:ApplicationBox>0 0 210 297</ofd:ApplicationBox>
+  </ofd:Area>
+  <ofd:Content>
+    <ofd:Layer>
+      <ofd:DrawParam ID="2" FillColor="0 0 0"/>
+      <ofd:PathObject Boundary="0 0 210 297" Fill="true" DrawParam="2" ID="4">
+        <ofd:AbbreviatedData>M 20 20 L 100 20 L 100 60 L 20 60 C</ofd:AbbreviatedData>
+      </ofd:PathObject>
+    </ofd:Layer>
+  </ofd:Content>
+</ofd:Page>
+"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("OFD.xml", "<ofd:OFD xmlns:ofd='http://www.ofdspec.org/2016'/>")
+        zf.writestr("Doc_0/Pages/Page_0/Content.xml", content)
+    key = "test-preview/vectors.ofd"
+    storage.put(key, buf.getvalue(), "application/ofd")
+    inv = Invoice(file_url=key, file_type="OFD", status="parsed", invoice_number="24312000000012345678")
+    db.add(inv)
+    db.flush()
+    return inv
+
+
+def test_preview_ofd_renders_png(client, db, storage):
+    _seed(db, "caiwu4", Role.finance_staff.value)
+    inv = _ofd_invoice(db, storage)
+    token = _login(client, "caiwu4")
+    resp = client.get(f"/api/v1/invoices/{inv.id}/preview", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_preview_ofd_unrenderable_422(client, db, storage):
+    _seed(db, "caiwu5", Role.finance_staff.value)
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("OFD.xml", "<ofd:OFD/>")
+        zf.writestr("Doc_0/Pages/Page_0/Content.xml", "<ofd:Page/>")
+    key = "test-preview/empty.ofd"
+    storage.put(key, buf.getvalue(), "application/ofd")
+    inv = Invoice(file_url=key, file_type="OFD", status="parsed", invoice_number="24312000000012345678")
+    db.add(inv)
+    db.flush()
+    token = _login(client, "caiwu5")
+    resp = client.get(f"/api/v1/invoices/{inv.id}/preview", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 422
+
+
+def test_file_pdf_inline_disposition(client, db, storage):
+    _seed(db, "caiwu6", Role.finance_staff.value)
+    storage.put("test-preview/doc.pdf", b"%PDF-1.4 x", "application/pdf")
+    inv = Invoice(file_url="test-preview/doc.pdf", file_type="PDF", status="parsed",
+                  invoice_number="24312000000012345678")
+    db.add(inv)
+    db.flush()
+    token = _login(client, "caiwu6")
+    resp = client.get(f"/api/v1/invoices/{inv.id}/file", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.headers["content-disposition"].startswith("inline")

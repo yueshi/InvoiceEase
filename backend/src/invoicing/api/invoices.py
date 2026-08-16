@@ -16,10 +16,13 @@ from invoicing.workflow import services
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
 
-def _content_disposition(filename: str) -> str:
+def _content_disposition(filename: str, disposition: str = "attachment") -> str:
     """RFC 6266：ASCII 兜底文件名 + UTF-8 filename*（中文原件名不触发 latin-1 编码错误）。"""
     ascii_name = filename.encode("ascii", "ignore").decode().strip() or "download"
-    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(filename)}'
+    return f'{disposition}; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(filename)}'
+
+
+_MIME_BY_TYPE = {"PDF": "application/pdf", "XML": "text/xml; charset=utf-8", "OFD": "application/octet-stream"}
 
 
 @router.get("", response_model=InvoiceListResponse)
@@ -61,11 +64,36 @@ def download_file(
         raise HTTPException(404, "该发票无 XML 原件")
     data = get_storage().get(key)
     filename = key.rsplit("/", 1)[-1]
+    # PDF 与 XML 支持浏览器内联预览；OFD 走 /preview 渲染端点或下载
+    inline = kind == "xml" or (inv.file_type or "") == "PDF"
+    media = "text/xml; charset=utf-8" if kind == "xml" else _MIME_BY_TYPE.get(inv.file_type or "", "application/octet-stream")
     return Response(
         content=data,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": _content_disposition(filename)},
+        media_type=media,
+        headers={"Content-Disposition": _content_disposition(filename, "inline" if inline else "attachment")},
     )
+
+
+@router.get("/{invoice_id}/preview")
+def preview_file(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """OFD 原件渲染预览（字体转曲矢量渲染 / 内嵌页面图）；PDF/XML 请用 /file 端点内联。"""
+    from fastapi import HTTPException
+
+    inv = services.get_invoice(db, user, invoice_id)
+    if (inv.file_type or "") != "OFD":
+        raise HTTPException(404, "仅 OFD 原件支持渲染预览，PDF/XML 请用下载端点")
+    data = get_storage().get(inv.file_url)
+    from invoicing.parse.ocr import extract_ofd_page_image
+    from invoicing.parse.ofd_render import render_ofd_page_to_png
+
+    img = render_ofd_page_to_png(data) or extract_ofd_page_image(data)
+    if img is None:
+        raise HTTPException(422, "该 OFD 无法渲染预览，请下载后用本地阅读器查看")
+    return Response(content=img, media_type="image/png")
 
 
 @router.post("/{invoice_id}/review", response_model=InvoiceOut)
