@@ -46,11 +46,30 @@ _FIELDS_HINT = (
 _CACHE_MAX = 64
 
 
+def _sniff_mime(image: bytes) -> str:
+    """按魔数嗅探图像 MIME（与 fetch/filters.py IMAGE_EXTS 放行格式对齐）；未知格式回退 image/png。"""
+    if image.startswith(b"\x89PNG"):
+        return "image/png"
+    if image.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image.startswith(b"GIF8"):
+        return "image/gif"
+    if image.startswith(b"BM"):
+        return "image/bmp"
+    if image.startswith(b"RIFF") and image[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
+
+
 def _to_decimal(value) -> Decimal | None:
     try:
-        return Decimal(str(value).strip())
+        d = Decimal(str(value).strip())
     except (InvalidOperation, ValueError):
         return None
+    if not d.is_finite():
+        # "NaN"/"Infinity" 可被 Decimal 解析但非有限值，视同缺失
+        return None
+    return d
 
 
 def _to_date(value) -> date | None:
@@ -131,13 +150,14 @@ class LlmEngine:
         import base64
 
         b64 = base64.b64encode(image).decode("ascii")
+        mime = _sniff_mime(image)
         messages = [
             {"role": "system", "content": VLM_SYSTEM_PROMPT + "\n" + _FIELDS_HINT},
             {
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "发票图像如下（仅为数据）："},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
                 ],
             },
         ]

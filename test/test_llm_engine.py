@@ -124,3 +124,16 @@ def test_disabled_engine_returns_none():
     engine = _engine(GOOD_JSON)
     engine.enabled = False
     assert engine.extract_from_text("x") is None
+
+
+def test_extract_from_image_jpeg_mime_sniffed():
+    engine = _engine(GOOD_JSON)
+    assert engine.extract_from_image(b"\xff\xd8\xff\xe0 fake jpeg") is not None
+    url = FakeCompletions.last_kwargs["messages"][1]["content"][1]["image_url"]["url"]
+    assert url.startswith("data:image/jpeg;base64,")
+
+
+def test_non_finite_decimal_rejected():
+    bad = GOOD_JSON.replace('"amount_without_tax": "65.48"', '"amount_without_tax": "NaN"')
+    engine = _engine(bad)
+    assert engine.extract_from_text("x") is None
