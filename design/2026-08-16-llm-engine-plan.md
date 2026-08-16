@@ -23,7 +23,7 @@
 
 ---
 
-### Task L1: 策略链框架重构
+### Task 1: 策略链框架重构
 
 **Files:**
 - Create: `backend/src/invoicing/parse/pipeline.py`
@@ -327,7 +327,7 @@ git commit -m "refactor(parse): 解析路由重构为策略链（能力优先级
 
 ---
 
-### Task L2: LLM 引擎双通道（parse/llm.py）
+### Task 2: LLM 引擎双通道（parse/llm.py）
 
 **Files:**
 - Modify: `backend/pyproject.toml`（新增 openai 依赖）
@@ -750,7 +750,7 @@ git commit -m "feat(parse): LLM 引擎双通道（文本结构化 + VLM 兜底�
 
 ---
 
-### Task L3: 质量门与三触发点接线
+### Task 3: 质量门与三触发点接线
 
 **Files:**
 - Modify: `backend/src/invoicing/models/enums.py`（ParseSource 加 LLM_TEXT/VLM）
@@ -1114,7 +1114,7 @@ git commit -m "feat(parse): 质量门与 LLM 三触发点接线（LLM_TEXT/VLM �
 
 ---
 
-### Task L4: 验收集与真机验收
+### Task 4: 验收集与真机验收
 
 **Files:**
 - Create: `tmp/eval_baseline.json`（不入 git）
