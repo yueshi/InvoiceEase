@@ -1,5 +1,6 @@
 # invoicing/mcp/tools.py
 """MCP 工具实现：薄适配器，直接调用 workflow service 层。"""
+import re
 from datetime import date
 
 from fastapi import HTTPException
@@ -7,7 +8,8 @@ from fastapi import HTTPException
 from invoicing.audit import write_audit
 from invoicing.db import SessionLocal
 from invoicing.fetch.service import poll_mailbox
-from invoicing.models import Mailbox, Role, User
+from invoicing.models import AuditAction, CompanyInfo, CompanyKind, Mailbox, Role, User
+from invoicing.schemas.company_info import CompanyInfoOut, TAX_ID_PATTERN
 from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut
 from invoicing.schemas.mailbox import PollResultOut
 from invoicing.workflow import services
@@ -116,3 +118,68 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
     with SessionLocal() as db:
         inv = db.get(Invoice, invoice_id)
         return InvoiceOut.model_validate(inv, from_attributes=True)
+
+
+def company_info_list(kind: str | None = None) -> list[CompanyInfoOut]:
+    """常用公司列表（kind 可选：self/supplier/other）。"""
+    with SessionLocal() as db:
+        q = db.query(CompanyInfo)
+        if kind:
+            q = q.filter(CompanyInfo.kind == kind)
+        return [CompanyInfoOut.model_validate(i, from_attributes=True) for i in q.order_by(CompanyInfo.id).all()]
+
+
+def company_info_save(
+    name: str,
+    tax_id: str,
+    kind: str = CompanyKind.other.value,
+    is_default: bool = False,
+    remark: str | None = None,
+) -> CompanyInfoOut:
+    """保存常用公司（同税号更新；is_default 仅 kind=self，设默认清其他默认）。
+
+    校验与 REST 对齐（tax_id 18 位 / kind 枚举 / name 非空 / 默认联动），非法输入抛 ValueError。
+    """
+    if not name or not name.strip():
+        raise ValueError("公司名称不能为空")
+    if not re.fullmatch(TAX_ID_PATTERN, tax_id):
+        raise ValueError("税号必须为 18 位字母数字（[0-9A-Z]）")
+    if kind not in {k.value for k in CompanyKind}:
+        raise ValueError(f"非法类型: {kind}（可选 self/supplier/other）")
+    if is_default and kind != CompanyKind.self.value:
+        raise ValueError("is_default 仅适用于 kind=self")
+    with SessionLocal() as db:
+        info = db.query(CompanyInfo).filter(CompanyInfo.tax_id == tax_id).first()
+        if info is None:
+            info = CompanyInfo(tax_id=tax_id)
+            db.add(info)
+        # kind 改为非 self 时 is_default 强制 False，防脏数据（K1 修复轮教训）
+        if kind != CompanyKind.self.value:
+            is_default = False
+        if is_default:
+            db.query(CompanyInfo).filter(CompanyInfo.is_default.is_(True)).update({"is_default": False})
+        info.name = name.strip()
+        info.kind = kind
+        info.is_default = is_default
+        info.remark = remark
+        write_audit(
+            db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
+            detail={"entity": "company_info", "tax_id": tax_id},
+        )
+        db.commit()
+        return CompanyInfoOut.model_validate(info, from_attributes=True)
+
+
+def company_info_delete(id: int) -> dict:
+    """删除常用公司；不存在抛 ValueError。"""
+    with SessionLocal() as db:
+        info = db.get(CompanyInfo, id)
+        if info is None:
+            raise ValueError(f"记录不存在: {id}")
+        db.delete(info)
+        write_audit(
+            db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
+            detail={"entity": "company_info", "id": id, "deleted": True},
+        )
+        db.commit()
+        return {"ok": True}

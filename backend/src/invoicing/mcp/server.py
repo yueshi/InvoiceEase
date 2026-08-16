@@ -5,6 +5,7 @@ from datetime import date
 from mcp.server.mcpserver import MCPServer
 
 from invoicing.mcp import tools as mcp_tools
+from invoicing.schemas.company_info import CompanyInfoOut
 from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut
 from invoicing.schemas.mailbox import PollResultOut
 
@@ -53,6 +54,20 @@ def build_server() -> MCPServer:
     @server.tool(description="导入本地发票原件入库：原件归档 → 解析 → 验真，返回发票记录（重复发票返回已拦截状态）。")
     def invoice_ingest(file_path: str) -> InvoiceOut:
         return mcp_tools.ingest_invoice(file_path)
+
+    @server.tool(description="查询常用税号及公司信息（kind 可选 self/supplier/other）。")
+    def company_info_list(kind: str | None = None) -> list[CompanyInfoOut]:
+        return mcp_tools.company_info_list(kind)
+
+    @server.tool(description="保存常用税号及公司信息（同税号更新；kind=self 可设默认）。")
+    def company_info_save(
+        name: str, tax_id: str, kind: str = "other", is_default: bool = False, remark: str | None = None
+    ) -> CompanyInfoOut:
+        return mcp_tools.company_info_save(name, tax_id, kind, is_default, remark)
+
+    @server.tool(description="删除常用税号及公司信息。")
+    def company_info_delete(id: int) -> dict:
+        return mcp_tools.company_info_delete(id)
 
     return server
 
