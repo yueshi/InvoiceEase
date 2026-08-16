@@ -43,7 +43,12 @@ class PaddleOcrProvider(OcrProvider):
             import numpy as np
             from PIL import Image
 
-            img = np.array(Image.open(io.BytesIO(image_bytes)).convert("RGB"))
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            max_side = max(img.size)
+            if max_side > 2400:
+                scale = 2400 / max_side
+                img = img.resize((int(img.width * scale), int(img.height * scale)))
+            img = np.array(img)
             result = engine.predict(img) if hasattr(engine, "predict") else engine.ocr(img)
         except Exception:
             return None
@@ -70,6 +75,21 @@ class PaddleOcrProvider(OcrProvider):
 
 _provider: OcrProvider | None = None
 _tried = False
+
+
+def preload_ocr_engine() -> None:
+    """后台预热：模型加载（首次 10-30s）移出请求路径，避免首次调用超时。"""
+    import threading
+
+    def _warm() -> None:
+        try:
+            provider = get_ocr_provider()
+            if provider is not None:
+                provider.ocr_image(b"")  # 触发引擎初始化（空输入返回 None，无副作用）
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm, daemon=True).start()
 
 
 def get_ocr_provider() -> OcrProvider | None:
