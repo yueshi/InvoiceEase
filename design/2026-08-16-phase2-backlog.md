@@ -34,3 +34,7 @@
 ## 常用税号及公司信息（Plan K，2026-08-16 已合并）遗留项
 
 14. ~~常用税号及公司信息功能~~ **已完成（Plan K，2026-08-16）**：company_infos 表 + REST CRUD（admin）+ MCP 3 工具 + OCR 纠错字典 + BUYER_MISMATCH 归属校验 + Web UI 系统设置 tab。真机验收：预存「澜铮鸿欣」后及时用车 OFD（字体转曲→OCR）名称自动纠错 ✓。遗留 Minor：① worker BUYER_MISMATCH 用例未断言审计日志写入 ② REST PUT 显式传 null 字段（name/tax_id/is_default）→ IntegrityError 500，应归一化或 422 ③ 前端测试 a-button 断言依赖未注册 antd 的隐式条件 ④ 纠错阈值 0.75/长度差≤4 待真机样本积累后调参。
+
+## OCR + 大模型引擎（Plan L，2026-08-16 已合并）遗留项
+
+15. ~~OCR + 大模型引擎~~ **已完成（Plan L，2026-08-16，真机验收待 key）**：策略链重构（parse/pipeline.py，接口兼容）+ LLM 双通道（parse/llm.py，openai SDK 兼容协议，MIME 嗅探 + sha1 缓存 + 观测日志）+ 质量门三触发点（LLM_TEXT=0.9/VLM=0.85，落入纠错字典范围）。**待办**：① 真机验收——拿到 DashScope API key 后 `cd backend && INVOICING_LLM_ENABLED=true INVOICING_LLM_API_KEY=<key> uv run python ../tmp/eval_llm_engine.py`（字段级 ≥95% 达标）② 渲染缺陷：曹操 OFD 的 render_ofd_page_to_png 输出纯白页（同票 PDF 正常）③ llm_vlm 渲染失败时用原始 PDF/OFD 字节——加守卫（PDF/OFD 且 ctx.image None → return None）④ extract IMAGE 分支改走 parse_file 策略链（现为 Plan F 独立 OCR 路径，无 LLM 兜底）⑤ HEIC 魔数未覆盖 ⑥ 质量门 total_amount==Decimal("0") 误判缺失 ⑦ docs「未启用时行为完全一致」措辞应改为「基本一致」（质量门使缺字段半成品由后续策略兜底）。
