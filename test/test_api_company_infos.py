@@ -83,3 +83,32 @@ def test_admin_only(client, db):
     token = client.post("/api/v1/auth/login", json={"username": "caiwu", "password": "pass123"}).json()["access_token"]
     resp = client.get("/api/v1/company-infos", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+def test_put_kind_change_clears_default(client, db):
+    h = _admin(client, db)
+    resp = client.post("/api/v1/company-infos", json={"name": "A 公司", "tax_id": "91310101MAELA36R35", "kind": "self", "is_default": True}, headers=h)
+    assert resp.status_code == 200
+    info_id = resp.json()["id"]
+    resp = client.put(
+        f"/api/v1/company-infos/{info_id}",
+        json={"kind": "supplier"},
+        headers=h,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["is_default"] is False
+    infos = client.get("/api/v1/company-infos", headers=h).json()
+    assert all(not i["is_default"] for i in infos)
+
+
+def test_put_tax_id_conflict_409(client, db):
+    h = _admin(client, db)
+    a = client.post("/api/v1/company-infos", json={"name": "A 公司", "tax_id": "91310101MAELA36R35", "kind": "self"}, headers=h)
+    assert a.status_code == 200
+    client.post("/api/v1/company-infos", json={"name": "B 公司", "tax_id": "91610132MA6UY02A5U", "kind": "self"}, headers=h)
+    resp = client.put(
+        f"/api/v1/company-infos/{a.json()['id']}",
+        json={"tax_id": "91610132MA6UY02A5U"},
+        headers=h,
+    )
+    assert resp.status_code == 409

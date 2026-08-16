@@ -55,11 +55,20 @@ def update_company_info(info_id: int, body: CompanyInfoUpdate, db: Session = Dep
     data = body.model_dump(exclude_unset=True)
     if "kind" in data:
         _validate_kind(data["kind"])
-    if data.get("is_default") and (data.get("kind") or info.kind) != CompanyKind.self.value:
+    if "tax_id" in data:
+        dup = db.query(CompanyInfo).filter(
+            CompanyInfo.tax_id == data["tax_id"], CompanyInfo.id != info_id
+        ).first()
+        if dup:
+            raise HTTPException(409, "该税号已存在")
+    effective_kind = data.get("kind") or info.kind
+    if data.get("is_default") and effective_kind != CompanyKind.self.value:
         raise HTTPException(422, "is_default 仅适用于 kind=self")
     if data.get("is_default"):
         _clear_defaults(db)
-        db.refresh(info)
+    elif effective_kind != CompanyKind.self.value and info.is_default:
+        # kind 改为非 self 时清掉既有默认，避免脏数据（kind=supplier 且 is_default=True）
+        data["is_default"] = False
     for field, value in data.items():
         setattr(info, field, value)
     db.commit()
