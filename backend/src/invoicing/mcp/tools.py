@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from invoicing.audit import write_audit
 from invoicing.db import SessionLocal
 from invoicing.fetch.service import poll_mailbox
-from invoicing.models import AuditAction, CompanyInfo, CompanyKind, Mailbox, Role, User
+from invoicing.models import AuditAction, AuditLog, CompanyInfo, CompanyKind, Mailbox, Role, User
 from invoicing.schemas.company_info import CompanyInfoOut, TAX_ID_PATTERN
 from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut
 from invoicing.schemas.mailbox import PollResultOut
@@ -117,6 +117,19 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
 
     with SessionLocal() as db:
         inv = db.get(Invoice, invoice_id)
+        if inv is None:
+            # 重复拦截：新记录已被物理删除（审计留痕），返回指向的已有记录
+            dup_log = (
+                db.query(AuditLog)
+                .filter(AuditLog.invoice_id == invoice_id, AuditLog.action == "PARSE")
+                .order_by(AuditLog.id.desc())
+                .first()
+            )
+            existing_id = (dup_log.detail or {}).get("duplicate_of_id") if dup_log else None
+            existing = db.get(Invoice, existing_id) if existing_id else None
+            if existing is not None:
+                return InvoiceOut.model_validate(existing, from_attributes=True)
+            raise ValueError("发票重复且原记录不可用")
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 

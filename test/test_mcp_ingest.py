@@ -57,12 +57,11 @@ def test_ingest_image_with_ocr_full_pipeline(tmp_path, monkeypatch):
     assert inv.file_type == "IMAGE"
 
 
-def test_ingest_duplicate_number_blocked(db, tmp_path):
+def test_ingest_duplicate_returns_existing(db, tmp_path):
     first = ingest_invoice(str(FIXTURES / "dianzi.xml"))
     assert first.status == "pending_submit"
-    # 同发票号不同文件再次导入 → 查重拦截
+    # 同发票号不同文件再次导入 → 查重拦截（新记录物理删除），返回已有记录
     dup = tmp_path / "dianzi_copy.xml"
     dup.write_bytes((FIXTURES / "dianzi.xml").read_bytes())
     second = ingest_invoice(str(dup))
-    assert second.status == "blocked"
-    assert second.duplicate_of_id == first.id
+    assert second.id == first.id  # 返回已有记录而非空壳

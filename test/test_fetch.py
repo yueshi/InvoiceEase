@@ -125,7 +125,8 @@ def test_poll_same_email_two_invoices_both_stored(db):
     result = poll_mailbox(db, mb, fetcher)
     assert result.received == 2
     assert result.duplicates == 0
-    assert db.query(Invoice).filter(Invoice.email_message_id == "<msg1@example.com>").count() == 2
+    # 同票号第二票在解析阶段查重拦截（物理删除，不留空壳）：库中仅存一张
+    assert db.query(Invoice).filter(Invoice.email_message_id == "<msg1@example.com>").count() == 1
 
 
 def test_poll_duplicate_email_same_file_blocked(db):
