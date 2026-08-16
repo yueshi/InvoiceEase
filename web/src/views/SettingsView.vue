@@ -1,6 +1,6 @@
 <!-- 系统配置：邮箱配置 + 用户管理 + 常用税号/公司 三 tab -->
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { onMounted, reactive, ref, watch } from "vue";
 import { Modal, message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
 import { createCompanyInfo, deleteCompanyInfo, listCompanyInfos, updateCompanyInfo } from "../api/companyInfos";
@@ -27,14 +27,27 @@ const companyInfos = ref<CompanyInfoOut[]>([]);
 const companyModalOpen = ref(false);
 const editingCompanyId = ref<number | null>(null);
 const companyForm = reactive({ name: "", tax_id: "", kind: "other", is_default: false, remark: "" });
+// 类型切为非本司时联动清空默认标记，避免 checkbox 禁用但仍勾选的视觉误导
+watch(() => companyForm.kind, (kind) => {
+  if (kind !== "self") companyForm.is_default = false;
+});
 
 async function loadAll() {
+  // 三项独立加载：任一失败不影响其余渲染，各自单独提示
   try {
     mailboxes.value = await listMailboxes();
+  } catch (e) {
+    errorMessage(e, "邮箱配置加载失败");
+  }
+  try {
     users.value = await listUsers();
+  } catch (e) {
+    errorMessage(e, "用户配置加载失败");
+  }
+  try {
     companyInfos.value = await listCompanyInfos();
   } catch (e) {
-    errorMessage(e, "配置加载失败");
+    errorMessage(e, "公司配置加载失败");
   }
 }
 onMounted(loadAll);
@@ -267,7 +280,7 @@ const companyColumns = [
       <a-form layout="vertical">
         <a-form-item label="公司名称"><a-input v-model:value="companyForm.name" /></a-form-item>
         <a-form-item label="税号"><a-input v-model:value="companyForm.tax_id" placeholder="18 位字母数字" /></a-form-item>
-        <a-form-item label="类型">
+        <a-form-item label="公司类型">
           <a-select v-model:value="companyForm.kind">
             <a-select-option v-for="(label, value) in COMPANY_KIND_LABELS" :key="value" :value="value">{{ label }}</a-select-option>
           </a-select>

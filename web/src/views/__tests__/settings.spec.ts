@@ -43,10 +43,11 @@ describe("SettingsView", () => {
     const wrapper = mount(SettingsView, { global: { stubs: { "a-tabs": { template: "<div><slot /></div>" }, "a-tab-pane": { template: "<div><slot /></div>" }, "a-modal": { template: "<div><slot /></div>" }, "a-table": { template: "<div />" } } } });
     // 新建公司按钮（区别于邮箱/用户；测试环境未注册 antd，a-button 为原始自定义元素）
     expect(wrapper.findAll("a-button").some((b) => b.text().includes("新建公司"))).toBe(true);
-    // 公司表单字段渲染（名称/税号/类型/默认/备注）
+    // 公司表单字段渲染（名称/税号/公司类型/默认/备注；公司类型区别于邮箱 modal 的类型字段）
     expect(wrapper.find("a-form-item[label='公司名称']").exists()).toBe(true);
     expect(wrapper.find("a-form-item[label='税号']").exists()).toBe(true);
-    expect(wrapper.find("a-form-item[label='类型']").exists()).toBe(true);
+    expect(wrapper.find("a-form-item[label='公司类型']").exists()).toBe(true);
+    expect(wrapper.findAll("a-form-item[label='类型']")).toHaveLength(1); // 仅邮箱 modal 有「类型」
     expect(wrapper.find("a-form-item[label='默认']").exists()).toBe(true);
     expect(wrapper.find("a-form-item[label='备注']").exists()).toBe(true);
   });
