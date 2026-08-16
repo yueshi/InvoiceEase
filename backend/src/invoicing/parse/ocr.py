@@ -5,6 +5,7 @@
 """
 import io
 import zipfile
+from hashlib import sha1
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -20,6 +21,10 @@ class OcrProvider(ABC):
     def ocr_image(self, image_bytes: bytes) -> OcrText | None: ...
 
 
+_cache: dict[str, OcrText] = {}
+_CACHE_MAX = 64
+
+
 class PaddleOcrProvider(OcrProvider):
     def __init__(self) -> None:
         self._engine = None
@@ -30,12 +35,25 @@ class PaddleOcrProvider(OcrProvider):
             try:
                 from paddleocr import PaddleOCR  # 惰性导入：optional 依赖
 
-                self._engine = PaddleOCR(lang="ch", use_angle_cls=True)  # 角度分类提升字形识别
+                # 注：enable_mkldnn 在本机 paddle 2.6 wheel 上缺 API 不可用，勿开启
+                self._engine = PaddleOCR(lang="ch", use_angle_cls=True)
             except Exception:
                 self._init_failed = True
         return self._engine
 
     def ocr_image(self, image_bytes: bytes) -> OcrText | None:
+        # 结果缓存：同一图片（如 WorkBuddy 对同一文件重复调用）秒回
+        key = sha1(image_bytes).hexdigest()
+        if key in _cache:
+            return _cache[key]
+        result = self._ocr_uncached(image_bytes)
+        if result is not None:
+            if len(_cache) >= _CACHE_MAX:
+                _cache.pop(next(iter(_cache)))
+            _cache[key] = result
+        return result
+
+    def _ocr_uncached(self, image_bytes: bytes) -> OcrText | None:
         engine = self._ensure_engine()
         if engine is None:
             return None
@@ -45,8 +63,8 @@ class PaddleOcrProvider(OcrProvider):
 
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             max_side = max(img.size)
-            if max_side > 2400:
-                scale = 2400 / max_side
+            if max_side > 1800:
+                scale = 1800 / max_side
                 img = img.resize((int(img.width * scale), int(img.height * scale)))
             img = np.array(img)
             result = engine.predict(img) if hasattr(engine, "predict") else engine.ocr(img)
