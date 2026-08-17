@@ -191,6 +191,16 @@ class LlmEngine:
             self._image_cache[key] = parsed
         return parsed
 
+    def chat_json(self, system_prompt: str, user_content: str) -> str | None:
+        """通用 JSON 对话通道（供预判/归类等下游能力复用，不写私有 _chat）。"""
+        return self._chat(
+            self._model_text,
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+        )
+
     def _chat(self, model: str, messages: list[dict]) -> str | None:
         t0 = time.perf_counter()
         try:

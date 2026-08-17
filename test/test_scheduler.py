@@ -16,3 +16,9 @@ def test_register_task_supports_cron():
     assert spec["trigger"] == "cron"
     assert spec["trigger_kwargs"]["hour"] == 9
     sched_mod.TASKS.pop("test_task")  # 清理，避免影响其他测试
+
+
+def test_task_registry_contains_review_predict():
+    assert "review_predict" in sched_mod.TASKS
+    assert sched_mod.TASKS["review_predict"]["trigger"] == "interval"
+    assert sched_mod.TASKS["review_predict"]["trigger_kwargs"]["seconds"] == 60

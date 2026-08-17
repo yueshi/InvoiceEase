@@ -99,6 +99,23 @@ def build_server() -> MCPServer:
     def invoice_unblock(invoice_id: int) -> InvoiceOut:
         return mcp_tools.invoice_unblock(invoice_id)
 
+    @server.tool(description="发票费用归类（不传 expense_type 时自动建议：travel/office/entertainment/procurement/other）。")
+    def invoice_classify(
+        invoice_id: int,
+        expense_type: str | None = None,
+        cost_center: str | None = None,
+        description: str | None = None,
+    ) -> InvoiceOut:
+        return mcp_tools.invoice_classify(invoice_id, expense_type, cost_center, description)
+
+    @server.tool(description="生成/重算发票复核预判（approve/reject/uncertain + 理由 + 置信度；建议不自动执行）。")
+    def invoice_ai_review(invoice_id: int) -> InvoiceOut:
+        return mcp_tools.invoice_ai_review(invoice_id)
+
+    @server.tool(description="月度成本报表摘要（总额/张数/类型与部门分布；month 格式 YYYY-MM）。")
+    def invoice_report(month: str) -> str:
+        return mcp_tools.invoice_report(month)
+
     return server
 
 

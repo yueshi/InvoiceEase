@@ -168,6 +168,15 @@ def update_invoice(db: Session, current_user: User | None, invoice_id: int, data
             changed[field] = str(value)
     if any(f in changed for f in _AMOUNT_FIELDS):
         _revalidate_invoice(inv)  # 用户修正金额/大写 → 校验告警重算
+    # B4：关键字段变更 → 既有 AI 预判基于旧数据作废（理由不得基于旧数据），班表下轮重算
+    _REVIEW_SENSITIVE_FIELDS = set(_AMOUNT_FIELDS) | {
+        "buyer_name", "buyer_tax_id", "seller_name", "seller_tax_id", "invoice_type", "issue_date",
+    }
+    if changed and any(f in _REVIEW_SENSITIVE_FIELDS for f in changed):
+        inv.ai_review_verdict = None
+        inv.ai_review_reason = None
+        inv.ai_review_confidence = None
+        inv.ai_reviewed_at = None
     if changed:
         write_audit(
             db, action="INVOICE_UPDATE", user_id=current_user.id if current_user else None,

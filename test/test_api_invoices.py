@@ -384,3 +384,23 @@ def test_put_amount_fields_recalculates_validation_errors(client, db):
     )
     assert resp.status_code == 200
     assert resp.json()["validation_errors"] is None  # 用户修正值参与校验，告警消除
+
+
+def test_put_key_fields_clears_ai_review_prediction(client, db):
+    """B4 回归：修正金额/购销方后旧预判失效，理由不得基于旧数据。"""
+    _seed(db, "caiwu10", Role.finance_staff.value)
+    inv = _invoice(db, status="pending_review")
+    inv.ai_review_verdict = "approve"
+    inv.ai_review_reason = "字段完整且校验通过"
+    inv.ai_review_confidence = 1.0
+    db.flush()
+    token = _login(client, "caiwu10")
+    resp = client.put(
+        f"/api/v1/invoices/{inv.id}",
+        json={"total_amount": "888.00"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ai_review_verdict"] is None
+    assert resp.json()["ai_review_reason"] is None
+    assert resp.json()["ai_review_confidence"] is None

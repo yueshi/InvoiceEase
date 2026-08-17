@@ -36,6 +36,13 @@ class InvoiceOut(BaseModel):
     duplicate_flag: bool
     duplicate_of_id: int | None
     status: str
+    expense_type: str | None
+    cost_center: str | None
+    description: str | None
+    ai_review_verdict: str | None
+    ai_review_reason: str | None
+    ai_review_confidence: float | None
+    ai_reviewed_at: datetime | None
     review_note: str | None
     reviewed_by: int | None
     reviewed_at: datetime | None
@@ -74,4 +81,7 @@ class InvoiceUpdate(BaseModel):
     buyer_name: str | None = None
     buyer_tax_id: str | None = None
     invoice_type: str | None = None
+    expense_type: str | None = None
+    cost_center: str | None = None
+    description: str | None = None
     review_note: str | None = None

@@ -62,6 +62,20 @@ async def _scheduled_poll() -> None:
 register_task("mailbox_poll", _scheduled_poll, seconds=60)
 
 
+def _generate_review_predictions() -> None:
+    from invoicing.parse.ai_review import generate_missing_predictions
+
+    try:
+        processed = generate_missing_predictions()
+        if processed:
+            logger.info("复核预判生成 %s 张", processed)
+    except Exception:
+        logger.exception("复核预判任务异常")
+
+
+register_task("review_predict", _generate_review_predictions, seconds=60)
+
+
 def setup_scheduler(app: FastAPI) -> None:
     if not settings.scheduler_enabled:
         return

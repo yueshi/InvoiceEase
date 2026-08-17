@@ -258,3 +258,74 @@ def invoice_unblock(invoice_id: int) -> InvoiceOut:
     with SessionLocal() as db:
         inv = _http_to_value_error(services.unblock_invoice, db, None, invoice_id)
         return InvoiceOut.model_validate(inv, from_attributes=True)
+
+
+def invoice_classify(
+    invoice_id: int,
+    expense_type: str | None = None,
+    cost_center: str | None = None,
+    description: str | None = None,
+) -> InvoiceOut:
+    """费用归类：expense_type 不传时自动建议并落库（travel/office/entertainment/procurement/other）。"""
+    from invoicing.models import Invoice
+    from invoicing.parse.classify import EXPENSE_TYPES, suggest_expense_type
+
+    with SessionLocal() as db:
+        inv = db.get(Invoice, invoice_id)
+        if inv is None:
+            raise ValueError(f"发票不存在: {invoice_id}")
+        if expense_type is not None and expense_type not in EXPENSE_TYPES:
+            raise ValueError(f"非法费用类型: {expense_type}（可选 {', '.join(EXPENSE_TYPES)}）")
+        if expense_type is None:
+            expense_type = suggest_expense_type(inv.seller_name or "", inv.invoice_type)
+        inv.expense_type = expense_type
+        if cost_center is not None:
+            inv.cost_center = cost_center
+        if description is not None:
+            inv.description = description
+        write_audit(
+            db, action="INVOICE_CLASSIFY", invoice_id=invoice_id, channel="mcp",
+            detail={"expense_type": expense_type, "cost_center": cost_center, "description": description},
+        )
+        db.commit()
+        return InvoiceOut.model_validate(inv, from_attributes=True)
+
+
+def invoice_ai_review(invoice_id: int) -> InvoiceOut:
+    """生成/重算发票复核预判（approve/reject/uncertain + 理由 + 置信度）。"""
+    from invoicing.models import Invoice
+    from invoicing.models.fields import utcnow
+    from invoicing.parse.ai_review import predict_review
+
+    with SessionLocal() as db:
+        inv = db.get(Invoice, invoice_id)
+        if inv is None:
+            raise ValueError(f"发票不存在: {invoice_id}")
+        verdict = predict_review(inv, db)
+        if verdict is None:
+            raise ValueError("预判不可用（LLM 未启用或调用失败），请人工复核")
+        inv.ai_review_verdict = verdict.verdict
+        inv.ai_review_reason = verdict.reason
+        inv.ai_review_confidence = verdict.confidence
+        inv.ai_reviewed_at = utcnow()
+        write_audit(
+            db, action="AI_REVIEW", invoice_id=invoice_id, channel="mcp",
+            detail={"verdict": verdict.verdict, "reason": verdict.reason, "confidence": verdict.confidence},
+        )
+        db.commit()
+        return InvoiceOut.model_validate(inv, from_attributes=True)
+
+
+def invoice_report(month: str) -> str:
+    """月度成本报表摘要（供数字员工汇报）：总额/张数/类型分布/部门分布。"""
+    from invoicing.reports import monthly_cost
+
+    with SessionLocal() as db:
+        data = monthly_cost(db, month)
+    lines = [
+        f"{month} 月成本报表：共 {data['total_count']} 张，合计 {data['total_amount']} 元"
+        f"（不含税 {data['total_without_tax']} 元 + 税额 {data['total_tax']} 元）",
+        "按费用类型：" + "；".join(f"{k} {v}元" for k, v in data["by_type"].items()) if data["by_type"] else "（无）",
+        "按部门/项目：" + "；".join(f"{k} {v}元" for k, v in data["by_center"].items()) if data["by_center"] else "（无）",
+    ]
+    return "\n".join(lines)

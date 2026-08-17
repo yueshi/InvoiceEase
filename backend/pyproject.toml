@@ -22,6 +22,7 @@ dependencies = [
     "mcp>=2.0.0",
     "httpx>=0.28.1",
     "openai>=1.60",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]

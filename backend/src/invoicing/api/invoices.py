@@ -141,3 +141,32 @@ def delete_invoice(
     user: User = Depends(require_role(Role.finance_manager.value, Role.admin.value)),
 ):
     return services.delete_invoice(db, user, invoice_id)
+
+
+@router.post("/{invoice_id}/ai-review", response_model=InvoiceOut)
+def ai_review(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(Role.finance_staff.value, Role.finance_manager.value, Role.admin.value)),
+):
+    """按需生成/重算 AI 复核预判（班表任务通常已生成；改字段后可手动重算）。"""
+    from fastapi import HTTPException
+
+    from invoicing.audit import write_audit
+    from invoicing.models.fields import utcnow
+    from invoicing.parse.ai_review import predict_review
+
+    inv = services.get_invoice(db, user, invoice_id)
+    verdict = predict_review(inv, db)
+    if verdict is None:
+        raise HTTPException(422, "预判不可用（LLM 未启用或调用失败），请人工复核")
+    inv.ai_review_verdict = verdict.verdict
+    inv.ai_review_reason = verdict.reason
+    inv.ai_review_confidence = verdict.confidence
+    inv.ai_reviewed_at = utcnow()
+    write_audit(
+        db, action="AI_REVIEW", user_id=user.id, invoice_id=inv.id, channel="web",
+        detail={"verdict": verdict.verdict, "reason": verdict.reason, "confidence": verdict.confidence},
+    )
+    db.commit()
+    return inv
