@@ -49,6 +49,13 @@ export interface InvoiceOut {
   duplicate_flag: boolean;
   duplicate_of_id: number | null;
   status: string;
+  expense_type: string | null;
+  cost_center: string | null;
+  description: string | null;
+  ai_review_verdict: string | null;
+  ai_review_reason: string | null;
+  ai_review_confidence: number | null;
+  ai_reviewed_at: string | null;
   xml_url: string | null;  // 合规存档：含数字签名的 XML 原件地址
   review_note: string | null;
   reviewed_by: number | null;

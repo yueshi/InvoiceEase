@@ -32,10 +32,14 @@
 
 调研 WorkBuddy 平台能力（文档/试用/询问）：数字员工能否在**无用户消息**的情况下发起对话或执行任务（定时任务、事件订阅、webhook 推送等）。
 
-- [ ] **Step 2: 按结论修正产品预期**
+- [x] **Step 2: 按结论修正产品预期（已完成，2026-08-17 验证）**
 
-- 支持 → P3「周一主动汇报」按平台机制设计（届时 scheduler cron 注册表已预留）
-- 不支持 → 主动汇报降级为「用户唤醒」：老板打开对话时数字员工汇报积压事项；P2 企微/钉钉 webhook 机器人补位。本计划 SKILL 手册按降级口径编写。
+**结论：支持。** WorkBuddy 具备「自动化」定时任务（每天/每周/单次，可挂技能包与 MCP 连接器）+ 主动推送通道（微信 ClawBot 推送 MCP / QQ 邮箱 MCP / 小程序通知）。
+
+落地方式（SKILL 手册已按此编写）：
+- 「周一成本周报」「每日收票巡检」「待复核催办」配置为平台自动化任务，Prompt 引用 SKILL 工作手册
+- 后端 scheduler cron 注册表（Task 1 已预留）作为企业内部班表补充（P3 周报/月报也可走此轨道）
+- 「用户唤醒」仍保留为兜底轨道（对话开场汇报积压）
 
 ---
 
@@ -194,14 +198,16 @@ git commit -m "refactor(scheduler): 任务目录 trigger 结构（cron 预留）
 
 ---
 
-### Task 2: 费用归类（字段迁移 + classify 模块 + 接口）
+### Task 2: 费用归类（classify 模块 + 接口 + Web 归类 select）
+
+> 字段与迁移已在 Task 1 Step 5 合并完成（expense_type/cost_center/description/submitted_by_user_id 已落表）。
 
 **Files:**
-- Modify: `backend/src/invoicing/models/invoice.py`（4 字段）
-- Create: `backend/alembic/versions/<autogen>_expense_fields.py`
 - Create: `backend/src/invoicing/parse/classify.py`
-- Modify: `backend/src/invoicing/schemas/invoice.py`（InvoiceUpdate/InvoiceOut 加字段）
+- Modify: `backend/src/invoicing/parse/llm.py`（公开 chat_json）
+- Modify: `backend/src/invoicing/schemas/invoice.py`（InvoiceUpdate/InvoiceOut 加 3 字段）
 - Modify: `backend/src/invoicing/mcp/tools.py` + `server.py`（invoice_classify 工具）
+- Modify: `web/src/types.ts`、`web/src/api/invoices.ts`、`web/src/components/InvoiceDetailDrawer.vue`（归类 select）
 - Test: `test/test_classify.py`
 
 **Interfaces:**
@@ -216,27 +222,21 @@ git commit -m "refactor(scheduler): 任务目录 trigger 结构（cron 预留）
 - LLM 仅规则未命中时调用（llm_enabled=False 或失败 → "other"）
 - 归类建议只写建议不强制——人工可在 Web/接口改
 
-- [ ] **Step 1: 模型加字段（迁移）**
-
-`backend/src/invoicing/models/invoice.py` 的 Invoice 类中 `review_note` 之后追加：
+- [ ] **Step 1: 写失败测试 test/test_classify.py**（规则层确定性 + LLM 层 fake 注入，两路径都覆盖）
 
 ```python
-    # 费用归类（数字员工 P1）：差旅/办公/招待/采购/其他 + 部门/项目 + 说明
-    expense_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    cost_center: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    description: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    submitted_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-```
-
-（需确认 models/invoice.py 已导入 Integer——若未导入补 `from sqlalchemy import ... Integer ...`）
-
-Run: `cd backend && uv run alembic revision --autogenerate -m "invoices 费用归类与提交人字段"` 且 `uv run alembic upgrade head`
-
-- [ ] **Step 2: 写失败测试 test/test_classify.py**
-
-```python
-"""费用归类建议测试（规则优先，LLM 兜底不参与单元断言）。"""
+"""费用归类建议测试（规则优先；LLM 兜底路径用 fake 引擎注入验证）。"""
 from invoicing.parse.classify import EXPENSE_TYPES, suggest_expense_type
+
+
+class _FakeEngine:
+    """fake LlmEngine：按预设回复，验证 classify 的 LLM 路径（不依赖真实 LLM）。"""
+
+    def __init__(self, reply: str):
+        self._reply = reply
+
+    def chat_json(self, system_prompt: str, user_content: str) -> str:
+        return self._reply
 
 
 def test_travel_keywords():
@@ -256,6 +256,36 @@ def test_unknown_returns_other():
 
 def test_expense_types_order():
     assert EXPENSE_TYPES == ("travel", "office", "entertainment", "procurement", "other")
+
+
+def test_llm_suggests_when_rule_misses(monkeypatch):
+    """规则未命中时 LLM 判断：fake 引擎返回合法类别被采纳。"""
+    import invoicing.parse.classify as mod
+
+    monkeypatch.setattr(mod, "get_llm_engine", lambda: _FakeEngine("travel"))
+    assert suggest_expense_type("某某科技有限公司", None) == "travel"
+
+
+def test_llm_garbage_falls_back_to_other(monkeypatch):
+    """LLM 返回非枚举值（花括号 JSON/未知名词）→ 兜底 other。"""
+    import invoicing.parse.classify as mod
+
+    monkeypatch.setattr(mod, "get_llm_engine", lambda: _FakeEngine("{"))
+    assert suggest_expense_type("某某科技有限公司", None) == "other"
+    monkeypatch.setattr(mod, "get_llm_engine", lambda: _FakeEngine("catering"))  # 非法类别
+    assert suggest_expense_type("某某科技有限公司", None) == "other"
+
+
+def test_llm_exception_falls_back_to_other(monkeypatch):
+    """LLM 抛异常 → 兜底 other（降级安全，不阻断归类流程）。"""
+    import invoicing.parse.classify as mod
+
+    class _Boom:
+        def chat_json(self, *args):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(mod, "get_llm_engine", lambda: _Boom())
+    assert suggest_expense_type("某某科技有限公司", None) == "other"
 ```
 
 - [ ] **Step 3: 运行确认失败**
@@ -366,8 +396,8 @@ def invoice_classify(
         if description is not None:
             inv.description = description
         write_audit(
-            db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
-            detail={"entity": "invoice_classify", "invoice_id": invoice_id, "expense_type": expense_type},
+            db, action="INVOICE_CLASSIFY", invoice_id=invoice_id, channel="mcp",
+            detail={"expense_type": expense_type, "cost_center": cost_center, "description": description},
         )
         db.commit()
         return InvoiceOut.model_validate(inv, from_attributes=True)
@@ -386,70 +416,157 @@ mcp/server.py 注册（company_info_delete 之后）：
         return mcp_tools.invoice_classify(invoice_id, expense_type, cost_center, description)
 ```
 
-- [ ] **Step 6: 测试与回归**
+- [ ] **Step 6: Web 归类 select（够用版）**
 
-Run: `cd backend && uv run pytest ../test/test_classify.py -v` → 4 PASS
+web/src/types.ts 的 InvoiceOut 追加（review_note 之前）：
+
+```ts
+  expense_type: string | null;
+  cost_center: string | null;
+  description: string | null;
+```
+
+web/src/api/invoices.ts 追加：
+
+```ts
+export async function updateInvoice(
+  id: number,
+  payload: { expense_type?: string | null; cost_center?: string | null; description?: string | null },
+): Promise<InvoiceOut> {
+  const { data } = await api.put<InvoiceOut>(`/invoices/${id}`, payload);
+  return data;
+}
+```
+
+web/src/components/InvoiceDetailDrawer.vue：descriptions 之后（下载按钮区之前）加归类编辑区：
+
+```vue
+      <a-divider>费用归类</a-divider>
+      <a-space direction="vertical" style="width: 100%">
+        <a-select
+          :value="invoice.expense_type ?? undefined"
+          placeholder="费用类型"
+          style="width: 100%"
+          :options="EXPENSE_TYPE_OPTIONS"
+          @change="onClassify"
+        />
+        <a-input
+          :value="invoice.cost_center ?? undefined"
+          placeholder="部门/项目（可空）"
+          @press-enter="onCostCenter"
+        />
+      </a-space>
+```
+
+script 补：
+
+```ts
+import { message } from "ant-design-vue";
+import { updateInvoice } from "../api/invoices";
+
+const EXPENSE_TYPE_OPTIONS = [
+  { label: "差旅", value: "travel" },
+  { label: "办公", value: "office" },
+  { label: "招待", value: "entertainment" },
+  { label: "采购", value: "procurement" },
+  { label: "其他", value: "other" },
+];
+
+async function onClassify(value: string) {
+  if (!props.invoice) return;
+  try {
+    await updateInvoice(props.invoice.id, { expense_type: value });
+    message.success("已归类");
+    emit("refresh");
+  } catch {
+    message.error("归类失败");
+  }
+}
+
+async function onCostCenter(e: Event) {
+  const value = (e.target as HTMLInputElement).value;
+  if (!props.invoice) return;
+  try {
+    await updateInvoice(props.invoice.id, { cost_center: value || null });
+    message.success("已保存");
+    emit("refresh");
+  } catch {
+    message.error("保存失败");
+  }
+}
+```
+
+前端测试：`web/src/views/__tests__/invoice-list.spec.ts` 保持全绿（Drawer 为 stub，无新增断言要求）。
+
+- [ ] **Step 7: 测试与回归**
+
+Run: `cd backend && uv run pytest ../test/test_classify.py -v` → 7 PASS
 Run: `cd backend && uv run pytest ../test/test_mcp_invoice_ops.py ../test/test_api_invoices.py -q` → 全绿（schema 扩展不破坏既有断言）
-Run: `cd backend && uv run pytest ../test -q` → 244 + 4 全绿
+Run: `cd backend && uv run pytest ../test -q` → 246 + 7 全绿
+Run: `cd web && npm run test && npm run build` → 全绿
 
-- [ ] **Step 7: 提交**
+- [ ] **Step 8: 提交**
 
 ```bash
-git add backend/src/invoicing/models/invoice.py backend/alembic/versions backend/src/invoicing/parse/classify.py backend/src/invoicing/parse/llm.py backend/src/invoicing/schemas/invoice.py backend/src/invoicing/mcp/tools.py backend/src/invoicing/mcp/server.py test/test_classify.py
-git commit -m "feat(parse): 费用归类字段与建议（规则+LLM，MCP invoice_classify）"
+git add backend/src/invoicing/parse/classify.py backend/src/invoicing/parse/llm.py backend/src/invoicing/schemas/invoice.py backend/src/invoicing/mcp/tools.py backend/src/invoicing/mcp/server.py web/src/types.ts web/src/api/invoices.ts web/src/components/InvoiceDetailDrawer.vue test/test_classify.py design/2026-08-17-digital-employee-p1-plan.md
+git commit -m "feat(parse): 费用归类建议（规则+LLM 兜底）与 MCP/Web 入口"
 ```
 
 ---
 
-### Task 3: 复核预判（ai_review 模块 + 班表任务 + 接口 + Web 卡片）
+### Task 3: 复核预判（ai_review 模块 + 班表任务 + 接口 + Web 卡片 + 改字段失效）
+
+> ai_review 4 字段已在 Task 1 Step 5 合并迁移落表，本任务不再迁移。
 
 **Files:**
 - Create: `backend/src/invoicing/parse/ai_review.py`
-- Modify: `backend/src/invoicing/models/invoice.py`（ai_review 4 字段）+ 迁移
 - Modify: `backend/src/invoicing/scheduler.py`（review_predict 班表任务）
+- Modify: `backend/src/invoicing/workflow/services.py`（update_invoice 变更关键字段时清空预判）
 - Modify: `backend/src/invoicing/schemas/invoice.py`（InvoiceOut 加 4 字段）
 - Modify: `backend/src/invoicing/api/invoices.py`（POST /{id}/ai-review）
 - Modify: `backend/src/invoicing/mcp/tools.py` + `server.py`（invoice_ai_review）
-- Test: `test/test_ai_review.py`
+- Modify: `web/src/types.ts` + `web/src/components/InvoiceDetailDrawer.vue`（预判卡片）
+- Test: `test/test_ai_review.py`、`test/test_scheduler.py`（追加）、`test/test_api_invoices.py`（追加）
 
 **Interfaces:**
 - Consumes: `Invoice`、`CompanyInfo`、`get_llm_engine`
 - Produces:
   - `ReviewVerdict(verdict: str, reason: str, confidence: float)`（verdict ∈ approve/reject/uncertain）
   - `predict_review(inv: Invoice, db: Session) -> ReviewVerdict | None`（规则层/LLM 层；LLM 不可用返回 None）
-  - `generate_missing_predictions() -> int`（班表任务体：扫 pending_review 且 ai_reviewed_at IS NULL → 逐个生成；返回处理数）
+  - `generate_missing_predictions() -> int`（班表任务体：扫 pending_review 且 ai_reviewed_at IS NULL → 逐个生成，**单次上限 10 张**防串行 LLM 积压；返回处理数）
 
 **行为约定（三层混合，决策必须带理由）：**
 - 规则拦截（conf=1.0，reason=规则名）：errors 含 BUYER_MISMATCH / TOTAL_MISMATCH / XML_PARSE_ERROR → reject
-- 规则通过（conf=1.0）：无 errors 且 GATE_FIELDS（buyer_name/buyer_tax_id/seller_name/seller_tax_id/total_amount）齐全 → approve（防御分支，正常不应出现）
+- 规则通过（conf=1.0）：无 errors 且 GATE_FIELDS（buyer_name/buyer_tax_id/seller_name/seller_tax_id/total_amount）齐全 → approve
+- **OCR 置信度门槛（在规则通过之前判定）**：parse_source 非 XML 且 confidence_score < 0.8 → 直接 uncertain（reason 引置信度，不调 LLM）——FRD 人工复核底线，低置信度票不得给 conf=1.0 的 approve
 - LLM 判断：其余（字段缺失/其他 errors）→ 输入上下文含本司税号与供应商名称字典；输出三档 + 中文理由 + confidence
 - 降级：LLM 失败 → 返回 None（不生成预判，人工照旧）
+- **改字段失效（B4）**：update_invoice 变更金额/购销方等关键字段时清空 ai_review_* 四字段，班表任务下轮重新生成——理由不得基于旧数据
 
-- [ ] **Step 1: 模型字段 + 迁移**
-
-models/invoice.py（expense 字段之后）：
-
-```python
-    # AI 复核预判（数字员工 P1）：建议结论/理由/置信度；None=未生成
-    ai_review_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    ai_review_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    ai_review_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    ai_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-```
-
-Run: `cd backend && uv run alembic revision --autogenerate -m "invoices AI 复核预判字段"` + upgrade head
-
-- [ ] **Step 2: 写失败测试 test/test_ai_review.py**
+- [ ] **Step 1: 写失败测试 test/test_ai_review.py**（规则层确定性 + OCR 门槛 + LLM 层 fake 注入）
 
 ```python
 """复核预判测试（规则层确定性断言；LLM 层 fake 注入）。"""
 from datetime import date
 from decimal import Decimal
 
-from invoicing.models import CompanyInfo, Invoice
+from invoicing.models import Invoice
 from invoicing.parse.ai_review import ReviewVerdict, predict_review
 
 HARD_CODES = [{"code": "TOTAL_MISMATCH", "message": "金额矛盾"}]
+
+
+class _FakeEngine:
+    """fake LlmEngine：按预设回复，验证 ai_review 的 LLM 路径。"""
+
+    def __init__(self, reply: str | None = None, exc: Exception | None = None):
+        self._reply = reply
+        self._exc = exc
+
+    def chat_json(self, system_prompt: str, user_content: str) -> str | None:
+        if self._exc is not None:
+            raise self._exc
+        return self._reply
 
 
 def _invoice(db, errors=None, **kw) -> Invoice:
@@ -463,9 +580,11 @@ def _invoice(db, errors=None, **kw) -> Invoice:
         tax_amount=Decimal("56.60"),
         seller_name=kw.get("seller_name", "示例科技有限公司"),
         seller_tax_id="91310000MA1FL0A000",
-        buyer_name="测试采购有限公司",
+        buyer_name=kw.get("buyer_name", "测试采购有限公司"),
         buyer_tax_id="91310000MA1FL0B000",
         issue_date=date(2026, 8, 1),
+        parse_source=kw.get("parse_source", "XML"),
+        confidence_score=kw.get("confidence_score", 1.0),
         validation_errors=errors,
     )
     db.add(inv)
@@ -498,6 +617,18 @@ def test_rule_approve_when_clean_and_complete(db, monkeypatch):
     assert v.confidence == 1.0
 
 
+def test_low_ocr_confidence_gets_uncertain(db, monkeypatch):
+    """OCR 弱票（<0.8）即使字段齐全无错误也不得规则 approve——FRD 人工复核底线。"""
+    import invoicing.parse.ai_review as mod
+
+    monkeypatch.setattr(mod, "get_llm_engine", lambda: None)  # 不调 LLM，门槛分支直接给 uncertain
+    inv = _invoice(db, errors=[], parse_source="PDF_OCR", confidence_score=0.72)
+    v = predict_review(inv, db)
+    assert v is not None
+    assert v.verdict == "uncertain"
+    assert "0.72" in v.reason
+
+
 def test_llm_fallback_returns_none_when_unavailable(db, monkeypatch):
     """边缘场景且 LLM 不可用 → None（不生成预判，人工照旧）。"""
     import invoicing.parse.ai_review as mod
@@ -505,21 +636,60 @@ def test_llm_fallback_returns_none_when_unavailable(db, monkeypatch):
     monkeypatch.setattr(mod, "get_llm_engine", lambda: None)
     inv = _invoice(db, errors=[], buyer_name="")  # 字段缺失 → 边缘
     assert predict_review(inv, db) is None
+
+
+def test_llm_verdict_accepted_with_reason(db, monkeypatch):
+    """LLM 正常返回：verdict/reason/confidence 解析并 clamp。"""
+    import invoicing.parse.ai_review as mod
+
+    monkeypatch.setattr(
+        mod, "get_llm_engine",
+        lambda: _FakeEngine('{"verdict": "uncertain", "reason": "仅缺购买方名称，OCR 弱票", "confidence": 0.6}'),
+    )
+    inv = _invoice(db, errors=[], buyer_name="")
+    v = predict_review(inv, db)
+    assert v is not None
+    assert v.verdict == "uncertain"
+    assert "购买方" in v.reason
+    assert v.confidence == 0.6
+
+
+def test_llm_garbage_returns_none(db, monkeypatch):
+    """LLM 畸形输出（非 JSON/非法 verdict）→ None，不落错误预判。"""
+    import invoicing.parse.ai_review as mod
+
+    monkeypatch.setattr(mod, "get_llm_engine", lambda: _FakeEngine("{"))
+    inv = _invoice(db, errors=[], buyer_name="")
+    assert predict_review(inv, db) is None
+    monkeypatch.setattr(
+        mod, "get_llm_engine",
+        lambda: _FakeEngine('{"verdict": "maybe", "reason": "x", "confidence": 0.5}'),
+    )
+    assert predict_review(inv, db) is None
+
+
+def test_llm_exception_returns_none(db, monkeypatch):
+    """LLM 抛异常 → None（降级安全）。"""
+    import invoicing.parse.ai_review as mod
+
+    monkeypatch.setattr(mod, "get_llm_engine", lambda: _FakeEngine(exc=RuntimeError("boom")))
+    inv = _invoice(db, errors=[], buyer_name="")
+    assert predict_review(inv, db) is None
 ```
 
-- [ ] **Step 3: 运行确认失败**
+- [ ] **Step 2: 运行确认失败**
 
 Run: `cd backend && uv run pytest ../test/test_ai_review.py -v`
 Expected: FAIL（模块不存在）
 
-- [ ] **Step 4: 实现 parse/ai_review.py**
+- [ ] **Step 3: 实现 parse/ai_review.py**
 
 ```python
 """AI 复核预判（数字员工 P1，设计 §1.3 分层决策）。
 
-三层混合：规则拦截（硬错误码）→ 规则通过（无错误且字段齐全）→ LLM 判断（边缘）。
-决策必须带理由；LLM 不可用 → None（不生成预判，人工照旧，降级安全）。
-P1 只生成建议不自动执行——采纳动作走既有 review 端点（审计不变）。
+四层混合：规则拦截（硬错误码）→ OCR 置信度门槛 → 规则通过（无错误且字段齐全）
+→ LLM 判断（边缘）。决策必须带理由；LLM 不可用 → None（不生成预判，人工照旧，
+降级安全）。P1 只生成建议不自动执行——采纳动作走既有 review 端点（审计不变）。
 """
 import json
 import logging
@@ -534,6 +704,7 @@ logger = logging.getLogger(__name__)
 
 HARD_REJECT_CODES = ("BUYER_MISMATCH", "TOTAL_MISMATCH", "XML_PARSE_ERROR")
 GATE_FIELDS = ("buyer_name", "buyer_tax_id", "seller_name", "seller_tax_id", "total_amount")
+OCR_CONFIDENCE_FLOOR = 0.8  # FRD：解析置信度 < 0.8 需人工复核，不得规则 approve
 
 REVIEW_PROMPT = (
     "你是资深财务复核员，对一张待复核发票给出结论。输入：发票字段 JSON、现有校验错误、"
@@ -564,11 +735,19 @@ def predict_review(inv: Invoice, db: Session) -> ReviewVerdict | None:
     if hard:
         return ReviewVerdict("reject", f"规则命中: {', '.join(hard)}", 1.0)
 
-    # 第二层：规则通过（防御分支：无错误且关键字段齐全不该进待复核）
+    # 第二层：OCR 置信度门槛（FRD 人工复核底线：低置信度票不得给 conf=1.0 的 approve）
+    if (inv.parse_source or "") != "XML" and (inv.confidence_score or 0) < OCR_CONFIDENCE_FLOOR:
+        return ReviewVerdict(
+            "uncertain",
+            f"解析置信度 {inv.confidence_score} 低于 {OCR_CONFIDENCE_FLOOR}，建议人工核对",
+            1.0,
+        )
+
+    # 第三层：规则通过（无错误且关键字段齐全，如 OCR 高置信度票）
     if not errors and all(getattr(inv, f) for f in GATE_FIELDS):
         return ReviewVerdict("approve", "字段完整且校验通过", 1.0)
 
-    # 第三层：LLM 判断边缘场景
+    # 第四层：LLM 判断边缘场景
     engine = get_llm_engine()
     if engine is None:
         return None
@@ -617,8 +796,11 @@ def predict_review(inv: Invoice, db: Session) -> ReviewVerdict | None:
         return None
 
 
+MAX_BATCH = 10  # 单次任务上限：串行 LLM 每张 10-30s，防 60s 班表循环积压打结
+
+
 def generate_missing_predictions() -> int:
-    """班表任务体：为待复核且未预判的发票生成预判；返回处理数。"""
+    """班表任务体：为待复核且未预判的发票生成预判（单次上限 MAX_BATCH）；返回处理数。"""
     from invoicing.db import SessionLocal
     from invoicing.models.fields import utcnow
 
@@ -627,6 +809,7 @@ def generate_missing_predictions() -> int:
         pending = (
             db.query(Invoice)
             .filter(Invoice.status == "pending_review", Invoice.ai_reviewed_at.is_(None))
+            .limit(MAX_BATCH)
             .all()
         )
         for inv in pending:
@@ -658,10 +841,17 @@ def _generate_review_predictions() -> None:
         logger.exception("复核预判任务异常")
 
 
-register_task("review_predict", _generate_review_predictions, 60)
+register_task("review_predict", _generate_review_predictions, seconds=60)
 ```
 
-注意：scheduler 任务的 fn 为同步函数（AsyncIOScheduler 兼容）。测试 test_scheduler.py 追加断言 `"review_predict" in TASKS`。
+注意：scheduler 任务的 fn 为同步函数（AsyncIOScheduler 兼容）。test_scheduler.py 追加断言：
+
+```python
+def test_task_registry_contains_review_predict():
+    assert "review_predict" in sched_mod.TASKS
+    assert sched_mod.TASKS["review_predict"]["trigger"] == "interval"
+    assert sched_mod.TASKS["review_predict"]["trigger_kwargs"]["seconds"] == 60
+```
 
 - [ ] **Step 6: 接口接线**
 
@@ -685,6 +875,7 @@ def ai_review(
     """按需生成/重算 AI 复核预判（班表任务通常已生成；改字段后可手动重算）。"""
     from fastapi import HTTPException
 
+    from invoicing.audit import write_audit
     from invoicing.models.fields import utcnow
     from invoicing.parse.ai_review import predict_review
 
@@ -696,6 +887,10 @@ def ai_review(
     inv.ai_review_reason = verdict.reason
     inv.ai_review_confidence = verdict.confidence
     inv.ai_reviewed_at = utcnow()
+    write_audit(
+        db, action="AI_REVIEW", user_id=user.id, invoice_id=inv.id, channel="web",
+        detail={"verdict": verdict.verdict, "reason": verdict.reason, "confidence": verdict.confidence},
+    )
     db.commit()
     return inv
 ```
@@ -735,6 +930,45 @@ mcp/server.py 注册：
         return mcp_tools.invoice_ai_review(invoice_id)
 ```
 
+- [ ] **Step 6a: 改字段清空预判（B4，防旧数据误导）**
+
+`backend/src/invoicing/workflow/services.py` 的 update_invoice：金额重算分支之后追加：
+
+```python
+    # B4：关键字段变更 → 既有 AI 预判基于旧数据作废（理由不得基于旧数据），班表下轮重算
+    _REVIEW_SENSITIVE_FIELDS = _AMOUNT_FIELDS | {
+        "buyer_name", "buyer_tax_id", "seller_name", "seller_tax_id", "invoice_type", "issue_date",
+    }
+    if changed and any(f in _REVIEW_SENSITIVE_FIELDS for f in changed):
+        inv.ai_review_verdict = None
+        inv.ai_review_reason = None
+        inv.ai_review_confidence = None
+        inv.ai_reviewed_at = None
+```
+
+test/test_api_invoices.py 追加：
+
+```python
+def test_put_key_fields_clears_ai_review_prediction(client, db):
+    """B4 回归：修正金额/购销方后旧预判失效，理由不得基于旧数据。"""
+    _seed(db, "caiwu10", Role.finance_staff.value)
+    inv = _invoice(db, status="pending_review")
+    inv.ai_review_verdict = "approve"
+    inv.ai_review_reason = "字段完整且校验通过"
+    inv.ai_review_confidence = 1.0
+    db.flush()
+    token = _login(client, "caiwu10")
+    resp = client.put(
+        f"/api/v1/invoices/{inv.id}",
+        json={"total_amount": "888.00"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ai_review_verdict"] is None
+    assert resp.json()["ai_review_reason"] is None
+    assert resp.json()["ai_review_confidence"] is None
+```
+
 - [ ] **Step 7: Web 卡片（够用版）**
 
 `web/src/views/InvoiceListView.vue` 详情操作区（showDetail 后）不动；在 `web/src/components/InvoiceDetailDrawer.vue` 中：若 `invoice.status === 'pending_review'`，渲染预判卡片：
@@ -756,35 +990,38 @@ mcp/server.py 注册：
 
 - [ ] **Step 8: 测试与回归**
 
-Run: `cd backend && uv run pytest ../test/test_ai_review.py -v` → 3 PASS
+Run: `cd backend && uv run pytest ../test/test_ai_review.py -v` → 7 PASS
 Run: `cd backend && uv run pytest ../test/test_scheduler.py ../test/test_mcp_invoice_ops.py ../test/test_api_invoices.py -q` → 全绿
-Run: `cd backend && uv run pytest ../test -q` → 244 + 3 全绿
+Run: `cd backend && uv run pytest ../test -q` → 253 + 7 全绿（Task 2 后基线 253）
 Run: `cd web && npm run test && npm run build` → 全绿
 
 - [ ] **Step 9: 提交**
 
 ```bash
-git add backend/src/invoicing/parse/ai_review.py backend/src/invoicing/models/invoice.py backend/alembic/versions backend/src/invoicing/scheduler.py backend/src/invoicing/schemas/invoice.py backend/src/invoicing/api/invoices.py backend/src/invoicing/mcp/tools.py backend/src/invoicing/mcp/server.py test/test_ai_review.py test/test_scheduler.py web/src/components/InvoiceDetailDrawer.vue
-git commit -m "feat(parse): AI 复核预判三层判定 + 班表任务 + REST/MCP 接口 + Web 卡片"
+git add backend/src/invoicing/parse/ai_review.py backend/src/invoicing/scheduler.py backend/src/invoicing/workflow/services.py backend/src/invoicing/schemas/invoice.py backend/src/invoicing/api/invoices.py backend/src/invoicing/mcp/tools.py backend/src/invoicing/mcp/server.py web/src/types.ts web/src/components/InvoiceDetailDrawer.vue test/test_ai_review.py test/test_scheduler.py test/test_api_invoices.py design/2026-08-17-digital-employee-p1-plan.md
+git commit -m "feat(parse): AI 复核预判四层判定 + 班表任务 + REST/MCP + Web 卡片 + 改字段失效"
 ```
 
 ---
 
-### Task 4: 成本报表（月度聚合 + Excel 导出）
+### Task 4: 成本报表（双金额口径 + tenant 过滤 + Excel 导出 + Web 导出按钮）
 
 **Files:**
 - Modify: `backend/pyproject.toml`（openpyxl 依赖）
 - Create: `backend/src/invoicing/reports.py`
 - Modify: `backend/src/invoicing/api/`（新 router `reports.py`，挂载到 api/__init__.py）
 - Modify: `backend/src/invoicing/mcp/tools.py` + `server.py`（invoice_report 工具）
+- Modify: `web/src/views/InvoiceListView.vue`（导出本月按钮）
 - Test: `test/test_reports.py`
 
 **Interfaces:**
 - Produces:
-  - `monthly_cost(db: Session, month: str) -> dict`（month=YYYY-MM；含 total_amount/total_count/by_type/by_center/rows）
-  - `export_monthly_excel(db: Session, month: str) -> bytes`（openpyxl 三 sheet：明细/按类型/按部门；列兼容金蝶/用友台账习惯）
+  - `monthly_cost(db: Session, month: str, tenant_id: str = "default") -> dict`（month=YYYY-MM；**双金额口径**：total_amount 价税合计 / total_without_tax 不含税 / total_tax 税额 + total_count/by_type/by_center/rows；by_type/by_center 按价税合计，明细行三金额列）
+  - `export_monthly_excel(db: Session, month: str, tenant_id: str = "default") -> bytes`（openpyxl 三 sheet：明细含「不含税金额/税额/价税合计」三列/按类型/按部门）
+- **tenant 过滤**：查询恒带 `Invoice.tenant_id == tenant_id`（P4 代账多客户铺开 user.tenant_id 后 REST 传真实值，签名已预留）
+- **非法月份 422**：`_month_bounds` 校验 1-12 抛 ValueError，REST 端点转 HTTPException(422)
 - REST：`GET /api/v1/reports/monthly?month=2026-08`（JSON）；`GET /api/v1/reports/monthly/export?month=...`（xlsx 流）
-- MCP：`invoice_report(month: str) -> str`（摘要文本，供 WorkBuddy 汇报用）
+- MCP：`invoice_report(month: str) -> str`（摘要文本，供 WorkBuddy 汇报用；默认租户）
 
 - [ ] **Step 1: 依赖**
 
@@ -807,6 +1044,7 @@ def _seed(db, month="2026-08"):
     inv = Invoice(
         file_url="a.xml", file_type="XML", invoice_number="24312000000012345678",
         status="pending_submit", total_amount=Decimal("1000.00"),
+        amount_without_tax=Decimal("943.40"), tax_amount=Decimal("56.60"),
         seller_name="高德打车科技有限公司", issue_date=date(2026, 8, 5),
         expense_type="travel", cost_center="市场部",
     )
@@ -829,6 +1067,30 @@ def test_monthly_cost_aggregates(db):
     assert result["by_type"]["travel"] == Decimal("1000.00")
 
 
+def test_monthly_cost_dual_amount_gauge(db):
+    """双金额口径：价税合计/不含税/税额分别汇总（一般纳税人与小规模成本口径差异）。"""
+    _seed(db)
+    result = monthly_cost(db, "2026-08")
+    assert result["total_amount"] == Decimal("1000.00")
+    assert result["total_without_tax"] == Decimal("943.40")
+    assert result["total_tax"] == Decimal("56.60")
+    assert result["rows"][0]["amount_without_tax"] == "943.40"
+
+
+def test_monthly_cost_tenant_isolation(db):
+    """tenant 隔离：仅统计本租户发票（P4 代账多客户前堵住的口径漏洞）。"""
+    _seed(db)
+    inv = Invoice(
+        file_url="d.xml", file_type="XML", invoice_number="24312000000012345681",
+        status="pending_submit", total_amount=Decimal("300.00"),
+        seller_name="别家租户公司", issue_date=date(2026, 8, 6), tenant_id="other",
+    )
+    db.add(inv)
+    db.flush()
+    assert monthly_cost(db, "2026-08")["total_count"] == 1
+    assert monthly_cost(db, "2026-08", tenant_id="other")["total_count"] == 1
+
+
 def test_monthly_cost_excludes_other_months(db):
     _seed(db)
     inv = Invoice(
@@ -840,6 +1102,14 @@ def test_monthly_cost_excludes_other_months(db):
     db.add(inv)
     db.flush()
     assert monthly_cost(db, "2026-08")["total_count"] == 1
+
+
+def test_invalid_month_raises(db):
+    import pytest
+
+    _seed(db)
+    with pytest.raises(ValueError):
+        monthly_cost(db, "2026-13")
 
 
 def test_export_excel_returns_xlsx(db):
@@ -856,9 +1126,12 @@ Expected: FAIL（reports 模块不存在）
 - [ ] **Step 4: 实现 reports.py**
 
 ```python
-"""成本报表（数字员工 P1）：月度聚合 + Excel 台账导出（金蝶/用友兼容列）。"""
+"""成本报表（数字员工 P1）：月度聚合（双金额口径）+ Excel 台账导出（金蝶/用友兼容列）。
+
+口径说明：total_amount=价税合计（小规模纳税人成本口径）；total_without_tax=不含税
+（一般纳税人成本口径）；by_type/by_center 按价税合计分布，明细行三金额齐备。
+"""
 import io
-from collections import Counter
 from datetime import date
 from decimal import Decimal
 
@@ -870,27 +1143,39 @@ VALID_STATUS = ("parsed", "pending_review", "verifying", "pending_submit", "subm
 
 
 def _month_bounds(month: str) -> tuple[date, date]:
-    y, m = month.split("-")
-    year, mon = int(y), int(m)
+    try:
+        y, m = month.split("-")
+        year, mon = int(y), int(m)
+        if not 1 <= mon <= 12:
+            raise ValueError
+    except ValueError:
+        raise ValueError(f"非法月份: {month}（格式 YYYY-MM，月份 01-12）") from None
     start = date(year, mon, 1)
     end = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
     return start, end
 
 
-def _month_rows(db: Session, month: str) -> list[Invoice]:
+def _month_rows(db: Session, month: str, tenant_id: str) -> list[Invoice]:
     start, end = _month_bounds(month)
     return (
         db.query(Invoice)
-        .filter(Invoice.issue_date >= start, Invoice.issue_date < end, Invoice.status.in_(VALID_STATUS))
+        .filter(
+            Invoice.tenant_id == tenant_id,
+            Invoice.issue_date >= start,
+            Invoice.issue_date < end,
+            Invoice.status.in_(VALID_STATUS),
+        )
         .order_by(Invoice.issue_date, Invoice.id)
         .all()
     )
 
 
-def monthly_cost(db: Session, month: str) -> dict:
-    """月度成本聚合（金额 Decimal，类型/部门分布）。"""
-    rows = _month_rows(db, month)
+def monthly_cost(db: Session, month: str, tenant_id: str = "default") -> dict:
+    """月度成本聚合（双金额口径，类型/部门分布；tenant 过滤恒开）。"""
+    rows = _month_rows(db, month, tenant_id)
     total = sum((r.total_amount or Decimal("0")) for r in rows)
+    total_wo = sum((r.amount_without_tax or Decimal("0")) for r in rows)
+    total_tax = sum((r.tax_amount or Decimal("0")) for r in rows)
     by_type: dict[str, Decimal] = {}
     by_center: dict[str, Decimal] = {}
     for r in rows:
@@ -900,8 +1185,11 @@ def monthly_cost(db: Session, month: str) -> dict:
         by_center[key_c] = by_center.get(key_c, Decimal("0")) + (r.total_amount or Decimal("0"))
     return {
         "month": month,
+        "tenant_id": tenant_id,
         "total_count": len(rows),
         "total_amount": total,
+        "total_without_tax": total_wo,
+        "total_tax": total_tax,
         "by_type": by_type,
         "by_center": by_center,
         "rows": [
@@ -910,6 +1198,8 @@ def monthly_cost(db: Session, month: str) -> dict:
                 "invoice_number": r.invoice_number,
                 "issue_date": str(r.issue_date) if r.issue_date else None,
                 "seller_name": r.seller_name,
+                "amount_without_tax": str(r.amount_without_tax) if r.amount_without_tax else None,
+                "tax_amount": str(r.tax_amount) if r.tax_amount else None,
                 "total_amount": str(r.total_amount) if r.total_amount else None,
                 "expense_type": r.expense_type,
                 "cost_center": r.cost_center,
@@ -920,27 +1210,28 @@ def monthly_cost(db: Session, month: str) -> dict:
     }
 
 
-def export_monthly_excel(db: Session, month: str) -> bytes:
-    """Excel 台账（三 sheet）：明细（金蝶/用友常见列）/按类型汇总/按部门汇总。"""
+def export_monthly_excel(db: Session, month: str, tenant_id: str = "default") -> bytes:
+    """Excel 台账（三 sheet）：明细（含三金额列，金蝶/用友常见列）/按类型/按部门。"""
     from openpyxl import Workbook
 
-    data = monthly_cost(db, month)
+    data = monthly_cost(db, month, tenant_id)
     wb = Workbook()
     ws = wb.active
     ws.title = "发票明细"
-    headers = ["开票日期", "发票号码", "销售方", "价税合计", "费用类型", "部门/项目", "状态"]
+    headers = ["开票日期", "发票号码", "销售方", "不含税金额", "税额", "价税合计", "费用类型", "部门/项目", "状态"]
     ws.append(headers)
     for r in data["rows"]:
         ws.append([
-            r["issue_date"], r["invoice_number"], r["seller_name"], r["total_amount"],
+            r["issue_date"], r["invoice_number"], r["seller_name"],
+            r["amount_without_tax"], r["tax_amount"], r["total_amount"],
             r["expense_type"] or "", r["cost_center"] or "", r["status"],
         ])
     ws2 = wb.create_sheet("按费用类型")
-    ws2.append(["费用类型", "金额合计"])
+    ws2.append(["费用类型", "价税合计"])
     for k, v in data["by_type"].items():
         ws2.append([k, str(v)])
     ws3 = wb.create_sheet("按部门项目")
-    ws3.append(["部门/项目", "金额合计"])
+    ws3.append(["部门/项目", "价税合计"])
     for k, v in data["by_center"].items():
         ws3.append([k, str(v)])
     buf = io.BytesIO()
@@ -954,9 +1245,7 @@ Create `backend/src/invoicing/api/reports.py`：
 
 ```python
 """成本报表 API（数字员工 P1）。"""
-from datetime import date
-
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -967,23 +1256,31 @@ from invoicing.security import require_role
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
+_MONTH_PATTERN = r"^\d{4}-\d{2}$"
+
 
 @router.get("/monthly")
 def get_monthly(
-    month: str = Query(pattern=r"^\d{4}-\d{2}$"),
+    month: str = Query(pattern=_MONTH_PATTERN),
     db: Session = Depends(get_db),
     _: User = Depends(require_role("finance_staff", "finance_manager", "admin")),
 ):
-    return monthly_cost(db, month)
+    try:
+        return monthly_cost(db, month)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
 
 
 @router.get("/monthly/export")
 def export_monthly(
-    month: str = Query(pattern=r"^\d{4}-\d{2}$"),
+    month: str = Query(pattern=_MONTH_PATTERN),
     db: Session = Depends(get_db),
     _: User = Depends(require_role("finance_staff", "finance_manager", "admin")),
 ):
-    data = export_monthly_excel(db, month)
+    try:
+        data = export_monthly_excel(db, month)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1020,16 +1317,38 @@ mcp/server.py 注册：
         return mcp_tools.invoice_report(month)
 ```
 
+- [ ] **Step 6a: Web 导出按钮（够用版）**
+
+`web/src/views/InvoiceListView.vue` 工具栏加「导出本月台账」按钮：
+
+```ts
+import { downloadFile } from "../api/client";
+
+function exportMonthly() {
+  const month = new Date().toISOString().slice(0, 7);
+  downloadFile(`/reports/monthly/export?month=${month}`, `cost-${month}.xlsx`);
+}
+```
+
+模板工具区（查询按钮旁）加：
+
+```vue
+        <a-button @click="exportMonthly">导出本月台账</a-button>
+```
+
+（按钮名与位置以 InvoiceListView 现状微调；无新增前端测试断言要求。）
+
 - [ ] **Step 7: 测试与回归**
 
-Run: `cd backend && uv run pytest ../test/test_reports.py -v` → 3 PASS
-Run: `cd backend && uv run pytest ../test -q` → 244 + 3 全绿
+Run: `cd backend && uv run pytest ../test/test_reports.py -v` → 6 PASS
+Run: `cd backend && uv run pytest ../test -q` → 260 + 6 全绿（Task 3 后基线 260）
+Run: `cd web && npm run test && npm run build` → 全绿
 
 - [ ] **Step 8: 提交**
 
 ```bash
-git add backend/pyproject.toml backend/uv.lock backend/src/invoicing/reports.py backend/src/invoicing/api/reports.py backend/src/invoicing/api/__init__.py backend/src/invoicing/mcp/tools.py backend/src/invoicing/mcp/server.py test/test_reports.py
-git commit -m "feat(api): 月度成本报表（聚合 + Excel 台账导出 + MCP 摘要）"
+git add backend/pyproject.toml backend/uv.lock backend/src/invoicing/reports.py backend/src/invoicing/api/reports.py backend/src/invoicing/api/__init__.py backend/src/invoicing/mcp/tools.py backend/src/invoicing/mcp/server.py web/src/views/InvoiceListView.vue test/test_reports.py design/2026-08-17-digital-employee-p1-plan.md
+git commit -m "feat(api): 月度成本报表（双金额口径 + tenant 过滤 + Excel 台账 + MCP 摘要 + Web 导出）"
 ```
 
 ---
@@ -1087,11 +1406,13 @@ git commit -m "docs: 数字员工工作手册（职责清单/SOP/汇报话术）
 
 ## P1 验收清单（全部完成后核对）
 
-- [ ] 后端 244 + 9 新测试全绿；前端 14 + build 全绿
-- [ ] 任务引擎：TASKS 注册表含 mailbox_poll + review_predict
-- [ ] 预判：三层判定（规则拦截/规则通过/LLM 边缘），决策带理由，LLM 不可用降级 None
-- [ ] 归类：规则关键词 + LLM 兜底 + other 兜底；MCP invoice_classify 落库
-- [ ] 报表：月度聚合 JSON + xlsx 导出 + MCP 摘要
+- [ ] 后端 244 基线 + 24 新测试全绿（Task1:3 + Task2:7 + Task3:8 + Task4:6）；前端 14 + build 全绿
+- [ ] 任务引擎：TASKS 注册表含 mailbox_poll + review_predict，trigger 结构预留 cron
+- [ ] 预判：四层判定（规则拦截/OCR 置信度门槛/规则通过/LLM 边缘），决策带理由，LLM 不可用降级 None，单次任务上限 10
+- [ ] 预判失效：update_invoice 改关键字段清空 ai_review_*（B4）
+- [ ] 归类：规则关键词 + LLM 兜底 + other 兜底；MCP invoice_classify 落库 + Web 归类 select
+- [ ] 报表：月度聚合双金额口径 + tenant 过滤 + xlsx 导出 + MCP 摘要 + Web 导出按钮
 - [ ] SKILL 工作手册：职责清单/SOP/汇报话术
+- [ ] Task 0 结论已记录：WorkBuddy 主动推送能力验证结果 + 降级路径
 - [ ] 真机验证：用现有待复核票（或造一张）验证预判生成；报表导出打开正常
 - [ ] P1 不自动执行任何动作（渐进自主观察期）

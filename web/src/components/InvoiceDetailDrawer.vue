@@ -1,6 +1,7 @@
-<!-- 发票详情抽屉：字段展示 + 下载原件/XML -->
+<!-- 发票详情抽屉：字段展示 + 下载原件/XML + 费用归类 -->
 <script setup lang="ts">
-import { downloadInvoiceFile } from "../api/invoices";
+import { message } from "ant-design-vue";
+import { downloadInvoiceFile, updateInvoice } from "../api/invoices";
 import { INVOICE_STATUS_LABELS, VERIFY_STATUS_LABELS, type InvoiceOut } from "../types";
 
 const props = defineProps<{ open: boolean; invoice: InvoiceOut | null }>();
@@ -9,11 +10,50 @@ const emit = defineEmits<{ "update:open": [boolean]; refresh: [] }>();
 function onDownload(kind: "file" | "xml") {
   if (props.invoice) downloadInvoiceFile(props.invoice.id, kind);
 }
+
+const EXPENSE_TYPE_OPTIONS = [
+  { label: "差旅", value: "travel" },
+  { label: "办公", value: "office" },
+  { label: "招待", value: "entertainment" },
+  { label: "采购", value: "procurement" },
+  { label: "其他", value: "other" },
+];
+
+async function onClassify(value: string) {
+  if (!props.invoice) return;
+  try {
+    await updateInvoice(props.invoice.id, { expense_type: value });
+    message.success("已归类");
+    emit("refresh");
+  } catch {
+    message.error("归类失败");
+  }
+}
+
+async function onCostCenter(e: Event) {
+  const value = (e.target as HTMLInputElement).value;
+  if (!props.invoice) return;
+  try {
+    await updateInvoice(props.invoice.id, { cost_center: value || null });
+    message.success("已保存");
+    emit("refresh");
+  } catch {
+    message.error("保存失败");
+  }
+}
 </script>
 
 <template>
   <a-drawer title="发票详情" :open="open" width="480" @close="emit('update:open', false)">
     <template v-if="invoice">
+      <a-alert v-if="invoice.ai_review_verdict" :type="invoice.ai_review_verdict === 'approve' ? 'success' : invoice.ai_review_verdict === 'reject' ? 'error' : 'warning'" style="margin-bottom: 12px">
+        <template #message>
+          AI 预判：
+          <b>{{ { approve: '建议通过', reject: '建议拦截', uncertain: '存疑' }[invoice.ai_review_verdict as 'approve' | 'reject' | 'uncertain'] }}</b>
+          <span v-if="invoice.ai_review_confidence != null">（置信度 {{ Math.round(invoice.ai_review_confidence * 100) }}%）</span>
+          <div style="font-weight: normal">{{ invoice.ai_review_reason }}</div>
+        </template>
+      </a-alert>
       <a-descriptions :column="1" size="small" bordered>
         <a-descriptions-item label="发票号码">{{ invoice.invoice_number || "—" }}</a-descriptions-item>
         <a-descriptions-item label="开票日期">{{ invoice.issue_date || "—" }}</a-descriptions-item>
@@ -39,6 +79,21 @@ function onDownload(kind: "file" | "xml") {
           </ul>
         </a-descriptions-item>
       </a-descriptions>
+      <a-divider>费用归类</a-divider>
+      <a-space direction="vertical" style="width: 100%">
+        <a-select
+          :value="invoice.expense_type ?? undefined"
+          placeholder="费用类型"
+          style="width: 100%"
+          :options="EXPENSE_TYPE_OPTIONS"
+          @change="onClassify"
+        />
+        <a-input
+          :value="invoice.cost_center ?? undefined"
+          placeholder="部门/项目（可空）"
+          @press-enter="onCostCenter"
+        />
+      </a-space>
       <a-space style="margin-top: 16px">
         <a-button @click="onDownload('file')">下载原件</a-button>
         <a-button @click="onDownload('xml')">下载 XML</a-button>

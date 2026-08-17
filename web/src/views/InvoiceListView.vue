@@ -3,7 +3,7 @@
 import { onMounted, reactive, ref } from "vue";
 import type { Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
-import { errorMessage } from "../api/client";
+import { downloadFile, errorMessage } from "../api/client";
 import { listInvoices, reVerify, reviewInvoice } from "../api/invoices";
 import { useAuthStore } from "../stores/auth";
 import { INVOICE_STATUS_LABELS, VERIFY_STATUS_LABELS, type InvoiceListResponse, type InvoiceOut } from "../types";
@@ -18,6 +18,11 @@ const drawerOpen = ref(false);
 const current = ref<InvoiceOut | null>(null);
 const previewOpen = ref(false);
 const previewTarget = ref<InvoiceOut | null>(null);
+
+function exportMonthly() {
+  const month = new Date().toISOString().slice(0, 7);
+  downloadFile(`/reports/monthly/export?month=${month}`, `cost-${month}.xlsx`);
+}
 
 function showPreview(record: InvoiceOut) {
   previewTarget.value = record;
@@ -103,6 +108,7 @@ const columns = [
       <a-input v-model:value="filters.keyword" placeholder="发票号码/购销方" style="width: 220px" @press-enter="reloadFirst" />
       <a-range-picker v-model:value="filters.dateRange" @change="reloadFirst" />
       <a-button type="primary" @click="reloadFirst">查询</a-button>
+      <a-button @click="exportMonthly">导出本月台账</a-button>
     </a-space>
     <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size, showSizeChanger: true }"

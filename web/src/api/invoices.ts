@@ -30,6 +30,14 @@ export async function reVerify(id: number): Promise<InvoiceOut> {
   return data;
 }
 
+export async function updateInvoice(
+  id: number,
+  payload: { expense_type?: string | null; cost_center?: string | null; description?: string | null },
+): Promise<InvoiceOut> {
+  const { data } = await api.put<InvoiceOut>(`/invoices/${id}`, payload);
+  return data;
+}
+
 export async function downloadInvoiceFile(id: number, kind: "file" | "xml"): Promise<void> {
   await downloadFile(`/invoices/${id}/file?kind=${kind}`, `invoice-${id}.${kind === "xml" ? "xml" : "bin"}`);
 }
