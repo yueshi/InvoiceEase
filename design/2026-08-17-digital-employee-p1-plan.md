@@ -18,17 +18,37 @@
 - 中文注释；测试在仓库根 `test/`；提交格式 `feat(parse):/feat(api):/feat(mcp): ...`，末尾 Co-Authored-By
 - 后端回归基线 244 不得回退；SQLite 开发模式；测试环境 LLM 禁用（conftest 已设）
 - Web 端 P1 只做「够用」交互（详情抽屉加预判卡片与归类 select、列表加导出按钮）
+- 报表双金额口径（价税合计 + 不含税/税额），明细行三金额列；`monthly_cost(db, month, tenant_id="default")` 签名预留租户过滤（P4 代账多客户铺开 user.tenant_id 后 REST 传真实值）
+- 预判规则「通过」分支加 OCR 置信度门槛：parse_source 非 XML 且 confidence_score < 0.8 → 直接 uncertain（FRD 人工复核底线，不得给 conf=1.0 的 approve）
 
 ---
 
-### Task 1: 任务引擎（scheduler 任务目录化）
+### Task 0: WorkBuddy 主动推送能力验证（先行，半天）
+
+**Files:**
+- 无代码产出；结论回写本计划「风险」节
+
+- [ ] **Step 1: 验证 WorkBuddy 是否有定时触发/主动推送机制**
+
+调研 WorkBuddy 平台能力（文档/试用/询问）：数字员工能否在**无用户消息**的情况下发起对话或执行任务（定时任务、事件订阅、webhook 推送等）。
+
+- [ ] **Step 2: 按结论修正产品预期**
+
+- 支持 → P3「周一主动汇报」按平台机制设计（届时 scheduler cron 注册表已预留）
+- 不支持 → 主动汇报降级为「用户唤醒」：老板打开对话时数字员工汇报积压事项；P2 企微/钉钉 webhook 机器人补位。本计划 SKILL 手册按降级口径编写。
+
+---
+
+### Task 1: 任务引擎（scheduler 任务目录化）+ 数字员工字段迁移
 
 **Files:**
 - Modify: `backend/src/invoicing/scheduler.py`
+- Modify: `backend/src/invoicing/models/invoice.py`（8 字段）+ `backend/alembic/versions/<autogen>_digital_employee_fields.py`（一次合并迁移：Task 2/3 字段不再单独迁移）
 - Test: `test/test_scheduler.py`
 
 **Interfaces:**
-- Produces: `TASKS: dict[str, dict]`（task_id → {fn, interval_seconds} 注册表）、`register_task(task_id, fn, interval_seconds)`、`setup_scheduler(app)`（按注册表建 AsyncIOScheduler jobs）
+- Produces: `TASKS: dict[str, dict]`（task_id → {fn, trigger, trigger_kwargs} 注册表）、`register_task(task_id, fn, trigger="interval", **trigger_kwargs)`、`setup_scheduler(app)`（按注册表建 AsyncIOScheduler jobs）
+- trigger 支持 `interval`（高频检查：收信/预判）与 `cron`（时刻表：P3 周报/月报）——**cron 为结构预留，P1 不注册 cron 任务**
 - 保持 `app.state.scheduler` 与 `settings.scheduler_enabled` 语义不变
 
 - [ ] **Step 1: 写失败测试 test/test_scheduler.py**
@@ -40,12 +60,17 @@ from invoicing import scheduler as sched_mod
 
 def test_task_registry_contains_mailbox_poll():
     assert "mailbox_poll" in sched_mod.TASKS
-    assert sched_mod.TASKS["mailbox_poll"]["interval_seconds"] == 60
+    spec = sched_mod.TASKS["mailbox_poll"]
+    assert spec["trigger"] == "interval"
+    assert spec["trigger_kwargs"]["seconds"] == 60
 
 
-def test_register_task_adds_entry():
-    sched_mod.register_task("test_task", lambda: None, 300)
-    assert sched_mod.TASKS["test_task"]["interval_seconds"] == 300
+def test_register_task_supports_cron():
+    """注册表结构预留 cron 时刻表（P3 周报/月报），现在仅验证结构。"""
+    sched_mod.register_task("test_task", lambda: None, trigger="cron", hour=9, day_of_week="mon")
+    spec = sched_mod.TASKS["test_task"]
+    assert spec["trigger"] == "cron"
+    assert spec["trigger_kwargs"]["hour"] == 9
     sched_mod.TASKS.pop("test_task")  # 清理，避免影响其他测试
 ```
 
@@ -54,7 +79,7 @@ def test_register_task_adds_entry():
 Run: `cd backend && uv run pytest ../test/test_scheduler.py -v`
 Expected: FAIL（`TASKS`/`register_task` 不存在）
 
-- [ ] **Step 3: 重构 scheduler.py（任务目录）**
+- [ ] **Step 3: 重构 scheduler.py（任务目录，trigger 结构）**
 
 将 `backend/src/invoicing/scheduler.py` 全文替换为：
 
@@ -62,7 +87,9 @@ Expected: FAIL（`TASKS`/`register_task` 不存在）
 """调度器任务目录：数字员工的「班表」。
 
 每个任务 = 一项岗位职责（task_id 即职责名）；setup_scheduler 按注册表
-统一建 AsyncIOScheduler job。新增任务用 register_task 挂入即可。
+统一建 AsyncIOScheduler job。注册表项存 trigger 类型与参数：
+interval 轮询用于高频检查（收信/预判），cron 时刻表用于定期汇报（P3，
+结构已预留）。新增任务用 register_task 挂入即可。
 """
 import asyncio
 import logging
@@ -79,13 +106,14 @@ from invoicing.models.fields import utcnow
 
 logger = logging.getLogger(__name__)
 
-# task_id → {"fn": Callable, "interval_seconds": int}
+# task_id → {"fn": Callable, "trigger": "interval" | "cron", "trigger_kwargs": dict}
 TASKS: dict[str, dict] = {}
 
 
-def register_task(task_id: str, fn, interval_seconds: int) -> None:
-    """注册班表任务（幂等覆盖）。"""
-    TASKS[task_id] = {"fn": fn, "interval_seconds": interval_seconds}
+def register_task(task_id: str, fn, trigger: str = "interval", **trigger_kwargs) -> None:
+    """注册班表任务（幂等覆盖）。trigger_kwargs 按 APScheduler 语义：
+    interval → seconds=60；cron → hour=9, day_of_week="mon" 等。"""
+    TASKS[task_id] = {"fn": fn, "trigger": trigger, "trigger_kwargs": trigger_kwargs}
 
 
 def _due_mailboxes() -> list[int]:
@@ -117,7 +145,7 @@ async def _scheduled_poll() -> None:
     await asyncio.to_thread(_poll_due_mailboxes)
 
 
-register_task("mailbox_poll", _scheduled_poll, 60)
+register_task("mailbox_poll", _scheduled_poll, seconds=60)
 
 
 def setup_scheduler(app: FastAPI) -> None:
@@ -125,21 +153,43 @@ def setup_scheduler(app: FastAPI) -> None:
         return
     scheduler = AsyncIOScheduler()
     for task_id, spec in TASKS.items():
-        scheduler.add_job(spec["fn"], "interval", seconds=spec["interval_seconds"], id=task_id)
+        scheduler.add_job(spec["fn"], spec["trigger"], id=task_id, **spec["trigger_kwargs"])
     scheduler.start()
     app.state.scheduler = scheduler
 ```
 
-- [ ] **Step 4: 运行测试与回归**
+- [ ] **Step 4: 运行测试**
 
 Run: `cd backend && uv run pytest ../test/test_scheduler.py -v` → 2 PASS
+
+- [ ] **Step 5: 模型 8 字段一次合并迁移（Task 2/3 字段共用）**
+
+`backend/src/invoicing/models/invoice.py` 的 Invoice 类中 `review_note` 之后追加：
+
+```python
+    # 费用归类（数字员工 P1）：差旅/办公/招待/采购/其他 + 部门/项目 + 说明
+    expense_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cost_center: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    submitted_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # AI 复核预判（数字员工 P1）：建议结论/理由/置信度；None=未生成
+    ai_review_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ai_review_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    ai_review_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ai_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+```
+
+（若 models/invoice.py 未导入 Integer/Float，补导入）
+
+Run: `cd backend && uv run alembic revision --autogenerate -m "invoices 数字员工字段（费用归类+AI 预判）"` 且 `uv run alembic upgrade head`
+
+- [ ] **Step 6: 回归与提交**
+
 Run: `cd backend && uv run pytest ../test -q` → 244 + 2 全绿
 
-- [ ] **Step 5: 提交**
-
 ```bash
-git add backend/src/invoicing/scheduler.py test/test_scheduler.py
-git commit -m "refactor(scheduler): 调度器任务目录化（数字员工班表基础）"
+git add backend/src/invoicing/scheduler.py backend/src/invoicing/models/invoice.py backend/alembic/versions test/test_scheduler.py
+git commit -m "refactor(scheduler): 任务目录 trigger 结构（cron 预留）+ 数字员工字段迁移"
 ```
 
 ---

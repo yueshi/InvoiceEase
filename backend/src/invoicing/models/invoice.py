@@ -86,6 +86,18 @@ class Invoice(Base):
         String(32), nullable=False, default=InvoiceStatus.received.value, index=False
     )
     review_note: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    # 费用归类（数字员工 P1）：差旅/办公/招待/采购/其他 + 部门/项目 + 说明
+    expense_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cost_center: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    submitted_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # AI 复核预判（数字员工 P1）：建议结论/理由/置信度；None=未生成
+    ai_review_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ai_review_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    ai_review_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ai_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
