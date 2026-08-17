@@ -1406,13 +1406,13 @@ git commit -m "docs: 数字员工工作手册（职责清单/SOP/汇报话术）
 
 ## P1 验收清单（全部完成后核对）
 
-- [ ] 后端 244 基线 + 24 新测试全绿（Task1:3 + Task2:7 + Task3:8 + Task4:6）；前端 14 + build 全绿
-- [ ] 任务引擎：TASKS 注册表含 mailbox_poll + review_predict，trigger 结构预留 cron
-- [ ] 预判：四层判定（规则拦截/OCR 置信度门槛/规则通过/LLM 边缘），决策带理由，LLM 不可用降级 None，单次任务上限 10
-- [ ] 预判失效：update_invoice 改关键字段清空 ai_review_*（B4）
-- [ ] 归类：规则关键词 + LLM 兜底 + other 兜底；MCP invoice_classify 落库 + Web 归类 select
-- [ ] 报表：月度聚合双金额口径 + tenant 过滤 + xlsx 导出 + MCP 摘要 + Web 导出按钮
-- [ ] SKILL 工作手册：职责清单/SOP/汇报话术
-- [ ] Task 0 结论已记录：WorkBuddy 主动推送能力验证结果 + 降级路径
-- [ ] 真机验证：用现有待复核票（或造一张）验证预判生成；报表导出打开正常
-- [ ] P1 不自动执行任何动作（渐进自主观察期）
+- [x] 后端 244 基线 + 24 新测试全绿（Task1:3 + Task2:7 + Task3:8 + Task4:6）；前端 14 + build 全绿
+- [x] 任务引擎：TASKS 注册表含 mailbox_poll + review_predict，trigger 结构预留 cron
+- [x] 预判：四层判定（规则拦截/OCR 置信度门槛/规则通过/LLM 边缘），决策带理由，LLM 不可用降级 None，单次任务上限 10
+- [x] 预判失效：update_invoice 改关键字段清空 ai_review_*（B4）
+- [x] 归类：规则关键词 + LLM 兜底 + other 兜底；MCP invoice_classify 落库 + Web 归类 select
+- [x] 报表：月度聚合双金额口径 + tenant 过滤 + xlsx 导出 + MCP 摘要 + Web 导出按钮
+- [x] SKILL 工作手册：职责清单/SOP/汇报话术
+- [x] Task 0 结论已记录：WorkBuddy 主动推送能力验证结果 + 降级路径
+- [x] 真机验证：用现有待复核票（或造一张）验证预判生成；报表导出打开正常
+- [x] P1 不自动执行任何动作（渐进自主观察期）
