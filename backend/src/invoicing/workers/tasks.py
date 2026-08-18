@@ -98,6 +98,13 @@ def _parse_invoice(invoice_id: int) -> None:
                 detail={"source": outcome.source, "errors": inv.validation_errors},
             )
         db.commit()
+        if inv.status == InvoiceStatus.pending_review.value:
+            from invoicing.notify import notify
+
+            notify(
+                f"📋 待复核：`{inv.invoice_number or '未知号码'}` {inv.seller_name or '未知销售方'}"
+                f"（解析/校验问题，请人工复核）"
+            )
         if outcome.parsed is not None and not outcome.errors and not extra:
             enqueue_verify_sync(inv.id)
     except IntegrityError:
@@ -126,6 +133,9 @@ def _parse_invoice(invoice_id: int) -> None:
                     "invoice_number": parsed_number,
                 },
             )
+            from invoicing.notify import notify
+
+            notify(f"🚫 重复拦截：`{parsed_number}` 与已有发票 #{existing.id} 重复")
             db.delete(inv)
             db.commit()
         else:
@@ -188,6 +198,9 @@ def _verify_invoice(invoice_id: int) -> None:
             # failed 与 error（服务异常）都不放行，进人工复核
             inv.verify_status = VerifyStatus.failed.value
             transition(inv, InvoiceStatus.pending_review.value)
+            from invoicing.notify import notify
+
+            notify(f"⚠️ 验真失败：`{inv.invoice_number or '未知号码'}`（{result.status}，请人工复核）")
         write_audit(
             db, action="VERIFY", invoice_id=inv.id, channel="system",
             detail={"result": result.status, "provider": "mock"},

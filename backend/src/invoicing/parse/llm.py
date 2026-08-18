@@ -63,6 +63,10 @@ _FIELDS_HINT = (
 
 _CACHE_MAX = 64
 
+# LLM 连续失败计数（跨调用，进程内）：连续 ≥3 次触发通知一次后重置，防刷屏（M7）
+_consecutive_failures = 0
+_CONFUSION_NOTIFY_THRESHOLD = 3
+
 
 def _sniff_mime(image: bytes) -> str:
     """按魔数嗅探图像 MIME（与 fetch/filters.py IMAGE_EXTS 放行格式对齐）；未知格式回退 image/png。"""
@@ -202,6 +206,7 @@ class LlmEngine:
         )
 
     def _chat(self, model: str, messages: list[dict]) -> str | None:
+        global _consecutive_failures
         t0 = time.perf_counter()
         try:
             client = self._get_client()
@@ -213,10 +218,20 @@ class LlmEngine:
             )
             # 成本观测：每次调用记录通道模型与耗时
             logger.info("LLM 调用成功 model=%s 耗时=%.1fs", model, time.perf_counter() - t0)
+            _consecutive_failures = 0
             return resp.choices[0].message.content
         except Exception:
-            # 异常信号：保留返回 None 的降级行为，同时落 ERROR 日志便于运维定位
-            logger.error("LLM 调用失败 model=%s", model, exc_info=True)
+            # 异常信号：保留返回 None 的降级行为，同时落 ERROR 日志便于运维定位；
+            # 连续 ≥3 次失败推送通知一次（M7 系统告警）
+            _consecutive_failures += 1
+            logger.error(
+                "LLM 调用失败 model=%s（连续第 %s 次）", model, _consecutive_failures, exc_info=True
+            )
+            if _consecutive_failures >= _CONFUSION_NOTIFY_THRESHOLD:
+                _consecutive_failures = 0  # 重置，防每轮班表都刷屏
+                from invoicing.notify import notify
+
+                notify(f"🔴 LLM 调用连续失败 {_CONFUSION_NOTIFY_THRESHOLD} 次，解析/预判已降级，请检查 LLM 服务")
             return None
 
     def _parse_response(self, content: str | None, source: ParseSource, confidence: float) -> ParsedInvoice | None:

@@ -51,8 +51,11 @@ def _poll_due_mailboxes() -> None:
                 continue
             try:
                 poll_mailbox(db, mb)
-            except Exception:
+            except Exception as exc:
                 logger.exception("定时收取失败 mailbox_id=%s", mailbox_id)
+                from invoicing.notify import notify
+
+                notify(f"🔴 班表任务异常：mailbox_poll mailbox_id={mailbox_id}（{type(exc).__name__}）")
 
 
 async def _scheduled_poll() -> None:
@@ -69,8 +72,11 @@ def _generate_review_predictions() -> None:
         processed = generate_missing_predictions()
         if processed:
             logger.info("复核预判生成 %s 张", processed)
-    except Exception:
+    except Exception as exc:
         logger.exception("复核预判任务异常")
+        from invoicing.notify import notify
+
+        notify(f"🔴 班表任务异常：review_predict（{type(exc).__name__}）")
 
 
 register_task("review_predict", _generate_review_predictions, seconds=60)

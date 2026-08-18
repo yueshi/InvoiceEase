@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     llm_max_retries: int = 1
     scheduler_enabled: bool = True
     log_level: str = "INFO"
+    # 数字员工 P2：企微群机器人 webhook（空=不启用通知）
+    notify_webhook_url: str = ""
 
 
 settings = Settings()
