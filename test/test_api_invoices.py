@@ -404,3 +404,49 @@ def test_put_key_fields_clears_ai_review_prediction(client, db):
     assert resp.json()["ai_review_verdict"] is None
     assert resp.json()["ai_review_reason"] is None
     assert resp.json()["ai_review_confidence"] is None
+
+
+def test_invoice_out_flags_mock_verify(client, db):
+    """A2 回归：mock 验真的票必须携带 verify_is_mock 标记（前端/数字员工据此注明模拟状态）。"""
+    _seed(db, "caiwu11", Role.finance_staff.value)
+    inv = _invoice(db, status="pending_submit")
+    inv.verify_detail = {"reason": "mock_rule_default_pass"}
+    db.flush()
+    token = _login(client, "caiwu11")
+    resp = client.get(f"/api/v1/invoices/{inv.id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["verify_is_mock"] is True
+
+
+def test_invoice_out_not_mock_without_mock_detail(client, db):
+    """A2 回归：无 mock 字样（或未验真）的票 verify_is_mock=False。"""
+    _seed(db, "caiwu12", Role.finance_staff.value)
+    inv = _invoice(db, status="pending_submit")
+    inv.verify_detail = None
+    db.flush()
+    token = _login(client, "caiwu12")
+    resp = client.get(f"/api/v1/invoices/{inv.id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["verify_is_mock"] is False
+
+
+def test_review_audit_records_ai_verdict_comparison(client, db):
+    """B1 回归：复核动作审计须记录当时的 AI 预判（观察期改判率数据源，P3 信任仪表盘）。"""
+    from invoicing.models import AuditLog
+
+    _seed(db, "caiwu13", Role.finance_staff.value)
+    inv = _invoice(db, status="pending_review")
+    inv.ai_review_verdict = "uncertain"
+    inv.ai_review_confidence = 0.6
+    db.flush()
+    token = _login(client, "caiwu13")
+    resp = client.post(
+        f"/api/v1/invoices/{inv.id}/review",
+        json={"action": "approve", "note": "核实无误"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    db.flush()
+    logs = db.query(AuditLog).filter(AuditLog.action == "REVIEW").all()
+    assert logs[-1].detail["ai_verdict"] == "uncertain"
+    assert logs[-1].detail["ai_confidence"] == 0.6

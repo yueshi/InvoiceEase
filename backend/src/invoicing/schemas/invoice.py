@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 
 class InvoiceOut(BaseModel):
@@ -49,6 +49,13 @@ class InvoiceOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     xml_url: str | None = None  # 合规硬约束：含数字签名的 XML 原件存档地址（财会〔2025〕9 号）
+
+    @computed_field
+    @property
+    def verify_is_mock(self) -> bool:
+        """验真结果为模拟 provider 产出（国税资质未获批前）——展示/汇报必须注明模拟状态。"""
+        detail = self.verify_detail or {}
+        return str(detail.get("reason", "")).startswith("mock_")
 
 
 class InvoiceListResponse(BaseModel):

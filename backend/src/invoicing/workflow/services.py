@@ -73,9 +73,15 @@ def review_invoice(db: Session, current_user: User, invoice_id: int, action: str
     inv.review_note = note
     inv.reviewed_by = current_user.id
     inv.reviewed_at = utcnow()
+    # B1：审计记录复核时的 AI 预判对比（观察期改判率数据源，P3 信任仪表盘用）
     write_audit(
         db, action="REVIEW", user_id=current_user.id, invoice_id=inv.id, channel="web",
-        detail={"action": action, "note": note},
+        detail={
+            "action": action,
+            "note": note,
+            "ai_verdict": inv.ai_review_verdict,
+            "ai_confidence": inv.ai_review_confidence,
+        },
     )
     db.commit()
     return inv

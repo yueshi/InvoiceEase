@@ -45,6 +45,7 @@ export interface InvoiceOut {
   validation_errors: Array<Record<string, unknown>> | null;
   verify_status: string;
   verify_detail: Record<string, unknown> | null;
+  verify_is_mock: boolean;  // 验真结果为模拟 provider 产出（国税资质未获批前）
   verified_at: string | null;
   duplicate_flag: boolean;
   duplicate_of_id: number | null;
