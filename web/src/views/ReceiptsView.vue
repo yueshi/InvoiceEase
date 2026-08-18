@@ -1,12 +1,14 @@
 <!-- 银行回单：上传/列表/配对/无票筛选/凭证草稿导出（P3/R1-R2，财务角色） -->
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
 import { autoPairReceipt, exportReceipts, listReceipts, uploadReceipt } from "../api/receipts";
 import type { ReceiptOut } from "../types";
 
-const month = ref(new Date().toISOString().slice(0, 7));
+// a-month-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()），不能用字符串
+const month = ref<Dayjs>(dayjs());
 const unmatchedOnly = ref(false);
 const rows = ref<ReceiptOut[]>([]);
 const loading = ref(false);
@@ -24,7 +26,7 @@ const columns = [
 async function load() {
   loading.value = true;
   try {
-    rows.value = await listReceipts(month.value, unmatchedOnly.value);
+    rows.value = await listReceipts(month.value.format("YYYY-MM"), unmatchedOnly.value);
   } catch (e) {
     errorMessage(e, "回单加载失败");
   } finally {
@@ -58,7 +60,7 @@ async function onAutoPair(r: ReceiptOut) {
 }
 
 function onExport() {
-  exportReceipts(month.value).catch((e) => message.error(errorMessage(e)));
+  exportReceipts(month.value.format("YYYY-MM")).catch((e) => message.error(errorMessage(e)));
 }
 
 onMounted(load);
