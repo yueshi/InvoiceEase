@@ -66,12 +66,18 @@ register_task("mailbox_poll", _scheduled_poll, seconds=60)
 
 
 def _generate_review_predictions() -> None:
-    from invoicing.parse.ai_review import generate_missing_predictions
+    from invoicing.parse.ai_review import auto_review_predictions, generate_missing_predictions
 
     try:
         processed = generate_missing_predictions()
         if processed:
             logger.info("复核预判生成 %s 张", processed)
+        # 渐进自主（M8）：阈值 > 0 时同轮自动执行 approve 方向（拦截永不自动）
+        if settings.auto_review_threshold > 0:
+            with SessionLocal() as db:
+                n = auto_review_predictions(db, settings.auto_review_threshold)
+                if n:
+                    logger.info("渐进自主自动通过 %s 张（阈值 %s）", n, settings.auto_review_threshold)
     except Exception as exc:
         logger.exception("复核预判任务异常")
         from invoicing.notify import notify

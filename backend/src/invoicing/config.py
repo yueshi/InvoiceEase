@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # 数字员工 P2：企微群机器人 webhook（空=不启用通知）
     notify_webhook_url: str = ""
+    # 数字员工 P3：渐进自主阈值（0=观察期全人工；>0 时预判 approve 且 conf≥阈值自动通过；拦截永不自动）
+    auto_review_threshold: float = 0.0
 
 
 settings = Settings()

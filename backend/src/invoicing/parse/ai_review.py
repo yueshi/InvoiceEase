@@ -112,6 +112,45 @@ def predict_review(inv: Invoice, db: Session) -> ReviewVerdict | None:
 MAX_BATCH = 10  # 单次任务上限：串行 LLM 每张 10-30s，防 60s 班表循环积压打结
 
 
+def auto_review_predictions(db: Session, threshold: float) -> int:
+    """渐进自主（M8）：预判 approve 且 conf ≥ 阈值 → 自动通过，返回执行数。
+
+    拦截方向（reject/uncertain）永不自动；threshold ≤ 0 → 观察期全人工（默认）。
+    """
+    from invoicing.audit import write_audit
+    from invoicing.models.fields import utcnow
+    from invoicing.workflow.state import transition
+
+    if threshold <= 0:
+        return 0
+    executed = 0
+    pending = (
+        db.query(Invoice)
+        .filter(
+            Invoice.status == "pending_review",
+            Invoice.ai_review_verdict == "approve",
+            Invoice.ai_review_confidence >= threshold,
+        )
+        .all()
+    )
+    for inv in pending:
+        transition(inv, "pending_submit")
+        inv.review_note = f"数字员工自动通过（预判置信度 {inv.ai_review_confidence}）"
+        inv.reviewed_at = utcnow()
+        write_audit(
+            db, action="AUTO_REVIEW", invoice_id=inv.id, channel="system",
+            detail={
+                "note": f"数字员工自动通过（阈值 {threshold}）",
+                "reason": inv.ai_review_reason,
+                "confidence": inv.ai_review_confidence,
+                "threshold": threshold,
+            },
+        )
+        executed += 1
+    db.commit()
+    return executed
+
+
 def generate_missing_predictions() -> int:
     """班表任务体：为待复核且未预判的发票生成预判（单次上限 MAX_BATCH）；返回处理数。"""
     from invoicing.db import SessionLocal
