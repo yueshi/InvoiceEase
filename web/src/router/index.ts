@@ -7,6 +7,7 @@ const routes = [
   { path: "/login", component: () => import("../views/LoginView.vue") },
   { path: "/", component: () => import("../views/DashboardView.vue") },
   { path: "/invoices", component: () => import("../views/InvoiceListView.vue") },
+  { path: "/receipts", component: () => import("../views/ReceiptsView.vue") },
   { path: "/audit", component: () => import("../views/AuditView.vue"), meta: { adminOnly: true } },
   { path: "/settings", component: () => import("../views/SettingsView.vue"), meta: { adminOnly: true } },
 ];

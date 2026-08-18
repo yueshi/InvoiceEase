@@ -9,9 +9,11 @@ const route = useRoute();
 const auth = useAuthStore();
 
 // 菜单项按角色收敛（computed：登录后角色变化实时生效）
+const isFinance = () => ["finance_staff", "finance_manager", "admin"].includes(auth.role ?? "");
 const menuItems = computed(() => [
   { key: "/", label: "工作台" },
   { key: "/invoices", label: "发票列表" },
+  ...(isFinance() ? [{ key: "/receipts", label: "银行回单" }] : []),
   ...(auth.isAdmin ? [{ key: "/audit", label: "审计日志" }, { key: "/settings", label: "系统配置" }] : []),
 ]);
 

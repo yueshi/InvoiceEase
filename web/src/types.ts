@@ -88,6 +88,19 @@ export interface TrustStatsOut {
   overturn_rate: number;
 }
 
+export interface ReceiptOut {
+  id: number;
+  file_url: string;
+  file_type: string;
+  trade_date: string | null;
+  counterparty_name: string | null;
+  amount: string | null;
+  abstract: string | null;
+  paired_invoice_id: number | null;
+  status: string;
+  created_at: string;
+}
+
 export const INVOICE_STATUS_LABELS: Record<string, string> = {
   receiving: "收取中", received: "已收取", parsing: "解析中", parsed: "解析完成",
   verifying: "验真查重中", pending_submit: "待提交", pending_review: "待复核",
