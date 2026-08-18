@@ -23,6 +23,7 @@ dependencies = [
     "httpx>=0.28.1",
     "openai>=1.60",
     "openpyxl>=3.1",
+    "signxml>=3.2",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,10 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/invoicing"]

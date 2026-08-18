@@ -3,11 +3,14 @@
 链序保证 FRD「结构化优先、LLM 仅兜底」。策略返回 None 表示未命中继续下移；
 返回 ParseOutcome 则链终止（成功或带错误的失败均终止）。
 """
+import logging
 from typing import Callable
 
 from invoicing.models.enums import FileType, ParseSource
 from invoicing.parse.llm import get_llm_engine  # 模块级绑定：策略统一引用此处（测试注入点）
 from invoicing.parse.schemas import ParseError, ParseOutcome, ParsedInvoice
+
+logger = logging.getLogger(__name__)
 
 
 class ParseContext:
@@ -65,7 +68,17 @@ def _llm_text_outcome(ctx: ParseContext) -> ParseOutcome | None:
 
 def _parse_structured(xml: bytes, source: ParseSource, xml_data: bytes) -> ParseOutcome:
     from invoicing.parse.validation import validate
-    from invoicing.parse.xml_parser import parse_invoice_xml
+    from invoicing.parse.xml_parser import parse_invoice_xml, verify_xml_signature
+
+    # A1 合规：XML 含 Signature 必须验签通过；无签名旧格式票记警告不拦（D4）
+    sig_ok, sig_reason = verify_xml_signature(xml)
+    if not sig_ok and sig_reason != "no-signature":
+        return ParseOutcome(
+            source=None, parsed=None, xml_data=xml_data,
+            errors=[ParseError(code="XML_SIGNATURE_INVALID", message=f"数字签名验证失败: {sig_reason}")],
+        )
+    if not sig_ok:
+        logger.warning("XML 原件无数字签名（旧格式），仅记警告不拦截")
 
     try:
         parsed = parse_invoice_xml(xml)
