@@ -4,7 +4,7 @@ import { onMounted, reactive, ref } from "vue";
 import type { Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { downloadFile, errorMessage } from "../api/client";
-import { listInvoices, reVerify, reviewInvoice } from "../api/invoices";
+import { listInvoices, reVerify, reviewInvoice, uploadInvoice } from "../api/invoices";
 import { useAuthStore } from "../stores/auth";
 import { INVOICE_STATUS_LABELS, VERIFY_STATUS_LABELS, type InvoiceListResponse, type InvoiceOut } from "../types";
 import InvoiceDetailDrawer from "../components/InvoiceDetailDrawer.vue";
@@ -22,6 +22,18 @@ const previewTarget = ref<InvoiceOut | null>(null);
 function exportMonthly() {
   const month = new Date().toISOString().slice(0, 7);
   downloadFile(`/reports/monthly/export?month=${month}`, `cost-${month}.xlsx`);
+}
+
+async function onBeforeUpload(file: File) {
+  // 员工交票（M3）：返回 false 阻止 a-upload 默认行为，手动走 API 后刷新列表
+  try {
+    await uploadInvoice(file);
+    message.success("已上传，系统自动解析中");
+    await load();
+  } catch (e) {
+    message.error(errorMessage(e));
+  }
+  return false;
 }
 
 function showPreview(record: InvoiceOut) {
@@ -109,6 +121,9 @@ const columns = [
       <a-range-picker v-model:value="filters.dateRange" @change="reloadFirst" />
       <a-button type="primary" @click="reloadFirst">查询</a-button>
       <a-button @click="exportMonthly">导出本月台账</a-button>
+      <a-upload :before-upload="onBeforeUpload" :show-upload-list="false" accept=".pdf,.ofd,.xml">
+        <a-button>上传发票</a-button>
+      </a-upload>
     </a-space>
     <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size, showSizeChanger: true }"

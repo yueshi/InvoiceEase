@@ -3,12 +3,12 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from invoicing.audit import write_audit
-from invoicing.models import Invoice, InvoiceStatus, Role, User
+from invoicing.models import AuditLog, Invoice, InvoiceStatus, Role, User
 from invoicing.models.fields import utcnow
 from invoicing.schemas.invoice import InvoiceListResponse
 from invoicing.storage import get_storage
 from invoicing.workflow.state import transition
-from invoicing.workers.queue import enqueue_verify_sync
+from invoicing.workers.queue import enqueue_parse_sync, enqueue_verify_sync
 
 
 def _scope_query(db: Session, current_user: User):
@@ -153,6 +153,66 @@ def _revalidate_invoice(inv: Invoice) -> None:
     )
     errs = validate(parsed)
     inv.validation_errors = [e.model_dump() for e in errs] if errs else None
+
+
+def upload_invoice(db: Session, current_user: User, filename: str, data: bytes) -> Invoice:
+    """员工交票上传（M3）：仅 PDF/OFD/XML 原件；图片 422 合规引导；user_id 归属上传者。
+
+    复用 ingest 管线（存档 → 解析 → 验真；enqueue_parse_sync 本地模式内联）。
+    重复票按 ingest 语义返回已有记录（新记录已被物理删除，审计留痕）。
+    """
+    from uuid import uuid4
+
+    from fastapi import HTTPException
+
+    from invoicing.fetch.filters import classify_attachment
+
+    if len(data) > 20 * 1024 * 1024:
+        raise HTTPException(422, "文件过大（上限 20MB），请发送至公司收票邮箱")
+    kind = classify_attachment(filename, "", data)
+    if kind == "IMAGE":
+        raise HTTPException(
+            422,
+            "合规要求仅接收发票原件（PDF/OFD/XML）。请上传发票原件文件，或将原件发送至公司收票邮箱由系统自动收取",
+        )
+    if kind not in ("PDF", "OFD", "XML"):
+        raise HTTPException(422, f"不支持的格式: {kind or '未知'}（仅接收 PDF/OFD/XML 原件）")
+
+    key = f"tenant-default/upload/{uuid4().hex}-{filename}"
+    get_storage().put(key, data, "application/octet-stream")
+
+    inv = Invoice(
+        file_url=key,
+        file_type=kind,
+        status=InvoiceStatus.parsing.value,
+        email_subject="员工上传",
+        user_id=current_user.id,
+    )
+    db.add(inv)
+    db.flush()
+    write_audit(
+        db, action="INVOICE_UPLOAD", user_id=current_user.id, invoice_id=inv.id, channel="web",
+        detail={"filename": filename, "file_type": kind, "size": len(data)},
+    )
+    db.commit()
+    invoice_id = inv.id
+    enqueue_parse_sync(invoice_id)
+    # 重复拦截：新记录可能已被物理删除（审计留痕），返回已有记录
+    db.expire_all()
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        dup_log = (
+            db.query(AuditLog)
+            .filter(AuditLog.invoice_id == invoice_id, AuditLog.action == "PARSE")
+            .order_by(AuditLog.id.desc())
+            .first()
+        )
+        existing_id = (dup_log.detail or {}).get("duplicate_of_id") if dup_log else None
+        existing = db.get(Invoice, existing_id) if existing_id else None
+        if existing is not None:
+            return existing
+        raise HTTPException(409, "发票重复且原记录不可用")
+    return inv
 
 
 def update_invoice(db: Session, current_user: User | None, invoice_id: int, data: dict) -> Invoice:

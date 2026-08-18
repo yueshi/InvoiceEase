@@ -2,7 +2,7 @@
 from datetime import date
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,17 @@ def list_invoices(
     user: User = Depends(get_current_user),
 ):
     return services.list_invoices(db, user, status, date_from, date_to, keyword, page, page_size)
+
+
+@router.post("/upload", response_model=InvoiceOut)
+def upload_invoice(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """员工交票上传（M3）：仅 PDF/OFD/XML 原件，图片 422 引导走邮箱；user_id 归属上传者。"""
+    data = file.file.read()
+    return services.upload_invoice(db, user, file.filename or "invoice", data)
 
 
 @router.get("/{invoice_id}", response_model=InvoiceOut)

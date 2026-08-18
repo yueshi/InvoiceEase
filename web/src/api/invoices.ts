@@ -38,6 +38,14 @@ export async function updateInvoice(
   return data;
 }
 
+export async function uploadInvoice(file: File): Promise<InvoiceOut> {
+  // 员工交票（M3）：仅 PDF/OFD/XML 原件；图片由后端 422 引导走邮箱
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post<InvoiceOut>("/invoices/upload", form);
+  return data;
+}
+
 export async function downloadInvoiceFile(id: number, kind: "file" | "xml"): Promise<void> {
   await downloadFile(`/invoices/${id}/file?kind=${kind}`, `invoice-${id}.${kind === "xml" ? "xml" : "bin"}`);
 }
