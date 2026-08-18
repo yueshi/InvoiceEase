@@ -11,11 +11,13 @@ from invoicing.models.enums import (
 )
 from invoicing.models.invoice import Invoice
 from invoicing.models.mailbox import Mailbox
+from invoicing.models.receipt import BankReceipt
 from invoicing.models.user import User
 
 __all__ = [
     "AuditLog",
     "AuditAction",
+    "BankReceipt",
     "CompanyInfo",
     "CompanyKind",
     "FileType",

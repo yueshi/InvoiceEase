@@ -116,6 +116,22 @@ def build_server() -> MCPServer:
     def invoice_report(month: str) -> str:
         return mcp_tools.invoice_report(month)
 
+    @server.tool(description="银行回单入库（PDF/图片）→ 解析（规则+LLM）→ 自动配对发票建议（金额+户名）。")
+    def receipt_ingest(file_path: str) -> dict:
+        return mcp_tools.receipt_ingest(file_path)
+
+    @server.tool(description="银行回单清单（month 格式 YYYY-MM）。")
+    def receipt_list(month: str) -> list[dict]:
+        return mcp_tools.receipt_list(month)
+
+    @server.tool(description="手动配对回单与发票（覆盖自动建议）。")
+    def receipt_pair(receipt_id: int, invoice_id: int) -> dict:
+        return mcp_tools.receipt_pair(receipt_id, invoice_id)
+
+    @server.tool(description="回单/无票费用汇报（总额/张数 + 无票支出清单，供催票）。")
+    def receipt_report(month: str) -> str:
+        return mcp_tools.receipt_report(month)
+
     return server
 
 

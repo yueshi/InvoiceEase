@@ -82,6 +82,39 @@ def monthly_cost(db: Session, month: str, tenant_id: str = "default") -> dict:
     }
 
 
+def receipts_to_csv(db: Session, month: str) -> bytes:
+    """银行回单凭证草稿 CSV（P3/R1）：金蝶/用友凭证导入通用列。
+
+    借方=费用类（摘要），贷方=银行存款；已配对行附发票号。
+    """
+    import csv
+    import io as _io
+
+    from invoicing.models import BankReceipt
+
+    start, end = _month_bounds(month)
+    rows = (
+        db.query(BankReceipt)
+        .filter(BankReceipt.trade_date >= start, BankReceipt.trade_date < end)
+        .order_by(BankReceipt.trade_date, BankReceipt.id)
+        .all()
+    )
+    buf = _io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["日期", "摘要", "对方户名", "金额", "借方", "贷方", "发票号"])
+    for r in rows:
+        writer.writerow([
+            str(r.trade_date) if r.trade_date else "",
+            r.abstract or "",
+            r.counterparty_name or "",
+            str(r.amount) if r.amount else "",
+            r.abstract or "费用",
+            "银行存款",
+            str(r.paired_invoice_id) if r.paired_invoice_id else "",
+        ])
+    return buf.getvalue().encode("utf-8-sig")  # BOM：Excel 打开中文不乱码
+
+
 def export_monthly_excel(db: Session, month: str, tenant_id: str = "default") -> bytes:
     """Excel 台账（三 sheet）：明细（含三金额列，金蝶/用友常见列）/按类型/按部门。"""
     from openpyxl import Workbook

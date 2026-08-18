@@ -329,3 +329,122 @@ def invoice_report(month: str) -> str:
         "按部门/项目：" + "；".join(f"{k} {v}元" for k, v in data["by_center"].items()) if data["by_center"] else "（无）",
     ]
     return "\n".join(lines)
+
+
+def receipt_ingest(file_path: str) -> dict:
+    """银行回单入库（P3/R1）：PDF/图片 → 存档 → 解析（规则+LLM 兜底）→ 自动配对建议。"""
+    from pathlib import Path
+    from uuid import uuid4
+
+    from invoicing.fetch.filters import classify_attachment
+    from invoicing.mcp.extract import _read_file
+    from invoicing.models import BankReceipt
+    from invoicing.parse.receipt import parse_receipt_bytes, suggest_pair
+    from invoicing.storage import get_storage
+
+    path = Path(file_path)
+    data = _read_file(file_path)
+    kind = classify_attachment(path.name, "", data)
+    if kind not in ("PDF", "IMAGE"):
+        raise ValueError(f"不支持的格式: {kind or '未知'}（仅 PDF/图片回单）")
+    fields = parse_receipt_bytes(data, kind)
+    key = f"tenant-default/receipts/{uuid4().hex}-{path.name}"
+    get_storage().put(key, data, "application/octet-stream")
+    with SessionLocal() as db:
+        r = BankReceipt(
+            file_url=key,
+            file_type=kind,
+            trade_date=fields.get("trade_date"),
+            counterparty_name=fields.get("counterparty_name"),
+            amount=fields.get("amount"),
+            abstract=fields.get("abstract"),
+            status="pending",
+        )
+        db.add(r)
+        db.flush()
+        suggested = suggest_pair(db, r.id)
+        if suggested is not None:
+            r.paired_invoice_id = suggested
+            r.status = "paired"
+        else:
+            r.status = "unmatched"
+        db.commit()
+        return {
+            "id": r.id,
+            "trade_date": str(r.trade_date) if r.trade_date else None,
+            "counterparty_name": r.counterparty_name,
+            "amount": str(r.amount) if r.amount else None,
+            "abstract": r.abstract,
+            "paired_invoice_id": r.paired_invoice_id,
+            "status": r.status,
+        }
+
+
+def receipt_list(month: str) -> list[dict]:
+    """回单清单（P3/R1）：month=YYYY-MM。"""
+    from invoicing.models import BankReceipt
+    from invoicing.reports import _month_bounds
+
+    start, end = _month_bounds(month)
+    with SessionLocal() as db:
+        rows = (
+            db.query(BankReceipt)
+            .filter(BankReceipt.trade_date >= start, BankReceipt.trade_date < end)
+            .order_by(BankReceipt.trade_date, BankReceipt.id)
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "trade_date": str(r.trade_date) if r.trade_date else None,
+                "counterparty_name": r.counterparty_name,
+                "amount": str(r.amount) if r.amount else None,
+                "abstract": r.abstract,
+                "paired_invoice_id": r.paired_invoice_id,
+                "status": r.status,
+            }
+            for r in rows
+        ]
+
+
+def receipt_pair(receipt_id: int, invoice_id: int) -> dict:
+    """手动配对回单与发票（覆盖自动建议）。"""
+    from invoicing.models import BankReceipt, Invoice
+
+    with SessionLocal() as db:
+        r = db.get(BankReceipt, receipt_id)
+        if r is None:
+            raise ValueError(f"回单不存在: {receipt_id}")
+        if db.get(Invoice, invoice_id) is None:
+            raise ValueError(f"发票不存在: {invoice_id}")
+        r.paired_invoice_id = invoice_id
+        r.status = "paired"
+        db.commit()
+        return {"receipt_id": receipt_id, "paired_invoice_id": invoice_id, "status": "paired"}
+
+
+def receipt_report(month: str) -> str:
+    """回单/无票费用汇报（P3/R1+R2）：总额/张数 + 无票支出清单（催票数据源）。"""
+    from invoicing.models import BankReceipt
+    from invoicing.reports import _month_bounds
+
+    start, end = _month_bounds(month)
+    with SessionLocal() as db:
+        rows = (
+            db.query(BankReceipt)
+            .filter(BankReceipt.trade_date >= start, BankReceipt.trade_date < end)
+            .order_by(BankReceipt.trade_date, BankReceipt.id)
+            .all()
+        )
+        total = sum((r.amount for r in rows if r.amount), 0)
+        unmatched = [r for r in rows if r.paired_invoice_id is None]
+    lines = [f"{month} 月回单：共 {len(rows)} 笔，合计 {total} 元"]
+    if unmatched:
+        lines.append(f"⚠️ 无票支出 {len(unmatched)} 笔（建议催交发票）：")
+        for r in unmatched:
+            lines.append(
+                f"  - {r.trade_date} {r.counterparty_name or '未知对方'} {r.amount}元 {r.abstract or ''}"
+            )
+    else:
+        lines.append("无票支出：无（回单均已配对发票）")
+    return "\n".join(lines)
