@@ -331,6 +331,14 @@ def invoice_report(month: str) -> str:
     return "\n".join(lines)
 
 
+def invoice_health_report(month: str) -> str:
+    """月度健康报告（P3/R3）：老板视角收口文本，供数字员工直接引用推送。"""
+    from invoicing.reports import monthly_health
+
+    with SessionLocal() as db:
+        return monthly_health(db, month)
+
+
 def receipt_ingest(file_path: str) -> dict:
     """银行回单入库（P3/R1）：PDF/图片 → 存档 → 解析（规则+LLM 兜底）→ 自动配对建议。"""
     from pathlib import Path

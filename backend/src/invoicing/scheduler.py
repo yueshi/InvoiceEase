@@ -88,6 +88,34 @@ def _generate_review_predictions() -> None:
 register_task("review_predict", _generate_review_predictions, seconds=60)
 
 
+def _monthly_health_report() -> None:
+    """每月 1 日生成健康报告（P3/R3）：首次启用 cron 结构。
+
+    注意：本地开发进程不常驻，此任务依赖 FastAPI 进程存活；生产推荐由
+    WorkBuddy 自动化（每月 1 日调 invoice_health_report）兜底双轨。
+    """
+    from datetime import date, timedelta
+
+    from invoicing.reports import monthly_health
+
+    try:
+        month = (date.today().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        with SessionLocal() as db:
+            text = monthly_health(db, month)
+        from invoicing.notify import notify
+
+        notify(text)
+        logger.info("月度健康报告已生成 month=%s", month)
+    except Exception as exc:
+        logger.exception("月度健康报告任务异常")
+        from invoicing.notify import notify
+
+        notify(f"🔴 班表任务异常：monthly_health（{type(exc).__name__}）")
+
+
+register_task("monthly_health", _monthly_health_report, trigger="cron", day=1, hour=9)
+
+
 def setup_scheduler(app: FastAPI) -> None:
     if not settings.scheduler_enabled:
         return

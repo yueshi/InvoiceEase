@@ -132,6 +132,10 @@ def build_server() -> MCPServer:
     def receipt_report(month: str) -> str:
         return mcp_tools.receipt_report(month)
 
+    @server.tool(description="月度健康报告（收票/验真/异常/成本/无票/数字员工改判，month 格式 YYYY-MM）。")
+    def invoice_health_report(month: str) -> str:
+        return mcp_tools.invoice_health_report(month)
+
     return server
 
 

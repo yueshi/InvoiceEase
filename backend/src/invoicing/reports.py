@@ -82,6 +82,72 @@ def monthly_cost(db: Session, month: str, tenant_id: str = "default") -> dict:
     }
 
 
+def monthly_health(db: Session, month: str) -> str:
+    """月度健康报告（P3/R3）：老板视角收口文本（收票/验真/异常/成本/无票/信任）。"""
+    from invoicing.models import AuditLog, BankReceipt
+
+    cost = monthly_cost(db, month)
+    start, end = _month_bounds(month)
+    rows = (
+        db.query(Invoice)
+        .filter(Invoice.issue_date >= start, Invoice.issue_date < end)
+        .all()
+    )
+    by_source: dict[str, int] = {}
+    verify_failed = 0
+    blocked = 0
+    red = 0
+    for inv in rows:
+        key = inv.parse_source or "unknown"
+        by_source[key] = by_source.get(key, 0) + 1
+        if inv.verify_status == "failed":
+            verify_failed += 1
+        if inv.status == "blocked":
+            blocked += 1
+        if inv.red_flag:
+            red += 1
+    receipts = (
+        db.query(BankReceipt)
+        .filter(BankReceipt.trade_date >= start, BankReceipt.trade_date < end)
+        .all()
+    )
+    unmatched = [r for r in receipts if r.paired_invoice_id is None]
+    unmatched_total = sum((r.amount for r in unmatched if r.amount), 0)
+    # 信任（M8）：近 7 天改判统计（跨月滚动窗口，观察期数据）
+    from datetime import timedelta
+
+    from invoicing.models.fields import utcnow
+
+    since = utcnow() - timedelta(days=7)
+    trust_logs = (
+        db.query(AuditLog)
+        .filter(AuditLog.action.in_(("REVIEW", "AUTO_REVIEW")), AuditLog.created_at >= since)
+        .all()
+    )
+    auto_count = sum(1 for l in trust_logs if l.action == "AUTO_REVIEW")
+    directional = [
+        l for l in trust_logs
+        if l.action == "REVIEW" and (l.detail or {}).get("ai_verdict") in ("approve", "reject")
+    ]
+    overturn = sum(
+        1 for l in directional
+        if (l.detail or {}).get("ai_verdict") != (l.detail or {}).get("action")
+    )
+    overturn_rate = overturn / len(directional) if directional else 0.0
+
+    type_lines = "；".join(f"{k} {v}元" for k, v in cost["by_type"].items()) or "（无归类）"
+    return "\n".join([
+        f"📊 {month} 月度健康报告",
+        f"收票：共 {len(rows)} 张（" + " / ".join(f"{k} {v}" for k, v in sorted(by_source.items())) + "）",
+        f"验真：失败 {verify_failed} 张（当前为模拟模式，未接入国税查验平台）",
+        f"异常：拦截 {blocked}、红字 {red}",
+        f"成本：合计 {cost['total_amount']} 元（不含税 {cost['total_without_tax']} + 税额 {cost['total_tax']}）",
+        f"费用构成：{type_lines}",
+        f"无票支出：{len(unmatched)} 笔（合计 {unmatched_total} 元，建议催交发票）",
+        f"数字员工：近 7 天自动处理 {auto_count} 张，人工改判 {overturn} 张（改判率 {overturn_rate * 100:.0f}%）",
+    ])
+
+
 def receipts_to_csv(db: Session, month: str) -> bytes:
     """银行回单凭证草稿 CSV（P3/R1）：金蝶/用友凭证导入通用列。
 

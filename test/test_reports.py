@@ -84,3 +84,15 @@ def test_export_excel_returns_xlsx(db):
     _seed(db)
     data = export_monthly_excel(db, "2026-08")
     assert data[:2] == b"PK"  # xlsx 是 zip 容器
+
+
+def test_monthly_health_contains_key_sections(db):
+    """R3：健康报告文本含收票/验真/成本/无票关键段。"""
+    from invoicing.reports import monthly_health
+
+    _seed(db)
+    text = monthly_health(db, "2026-08")
+    assert "收票" in text
+    assert "成本" in text
+    assert "无票支出" in text
+    assert "1000.00" in text

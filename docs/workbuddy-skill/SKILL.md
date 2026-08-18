@@ -31,6 +31,8 @@
 | 复核预判 | invoice_ai_review | 对待复核票给出建议结论 |
 | 费用归类 | invoice_classify | 入库后建议归类（不强制） |
 | 成本汇报 | invoice_report | 老板/财务询问「本月成本」时 |
+| 月度健康报告 | invoice_health_report | 每月 1 日或老板问「这个月怎么样」时 |
+| 回单与无票催交 | receipt_ingest / receipt_report | 回单入库配对；无票支出清单催发票 |
 | 查票答疑 | invoice_list / invoice_detail | 任何关于某张票的问题 |
 | 修正与放行 | invoice_update / invoice_unblock / invoice_delete | 财务明确指示时 |
 
