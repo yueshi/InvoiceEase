@@ -43,6 +43,7 @@ class InvoiceOut(BaseModel):
     ai_review_reason: str | None
     ai_review_confidence: float | None
     ai_reviewed_at: datetime | None
+    red_flag: bool
     review_note: str | None
     reviewed_by: int | None
     reviewed_at: datetime | None

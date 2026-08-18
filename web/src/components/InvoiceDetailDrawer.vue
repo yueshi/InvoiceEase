@@ -64,6 +64,7 @@ async function onCostCenter(e: Event) {
         <a-descriptions-item label="购买方">{{ invoice.buyer_name || "—" }}（{{ invoice.buyer_tax_id || "—" }}）</a-descriptions-item>
         <a-descriptions-item label="状态">
           <a-tag>{{ INVOICE_STATUS_LABELS[invoice.status] || invoice.status }}</a-tag>
+          <a-tag v-if="invoice.red_flag" color="red" style="margin-left: 4px">红字发票</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="验真">
           {{ VERIFY_STATUS_LABELS[invoice.verify_status] || invoice.verify_status }}

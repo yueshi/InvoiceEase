@@ -61,6 +61,7 @@ def _parse_invoice(invoice_id: int) -> None:
         extra: list = []
         if outcome.parsed is not None and not outcome.errors:
             from invoicing.parse.company_dict import enrich_parsed
+            from invoicing.parse.red_flag import detect_red_invoice
 
             extra = enrich_parsed(outcome.parsed, db)
             parsed_code = outcome.parsed.invoice_code
@@ -74,6 +75,17 @@ def _parse_invoice(invoice_id: int) -> None:
                 write_audit(
                     db, action="PARSE", invoice_id=inv.id, channel="system",
                     detail={"source": outcome.source, "errors": inv.validation_errors},
+                )
+            elif detect_red_invoice(None, inv.invoice_type):
+                # 红字票（M9 第一步）：识别+标记+待复核，不自动对冲（规则财务确认后另立）
+                inv.red_flag = True
+                inv.validation_errors = [
+                    {"code": "RED_INVOICE", "message": "红字发票，请人工核对冲销对象"}
+                ]
+                transition(inv, InvoiceStatus.pending_review.value)
+                write_audit(
+                    db, action="PARSE", invoice_id=inv.id, channel="system",
+                    detail={"source": outcome.source, "red_flag": True},
                 )
             else:
                 transition(inv, InvoiceStatus.parsed.value)
@@ -105,7 +117,7 @@ def _parse_invoice(invoice_id: int) -> None:
                 f"📋 待复核：`{inv.invoice_number or '未知号码'}` {inv.seller_name or '未知销售方'}"
                 f"（解析/校验问题，请人工复核）"
             )
-        if outcome.parsed is not None and not outcome.errors and not extra:
+        if outcome.parsed is not None and not outcome.errors and not extra and not inv.red_flag:
             enqueue_verify_sync(inv.id)
     except IntegrityError:
         # 解析出的「发票代码+号码」与库中已有发票冲突（唯一索引兜底并发）→ 查重拦截

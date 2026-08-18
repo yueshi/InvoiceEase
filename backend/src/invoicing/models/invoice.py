@@ -97,6 +97,8 @@ class Invoice(Base):
     ai_review_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ai_review_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     ai_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 红字发票标记（数字员工 P2/M9 第一步）：识别+标记，不自动对冲
+    red_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
