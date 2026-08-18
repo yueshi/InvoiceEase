@@ -80,6 +80,14 @@ export interface StatsOverviewOut {
   month_total: number;
 }
 
+export interface TrustStatsOut {
+  days: number;
+  auto_count: number;
+  manual_count: number;
+  overturn_count: number;
+  overturn_rate: number;
+}
+
 export const INVOICE_STATUS_LABELS: Record<string, string> = {
   receiving: "收取中", received: "已收取", parsing: "解析中", parsed: "解析完成",
   verifying: "验真查重中", pending_submit: "待提交", pending_review: "待复核",

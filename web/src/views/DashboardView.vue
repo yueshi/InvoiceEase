@@ -4,11 +4,20 @@ import { onMounted, ref } from "vue";
 import { message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
 import { listCompanyInfos } from "../api/companyInfos";
-import { fetchOverview } from "../api/stats";
-import type { CompanyInfoOut, StatsOverviewOut } from "../types";
+import { fetchOverview, fetchTrustStats } from "../api/stats";
+import type { CompanyInfoOut, StatsOverviewOut, TrustStatsOut } from "../types";
 
 const stats = ref<StatsOverviewOut | null>(null);
+const trust = ref<TrustStatsOut | null>(null);
 const selfInfo = ref<CompanyInfoOut | null>(null);
+
+async function loadTrust() {
+  try {
+    trust.value = await fetchTrustStats();
+  } catch {
+    // 员工无 finance 权限时静默（信任卡片仅财务可见）
+  }
+}
 
 async function loadSelfInfo() {
   try {
@@ -37,6 +46,7 @@ onMounted(async () => {
     errorMessage(e, "统计加载失败");
   }
   await loadSelfInfo();
+  await loadTrust();
 });
 </script>
 
@@ -49,6 +59,16 @@ onMounted(async () => {
       <a-col :span="6"><a-card><a-statistic title="今日新增" :value="stats?.today_new ?? 0" /></a-card></a-col>
       <a-col :span="6"><a-card><a-statistic title="本月累计" :value="stats?.month_total ?? 0" /></a-card></a-col>
     </a-row>
+    <a-card v-if="trust" title="数字员工信任（近 7 天）" size="small" style="margin-top: 16px">
+      <a-row :gutter="16">
+        <a-col :span="6"><a-statistic title="自动处理" :value="trust.auto_count" /></a-col>
+        <a-col :span="6"><a-statistic title="人工复核" :value="trust.manual_count" /></a-col>
+        <a-col :span="6"><a-statistic title="人工改判" :value="trust.overturn_count" /></a-col>
+        <a-col :span="6">
+          <a-statistic title="改判率" :value="Math.round(trust.overturn_rate * 100)" suffix="%" />
+        </a-col>
+      </a-row>
+    </a-card>
     <a-card title="开票抬头" size="small" style="margin-top: 16px">
       <template v-if="selfInfo">
         <p style="margin: 0 0 8px">{{ selfInfo.name }}</p>
