@@ -77,12 +77,28 @@ def test_default_clears_previous(client, db):
     assert defaults[0]["name"] == "B 公司"
 
 
-def test_admin_only(client, db):
+def test_write_ops_admin_only(client, db):
+    """M4 权限模型：非 admin 可读 list（抬头卡片），写操作仍 admin-only。"""
     db.add(User(username="caiwu", password_hash=hash_password("pass123"), role=Role.finance_staff.value))
     db.flush()
     token = client.post("/api/v1/auth/login", json={"username": "caiwu", "password": "pass123"}).json()["access_token"]
-    resp = client.get("/api/v1/company-infos", headers={"Authorization": f"Bearer {token}"})
+    resp = client.post("/api/v1/company-infos", json={"name": "A", "tax_id": "91310101MAELA36R35"}, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+def test_employee_can_list_company_infos(client, db):
+    """M4：员工可读本司开票信息（抬头卡片数据源）。"""
+    from invoicing.models import CompanyInfo
+
+    db.add(User(username="yuangong", password_hash=hash_password("pass123"), role=Role.employee.value))
+    db.add(CompanyInfo(name="测试科技有限公司", tax_id="91310000MA1FL0B000", kind="self", is_default=True))
+    db.flush()
+    token = client.post("/api/v1/auth/login", json={"username": "yuangong", "password": "pass123"}).json()["access_token"]
+    resp = client.get("/api/v1/company-infos", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 1
+    assert items[0]["tax_id"] == "91310000MA1FL0B000"
 
 
 def test_put_kind_change_clears_default(client, db):

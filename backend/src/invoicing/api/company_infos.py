@@ -1,4 +1,4 @@
-"""常用税号及公司信息 CRUD（admin 专属）。"""
+"""常用税号及公司信息 CRUD（写 admin 专属；读放开全员——M4 抬头卡片）。"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -22,7 +22,11 @@ def _clear_defaults(db: Session) -> None:
 
 
 @router.get("", response_model=list[CompanyInfoOut])
-def list_company_infos(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+def list_company_infos(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("employee", "finance_staff", "finance_manager", "admin")),
+):
+    # M4：读放开给员工（开票抬头本就该全员可见）；写操作仍 admin-only
     return db.query(CompanyInfo).order_by(CompanyInfo.id).all()
 
 
