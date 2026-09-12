@@ -36,12 +36,18 @@ async function load() {
 
 async function onBeforeUpload(file: File) {
   try {
-    const r = await uploadReceipt(file);
-    message.success(
-      r.amount
-        ? `已解析：${r.counterparty_name || "未知对方"} ${r.amount} 元（${r.status === "paired" ? `已配对发票 #${r.paired_invoice_id}` : "未配对"}）`
-        : "已上传（解析字段缺失，请人工补充）",
-    );
+    const rows = await uploadReceipt(file);
+    if (rows.length === 1) {
+      const r = rows[0];
+      message.success(
+        r.amount
+          ? `已解析：${r.counterparty_name || "未知对方"} ${r.amount} 元（${r.status === "paired" ? `已配对发票 #${r.paired_invoice_id}` : "未配对"}）`
+          : "已上传（解析字段缺失，请人工补充）",
+      );
+    } else {
+      const paired = rows.filter((r) => r.status === "paired").length;
+      message.success(`已入库 ${rows.length} 张回单（其中 ${paired} 张自动配对发票）`);
+    }
     await load();
   } catch (e) {
     message.error(errorMessage(e));

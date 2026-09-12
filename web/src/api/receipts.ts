@@ -7,10 +7,11 @@ export async function listReceipts(month: string, unmatchedOnly = false): Promis
   return data;
 }
 
-export async function uploadReceipt(file: File): Promise<ReceiptOut> {
+export async function uploadReceipt(file: File): Promise<ReceiptOut[]> {
   const form = new FormData();
   form.append("file", file);
-  const { data } = await api.post<ReceiptOut>("/receipts/upload", form);
+  // 一份 PDF 可含多张回单：后端逐张入库，返回数组
+  const { data } = await api.post<ReceiptOut[]>("/receipts/upload", form);
   return data;
 }
 

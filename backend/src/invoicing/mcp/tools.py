@@ -395,15 +395,18 @@ def invoice_health_report(month: str) -> str:
         return monthly_health(db, month)
 
 
-def receipt_ingest(file_path: str) -> dict:
-    """银行回单入库（P3/R1）：PDF/图片 → 存档 → 解析（规则+LLM 兜底）→ 自动配对建议。"""
+def receipt_ingest(file_path: str) -> list[dict]:
+    """银行回单入库（P3/R1）：PDF/图片 → 存档 → 多张解析（分块规则+LLM 兜底）→ 逐条自动配对。
+
+    一份 PDF 可含多张回单：每张入库一条（共享同一原件 URL），返回数组。
+    """
     from pathlib import Path
     from uuid import uuid4
 
     from invoicing.fetch.filters import classify_attachment
     from invoicing.mcp.extract import _read_file
     from invoicing.models import BankReceipt
-    from invoicing.parse.receipt import parse_receipt_bytes, suggest_pair
+    from invoicing.parse.receipt import parse_receipts_bytes, suggest_pair
     from invoicing.storage import get_storage
 
     path = Path(file_path)
@@ -411,37 +414,42 @@ def receipt_ingest(file_path: str) -> dict:
     kind = classify_attachment(path.name, "", data)
     if kind not in ("PDF", "IMAGE"):
         raise ValueError(f"不支持的格式: {kind or '未知'}（仅 PDF/图片回单）")
-    fields = parse_receipt_bytes(data, kind)
+    rows = parse_receipts_bytes(data, kind)
+    if not rows:
+        raise ValueError("未识别出银行回单信息（规则+LLM 均未提取出金额与户名）")
     key = f"tenant-default/receipts/{uuid4().hex}-{path.name}"
     get_storage().put(key, data, "application/octet-stream")
+    out = []
     with SessionLocal() as db:
-        r = BankReceipt(
-            file_url=key,
-            file_type=kind,
-            trade_date=fields.get("trade_date"),
-            counterparty_name=fields.get("counterparty_name"),
-            amount=fields.get("amount"),
-            abstract=fields.get("abstract"),
-            status="pending",
-        )
-        db.add(r)
-        db.flush()
-        suggested = suggest_pair(db, r.id)
-        if suggested is not None:
-            r.paired_invoice_id = suggested
-            r.status = "paired"
-        else:
-            r.status = "unmatched"
-        db.commit()
-        return {
-            "id": r.id,
-            "trade_date": str(r.trade_date) if r.trade_date else None,
-            "counterparty_name": r.counterparty_name,
-            "amount": str(r.amount) if r.amount else None,
-            "abstract": r.abstract,
-            "paired_invoice_id": r.paired_invoice_id,
-            "status": r.status,
-        }
+        for fields in rows:
+            r = BankReceipt(
+                file_url=key,
+                file_type=kind,
+                trade_date=fields.get("trade_date"),
+                counterparty_name=fields.get("counterparty_name"),
+                amount=fields.get("amount"),
+                abstract=fields.get("abstract"),
+                status="pending",
+            )
+            db.add(r)
+            db.flush()
+            suggested = suggest_pair(db, r.id)
+            if suggested is not None:
+                r.paired_invoice_id = suggested
+                r.status = "paired"
+            else:
+                r.status = "unmatched"
+            db.commit()
+            out.append({
+                "id": r.id,
+                "trade_date": str(r.trade_date) if r.trade_date else None,
+                "counterparty_name": r.counterparty_name,
+                "amount": str(r.amount) if r.amount else None,
+                "abstract": r.abstract,
+                "paired_invoice_id": r.paired_invoice_id,
+                "status": r.status,
+            })
+    return out
 
 
 def receipt_list(month: str) -> list[dict]:

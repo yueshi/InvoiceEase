@@ -36,11 +36,14 @@ def upload_receipt(
     db: Session = Depends(get_db),
     user: User = Depends(require_role(*_FINANCE)),
 ):
-    """回单上传（PDF/图片）：存档 → 解析（PDF 文本层/图片 OCR/LLM 兜底）→ 自动配对建议。"""
+    """回单上传（PDF/图片）：存档 → 多张解析（分块规则+LLM 兜底）→ 逐条自动配对建议。
+
+    一份 PDF 可含多张回单：每张入库一条（共享同一原件 URL），返回数组。
+    """
     from uuid import uuid4
 
     from invoicing.fetch.filters import classify_attachment
-    from invoicing.parse.receipt import parse_receipt_bytes, suggest_pair
+    from invoicing.parse.receipt import parse_receipts_bytes, suggest_pair
     from invoicing.storage import get_storage
 
     data = file.file.read()
@@ -48,34 +51,37 @@ def upload_receipt(
     if kind not in ("PDF", "IMAGE"):
         raise HTTPException(422, "仅支持 PDF 或图片格式的回单")
 
-    fields = parse_receipt_bytes(data, kind)
+    rows = parse_receipts_bytes(data, kind)
+    if not rows:
+        raise HTTPException(422, "未识别出银行回单信息（规则+LLM 均未提取出金额与户名）")
 
     key = f"tenant-default/receipts/{uuid4().hex}-{file.filename or 'receipt'}"
     get_storage().put(key, data, "application/octet-stream")
-    r = BankReceipt(
-        file_url=key,
-        file_type=kind,
-        user_id=user.id,
-        trade_date=fields.get("trade_date"),
-        counterparty_name=fields.get("counterparty_name"),
-        amount=fields.get("amount"),
-        abstract=fields.get("abstract"),
-        status="pending",
-    )
-    db.add(r)
-    db.commit()
-    db.refresh(r)
-    # 自动配对建议（D5）：金额相等+户名规范化；命中即落库，未命中标 unmatched
-    from invoicing.parse.receipt import suggest_pair
-
-    suggested = suggest_pair(db, r.id)
-    if suggested is not None:
-        r.paired_invoice_id = suggested
-        r.status = "paired"
-    else:
-        r.status = "unmatched"
-    db.commit()
-    return _receipt_out(r)
+    out = []
+    for fields in rows:
+        r = BankReceipt(
+            file_url=key,
+            file_type=kind,
+            user_id=user.id,
+            trade_date=fields.get("trade_date"),
+            counterparty_name=fields.get("counterparty_name"),
+            amount=fields.get("amount"),
+            abstract=fields.get("abstract"),
+            status="pending",
+        )
+        db.add(r)
+        db.commit()
+        db.refresh(r)
+        # 自动配对建议（D5）：金额相等+户名规范化；命中即落库，未命中标 unmatched
+        suggested = suggest_pair(db, r.id)
+        if suggested is not None:
+            r.paired_invoice_id = suggested
+            r.status = "paired"
+        else:
+            r.status = "unmatched"
+        db.commit()
+        out.append(_receipt_out(r))
+    return out
 
 
 @router.get("")

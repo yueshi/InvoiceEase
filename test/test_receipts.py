@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from invoicing.db import get_db
 from invoicing.main import create_app
 from invoicing.models import BankReceipt, Invoice, Role, User
-from invoicing.parse.receipt import parse_receipt_text, suggest_pair
+from invoicing.parse.receipt import parse_receipt_text, parse_receipts_text, suggest_pair
 from invoicing.reports import receipts_to_csv
 from invoicing.security import hash_password
 
@@ -89,6 +89,75 @@ def test_receipts_csv_includes_null_trade_date_row(db):
     db.commit()
     csv_data = receipts_to_csv(db, "2026-09").decode("utf-8-sig")
     assert "1116.00" in csv_data
+
+
+_BLOCK_MARKER = "此回单以客户真实交易为依据，可通过建行网站校验真伪。"
+
+
+def test_parse_receipts_text_multi_block():
+    """一份 PDF 多张回单（块尾免责声明分隔）→ 逐块提取，各得一条。"""
+    text = (
+        "户名：西安某公司\n交易金额：3,500.00\n" + _BLOCK_MARKER + "\n"
+        "户名：北京某公司\n交易金额：46.50\n" + _BLOCK_MARKER + "\n"
+    )
+    results = parse_receipts_text(text)
+    assert [r["amount"] for r in results] == [Decimal("3500.00"), Decimal("46.50")]
+    assert [r["counterparty_name"] for r in results] == ["西安某公司", "北京某公司"]
+
+
+def test_parse_receipts_text_single_block_compat():
+    """无块标记的单文档文本 → 整体一块，返回单条（兼容单张回单）。"""
+    text = "交易日期 2026-08-05\n对方户名 北京某某科技有限公司\n交易金额 1,000.00\n"
+    results = parse_receipts_text(text)
+    assert len(results) == 1
+    assert results[0]["amount"] == Decimal("1000.00")
+    assert results[0]["trade_date"] == date(2026, 8, 5)
+
+
+def test_upload_receipt_multi_block_creates_rows(client, db, monkeypatch, tmp_path):
+    """上传多回单 PDF → 一次入库 N 条（共享原件 URL），API 返回数组。"""
+    from invoicing.storage import LocalFileStorage
+
+    auth = _seed_login(client, db)
+    monkeypatch.setattr(
+        "invoicing.storage.get_storage",
+        lambda: LocalFileStorage(root=str(tmp_path / "orig")),
+    )
+    text = (
+        "户名：西安某公司\n交易金额：3,500.00\n" + _BLOCK_MARKER + "\n"
+        "户名：北京某公司\n交易金额：46.50\n" + _BLOCK_MARKER + "\n"
+    )
+    monkeypatch.setattr(
+        "invoicing.parse.pdf_text_parser.extract_pdf_text", lambda data: text
+    )
+    p = tmp_path / "multi.pdf"
+    p.write_bytes(b"%PDF-1.4 fake")
+    with open(p, "rb") as fh:
+        resp = client.post(
+            "/api/v1/receipts/upload",
+            headers=auth,
+            files={"file": ("multi.pdf", fh, "application/pdf")},
+        )
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert isinstance(rows, list)
+    assert {r["amount"] for r in rows} == {"3500.00", "46.50"}
+    assert db.query(BankReceipt).count() == 2
+    assert len({r.file_url for r in db.query(BankReceipt).all()}) == 1  # 共享原件
+
+
+def test_parse_receipt_fee_table_header_not_amount():
+    """手续费明细表：『…手续费 金额』表头跨行是产品编号，真金额在 ￥ 锚点——
+    不得把表头后的编号当成金额。"""
+    text = (
+        "户名：西安启智合创科技有限公司\n"
+        "项目名称 工本费/转账汇款手续费/手续费 金额\n"
+        "4000212普惠远航（B版） ￥899.00 ￥899.00\n"
+        "合计金额 （大写）人民币捌佰玖拾玖元整 ￥899.00\n"
+    )
+    parsed = parse_receipt_text(text)
+    assert parsed is not None
+    assert parsed["amount"] == Decimal("899.00")
 
 
 def test_parse_receipt_missing_fields_returns_none():

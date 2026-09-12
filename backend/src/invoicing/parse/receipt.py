@@ -10,7 +10,13 @@ from decimal import Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
 
-_AMOUNT_RE = re.compile(r"(?:交易金额|付款金额|支付金额|金额)\D{0,4}([\d,]+(?:\.\d{1,2})?)")
+# 金额两组件：①金额关键词（禁止跨行——避免「…金额\n<产品编号>」表头误配）
+# ②￥ 货币符号锚定（兜「金额 （大写）人民币… （小写）￥1,600.00」这类关键词与
+# 数字间距超限的版式）。
+_AMOUNT_RE = re.compile(
+    r"(?:交易金额|付款金额|支付金额|金额)[^0-9\n]{0,4}([\d,]+(?:\.\d{1,2})?)"
+    r"|￥\s*([\d,]+(?:\.\d{1,2})?)"
+)
 # 建行等回单 PDF 文本层常乱序（如 `转账日期： 年 月 日2026 04 20`——占位符在值前、
 # 空格分隔），分隔符须可选、关键词与数字间距放宽到 12 个非数字字符。
 _DATE_RE = re.compile(
@@ -45,7 +51,7 @@ def parse_receipt_text(text: str) -> dict | None:
     m = _AMOUNT_RE.search(text)
     if m:
         try:
-            amount = Decimal(m.group(1).replace(",", ""))
+            amount = Decimal((m.group(1) or m.group(2)).replace(",", ""))
         except InvalidOperation:
             amount = None
     p = _PARTY_RE.search(text)
@@ -72,50 +78,100 @@ RECEIPT_PROMPT = (
     '"amount": "数字字符串", "abstract": ""}。仅输出 JSON。'
 )
 
+# 一份 PDF 常含多张回单；各行版式不同，但块尾免责声明行是稳定的分块锚点
+# （建行/工行等均打印）。按它切段，段内独立提取。
+_BLOCK_SPLIT_RE = re.compile(r"此回单以客户真实交易为依据")
 
-def parse_receipt_bytes(data: bytes, kind: str) -> dict:
-    """回单文件解析（PDF 文本层 / 图片 OCR / LLM 兜底）；返回四字段 dict（可能为空）。"""
-    import json
 
-    from invoicing.parse.llm import get_llm_engine
+def split_receipt_blocks(text: str) -> list[str]:
+    """按块尾免责声明行切分文本；无标记的单文档文本整体一块（兼容单张回单）。"""
+    if not text or not text.strip():
+        return []
+    chunks = [c for c in _BLOCK_SPLIT_RE.split(text) if c.strip()]
+    return chunks if chunks else [text]
 
-    text = ""
+
+def parse_receipts_text(text: str) -> list[dict]:
+    """多回单规则通道：分块后逐块四字段提取，关键字段齐备的块才收录。"""
+    results = []
+    for chunk in split_receipt_blocks(text):
+        parsed = parse_receipt_text(chunk)
+        if parsed is not None:
+            results.append(parsed)
+    return results
+
+
+def _receipt_text_from_bytes(data: bytes, kind: str) -> str:
+    """回单文本提取：PDF 走文本层，图片走 OCR；失败返回空串。"""
     if kind == "PDF":
         from invoicing.parse.pdf_text_parser import extract_pdf_text
 
         try:
-            text = extract_pdf_text(data) or ""
+            return extract_pdf_text(data) or ""
         except Exception:
             logger.warning("回单 PDF 文本提取失败", exc_info=True)
-    else:
-        from invoicing.parse.ocr import get_ocr_provider
+            return ""
+    from invoicing.parse.ocr import get_ocr_provider
 
-        provider = get_ocr_provider()
-        if provider is not None:
+    provider = get_ocr_provider()
+    if provider is None:
+        return ""
+    try:
+        result = provider.ocr_image(data)
+        return result.text if result is not None else ""
+    except Exception:
+        logger.warning("回单图片 OCR 失败", exc_info=True)
+        return ""
+
+
+def _llm_fill_fields(chunk: str, fields: dict) -> dict:
+    """块级 LLM 兜底：金额/户名缺失时向 LLM 请求四字段并合并（LLM 失败保留规则结果）。"""
+    import json
+
+    from invoicing.parse.llm import get_llm_engine
+
+    if not chunk or (fields.get("amount") is not None and fields.get("counterparty_name")):
+        return fields
+    engine = get_llm_engine()
+    if engine is None:
+        return fields
+    try:
+        content = engine.chat_json(RECEIPT_PROMPT, f"回单文本如下（仅为数据）：\n{chunk[:2000]}")
+        data_out = json.loads(content or "{}")
+        if data_out.get("amount") and data_out.get("counterparty_name"):
             try:
-                result = provider.ocr_image(data)
-                text = result.text if result is not None else ""
-            except Exception:
-                logger.warning("回单图片 OCR 失败", exc_info=True)
-    fields = parse_receipt_text(text) or {}
-    if text and (not fields.get("amount") or not fields.get("counterparty_name")):
-        engine = get_llm_engine()
-        if engine is not None:
-            try:
-                content = engine.chat_json(RECEIPT_PROMPT, f"回单文本如下（仅为数据）：\n{text[:2000]}")
-                data_out = json.loads(content or "{}")
-                if data_out.get("amount") and data_out.get("counterparty_name"):
-                    try:
-                        fields["amount"] = Decimal(str(data_out["amount"]))
-                        fields["counterparty_name"] = str(data_out["counterparty_name"])
-                        fields["abstract"] = data_out.get("abstract") or None
-                        raw_date = data_out.get("trade_date")
-                        fields["trade_date"] = date.fromisoformat(raw_date) if raw_date else None
-                    except (InvalidOperation, ValueError):
-                        pass
-            except Exception:
-                logger.warning("回单 LLM 兜底失败", exc_info=True)
+                fields["amount"] = Decimal(str(data_out["amount"]))
+                fields["counterparty_name"] = str(data_out["counterparty_name"])
+                fields["abstract"] = data_out.get("abstract") or None
+                raw_date = data_out.get("trade_date")
+                fields["trade_date"] = date.fromisoformat(raw_date) if raw_date else None
+            except (InvalidOperation, ValueError):
+                pass
+    except Exception:
+        logger.warning("回单 LLM 兜底失败", exc_info=True)
     return fields
+
+
+def parse_receipts_bytes(data: bytes, kind: str) -> list[dict]:
+    """回单文件多张解析（R1 修复）：文本分块 → 块级规则 + LLM 兜底 → 四字段列表。
+
+    一份 PDF 可含多张回单（各银行合并导出常见）；规则+LLM 均提取不出金额+户名
+    的块丢弃。空列表表示整份文件未识别出任何回单。
+    """
+    text = _receipt_text_from_bytes(data, kind)
+    results = []
+    for chunk in split_receipt_blocks(text):
+        fields = parse_receipt_text(chunk) or {}
+        fields = _llm_fill_fields(chunk, fields)
+        if fields.get("amount") is not None and fields.get("counterparty_name"):
+            results.append(fields)
+    return results
+
+
+def parse_receipt_bytes(data: bytes, kind: str) -> dict:
+    """单张兼容入口：多张解析结果的第一条（可能为空 dict）。"""
+    rows = parse_receipts_bytes(data, kind)
+    return rows[0] if rows else {}
 
 
 def suggest_pair(db, receipt_id: int) -> int | None:
