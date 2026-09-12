@@ -172,6 +172,136 @@ def parse_receipts_text(text: str, self_accounts: set[str] | None = None) -> lis
     return results
 
 
+_SERIAL_LABEL_RE = re.compile(
+    r"(?:缴款书交易流水号|交易流水号|流水号|税票号码|凭证字号)[:：]?\s*([0-9A-Za-z]{6,})"
+)
+_ALNUM_RUN_RE = re.compile(r"[0-9A-Za-z]{8,}")
+
+
+def anchor_token(
+    text: str, amount=None, exclude: set[str] | None = None
+) -> str | None:
+    """块内锚点串（原件定位用），按可靠性取舍：
+
+    ① 带标签的流水号/税票号码（最长者，页内唯一、位置稳定）；
+    ② 金额（页内唯一；手续费/利息等无流水号的版式——注意此时**不能**退化取
+       最长数字串：那是本司账号，页内每张回单都出现，会定位到错误位置）；
+    ③ 兜底最长字母数字串（排除本司账号）。
+    """
+    exclude = exclude or set()
+    labeled = [t for t in _SERIAL_LABEL_RE.findall(text or "") if t not in exclude]
+    if labeled:
+        return max(labeled, key=len)
+    if amount is not None:
+        return f"{amount:,.2f}"
+    runs = [t for t in _ALNUM_RUN_RE.findall(text or "") if t not in exclude]
+    return max(runs, key=len) if runs else None
+
+
+def _normalize_token(s: str) -> str:
+    return re.sub(r"[^0-9A-Za-z]", "", s or "")
+
+
+def _find_anchor_y(spans: list[tuple[str, float, float]], token: str) -> float | None:
+    """在带坐标的文本片段中找锚点串（归一化后互相包含）→ 返回其 y。"""
+    key = _normalize_token(token)
+    if not key:
+        return None
+    for text, _x, y in spans:
+        if key in _normalize_token(text):
+            return y
+    return None
+
+
+def _anchor_candidates(fields: dict) -> list[str]:
+    """定位候选串（按优先级）：流水号/税票号码 → 金额原文（带/不带千分位）。"""
+    cands: list[str] = []
+    tok = fields.get("anchor_text")
+    if tok:
+        cands.append(tok)
+    amt = fields.get("amount")
+    if amt is not None:
+        cands.extend([f"{amt:,.2f}", f"{amt:.2f}"])
+    return cands
+
+
+def assign_anchor_bands(
+    rows: list[dict],
+    pages_spans: list[dict | None],
+    locate=None,
+) -> None:
+    """为每行计算原件定位带（原地修改 rows，新增 "anchor"）。
+
+    定位优先级：① `locate(page, token)`（PDFium 定位器，全字符坐标）按候选串
+    （流水号→金额）搜索；② 退化用 pypdf 片段坐标（仅约半数片段有坐标）；
+    ③ 都不行 → bbox=None（仅页码 + 锚点串，前端降级为整页提示）。
+
+    同页多张回单按锚点 y 的**中点**切分：每行覆盖「上一张与本张的中点 → 本张与
+    下一张的中点」，首/尾行延伸到页边。bbox 用归一化坐标（除以页宽高，原点在
+    页面**左下**——PDF 坐标系），前端渲染时 y 需翻转为 CSS 的 top。
+    """
+    by_page: dict[int, list[dict]] = {}
+    for r in rows:
+        page = r.get("page") or 1
+        info = pages_spans[page - 1] if 0 < page <= len(pages_spans) else None
+        y = None
+        # ① PDFium 定位器（覆盖率最高）
+        if locate is not None:
+            for token in _anchor_candidates(r):
+                hit = locate.locate(page, token)
+                if hit is not None:
+                    y = (hit[0] + hit[1]) / 2
+                    break
+        # ② pypdf 片段坐标兜底
+        if y is None and info and r.get("anchor_text"):
+            y = _find_anchor_y(info["spans"], r["anchor_text"])
+        r["_y"] = y
+        by_page.setdefault(page, []).append(r)
+
+    for page, group in by_page.items():
+        info = pages_spans[page - 1] if 0 < page <= len(pages_spans) else None
+        h = float(info["h"]) if info else None
+        if not h and locate is not None:
+            h = locate.page_height(page)  # pypdf 无坐标时用 PDFium 页高归一化
+        located = sorted((r for r in group if r.get("_y") is not None), key=lambda r: r["_y"])
+        for i, r in enumerate(located):
+            y = r["_y"]
+            upper = (
+                (y + located[i + 1]["_y"]) / 2 if i + 1 < len(located) else (h if h else y + 100.0)
+            )
+            lower = (y + located[i - 1]["_y"]) / 2 if i > 0 else 0.0
+            r["anchor"] = {"bbox": _norm_band(lower, upper, h), "text": r.get("anchor_text"), "v": 1}
+
+    for r in rows:
+        r.pop("_y", None)
+        if "anchor" not in r:
+            r["anchor"] = {"bbox": None, "text": r.get("anchor_text"), "v": 1}
+
+
+def _norm_band(lower: float, upper: float, page_h: float | None) -> list[float] | None:
+    if not page_h or page_h <= 0:
+        return None
+    y0 = max(0.0, min(lower, page_h)) / page_h
+    y1 = max(0.0, min(upper, page_h)) / page_h
+    if y1 <= y0:
+        y0, y1 = y1, y0
+    return [0.03, round(y0, 4), 0.97, round(y1, 4)]
+
+
+def _receipt_pages_from_bytes(data: bytes, kind: str) -> list[str]:
+    """回单文本按页切分：PDF 走逐页文本层，图片 OCR 视为单页。"""
+    if kind == "PDF":
+        from invoicing.parse.pdf_text_parser import extract_pdf_pages
+
+        try:
+            return extract_pdf_pages(data)
+        except Exception:
+            logger.warning("回单 PDF 逐页文本提取失败", exc_info=True)
+            return []
+    text = _receipt_text_from_bytes(data, kind)
+    return [text] if text else []
+
+
 def _receipt_text_from_bytes(data: bytes, kind: str) -> str:
     """回单文本提取：PDF 走文本层，图片走 OCR；失败返回空串。"""
     if kind == "PDF":
@@ -265,22 +395,38 @@ def parse_receipts_bytes(
 
     self_accounts：本司银行账号集合；self_names：本司名称集合（LLM 过滤用）。
     """
-    text = _receipt_text_from_bytes(data, kind)
     results = []
-    for chunk in split_receipt_blocks(text):
-        fields = parse_receipt_text(chunk, self_accounts=self_accounts)
-        if fields is None:
-            # 规则无产出（无金额）→ 整块交 LLM 试一次
-            fields = _llm_fill_fields(chunk, {}, self_names=self_names)
-        else:
-            fields = _llm_fill_fields(chunk, fields, self_names=self_names)
-        if fields.get("amount") is None:
-            continue  # 金额是入账硬前提
-        if not fields.get("counterparty_name") and "no_counterparty" not in (
-            fields.get("quality_issues") or []
-        ):
-            continue  # 既无对方也非本司账户行 → 不可入账
-        results.append(fields)
+    for page_no, page_text in enumerate(_receipt_pages_from_bytes(data, kind), start=1):
+        for chunk in split_receipt_blocks(page_text):
+            fields = parse_receipt_text(chunk, self_accounts=self_accounts)
+            if fields is None:
+                # 规则无产出（无金额）→ 整块交 LLM 试一次
+                fields = _llm_fill_fields(chunk, {}, self_names=self_names)
+            else:
+                fields = _llm_fill_fields(chunk, fields, self_names=self_names)
+            if fields.get("amount") is None:
+                continue  # 金额是入账硬前提
+            if not fields.get("counterparty_name") and "no_counterparty" not in (
+                fields.get("quality_issues") or []
+            ):
+                continue  # 既无对方也非本司账户行 → 不可入账
+            fields["page"] = page_no
+            token = anchor_token(chunk, amount=fields.get("amount"), exclude=self_accounts or set())
+            if token:
+                fields["anchor_text"] = token
+            results.append(fields)
+    if kind == "PDF" and results:
+        from invoicing.parse.pdf_text_parser import PdfiumLocator, extract_pdf_page_spans
+
+        locator = PdfiumLocator(data)
+        assign_anchor_bands(
+            results,
+            extract_pdf_page_spans(data),
+            locate=locator if locator.available else None,
+        )
+    else:
+        for r in results:
+            r.setdefault("anchor", {"bbox": None, "text": r.get("anchor_text"), "v": 1})
     return results
 
 

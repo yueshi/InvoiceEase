@@ -521,6 +521,155 @@ def test_llm_path_fills_direction(monkeypatch):
     assert fields["direction"] == "收"
 
 
+def test_anchor_token_prefers_longest_digit_run():
+    """锚点串取块内最长数字串（流水号/税票号码），用于精确定位。"""
+    from invoicing.parse.receipt import anchor_token
+
+    chunk = (
+        "凭证字号：30012026042003189400转账日期： 年 月 日2026 04 20\n"
+        "小写（合计）金额：￥1,116.00 缴款书交易流水号： 20260420113137616000009584183300\n"
+        "税票号码： 461016260410560121\n"
+    )
+    assert anchor_token(chunk) == "20260420113137616000009584183300"
+
+
+def test_assign_anchor_bands_partitions_page():
+    """同页多张回单：按锚点 y 中点切带，各覆盖自己区域，无重叠。"""
+    from invoicing.parse.receipt import assign_anchor_bands
+
+    rows = [
+        {"page": 1, "anchor_text": "1111111111111111"},  # 页面底部（y 小）
+        {"page": 1, "anchor_text": "2222222222222222"},
+        {"page": 1, "anchor_text": "3333333333333333"},  # 页面顶部（y 大）
+    ]
+    pages = [{
+        "w": 600.0, "h": 800.0,
+        "spans": [
+            ("税票号码：1111111111111111", 25.0, 100.0),  # y=100 最下
+            ("税票号码：2222222222222222", 25.0, 400.0),
+            ("税票号码：3333333333333333", 25.0, 700.0),  # y=700 最上
+        ],
+    }]
+    assign_anchor_bands(rows, pages)
+    bands = [r["anchor"]["bbox"] for r in rows]
+    assert all(b is not None for b in bands)
+    # 归一化且无重叠（y 带按页内位置切分）
+    ys = sorted((b[1], b[3]) for b in bands)
+    assert ys[0][1] <= ys[1][0] and ys[1][1] <= ys[2][0]
+    assert ys[0][0] >= 0.0 and ys[-1][1] <= 1.0
+    # 最下方（y=100）的行 y 带应在页面下部
+    assert rows[0]["anchor"]["bbox"][3] < 0.5
+    assert rows[2]["anchor"]["bbox"][1] > 0.5
+    assert rows[0]["anchor"]["text"] == "1111111111111111"
+
+
+def test_assign_anchor_bands_prefers_locator():
+    """定位优先级：PDFium 定位器命中优先（全字符坐标），金额等候选串按序尝试。"""
+    from invoicing.parse.receipt import assign_anchor_bands
+
+    class FakeLocator:
+        available = True
+        def locate(self, page, token):
+            # 流水号无坐标，金额命中 → 用金额定位
+            return (600.0, 620.0) if token == "1,116.00" else None
+        def page_height(self, page):
+            return 800.0
+
+    rows = [
+        {"page": 1, "anchor_text": "9999999999999999", "amount": Decimal("1116.00")},
+        {"page": 2, "anchor_text": "8888888888888888", "amount": Decimal("46.50")},
+    ]
+    assign_anchor_bands(rows, [None, None], locate=FakeLocator())
+    assert rows[0]["anchor"]["bbox"] is not None   # 金额兜底命中
+    assert rows[1]["anchor"]["bbox"] is None       # 两串都未命中 → 降级
+
+
+def test_assign_anchor_bands_without_coordinates_degrades():
+    """锚点串在坐标层找不到（本 PDF 48% 片段无坐标）→ bbox 为空但页码保留。"""
+    from invoicing.parse.receipt import assign_anchor_bands
+
+    rows = [{"page": 2, "anchor_text": "9999999999999999"}]
+    pages = [None, {"w": 600.0, "h": 800.0, "spans": [("别的文字", 10.0, 10.0)]}]
+    assign_anchor_bands(rows, pages)
+    assert rows[0]["anchor"] == {"bbox": None, "text": "9999999999999999", "v": 1}
+
+
+def test_parse_receipts_bytes_per_page(monkeypatch):
+    """逐页分块：多页 PDF 的每条回单携带页码。"""
+    from invoicing.parse import receipt as R
+
+    pages = [
+        "户名：甲公司\n交易金额：100.00\n",
+        "户名：乙公司\n交易金额：200.00\n",
+    ]
+    monkeypatch.setattr(R, "_receipt_pages_from_bytes", lambda data, kind: pages)
+    monkeypatch.setattr(R, "_llm_fill_fields", lambda chunk, fields, self_names=None: fields)
+    rows = R.parse_receipts_bytes(b"%PDF", "PDF")
+    assert [(r["page"], str(r["amount"])) for r in rows] == [(1, "100.00"), (2, "200.00")]
+
+
+def test_receipt_page_image_endpoint_renders_and_caches(client, db, monkeypatch, tmp_path):
+    """原件定位渲染端点：返回该页 PNG，并缓存（同页同 DPI 只渲染一次）。"""
+    from invoicing.storage import LocalFileStorage
+
+    auth = _seed_login(client, db)
+    storage = LocalFileStorage(root=str(tmp_path / "orig"))
+    monkeypatch.setattr("invoicing.storage.get_storage", lambda: storage)
+    r = BankReceipt(
+        file_url="tenant-default/receipts/multi.pdf", file_type="PDF", file_hash="hash-1",
+        counterparty_name="某某公司", amount=Decimal("899.00"), status="unmatched", page_no=3,
+    )
+    db.add(r)
+    db.commit()
+    storage.put(r.file_url, b"%PDF-1.4 fake", "application/pdf")
+
+    calls = []
+    monkeypatch.setattr(
+        "invoicing.parse.pdf_text_parser.render_pdf_page_png",
+        lambda data, page_no, dpi=150: (calls.append(page_no), b"\x89PNG\r\n\x1a\nFAKE")[1],
+    )
+    resp = client.get(f"/api/v1/receipts/{r.id}/page.png", headers=auth)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content.startswith(b"\x89PNG")
+    assert calls == [3]  # 渲染了第 3 页
+
+    resp2 = client.get(f"/api/v1/receipts/{r.id}/page.png", headers=auth)
+    assert resp2.status_code == 200
+    assert calls == [3]  # 命中缓存，未重复渲染
+
+
+def test_receipt_page_image_endpoint_501_without_renderer(client, db, monkeypatch, tmp_path):
+    """渲染库缺失 → 501，前端据此降级为「打开原 PDF 第 N 页」。"""
+    from invoicing.parse.pdf_text_parser import RenderUnavailable
+    from invoicing.storage import LocalFileStorage
+
+    auth = _seed_login(client, db)
+    storage = LocalFileStorage(root=str(tmp_path / "orig"))
+    monkeypatch.setattr("invoicing.storage.get_storage", lambda: storage)
+    r = BankReceipt(file_url="r.pdf", file_type="PDF", file_hash="h2", amount=Decimal("1.00"),
+                    status="unmatched", page_no=1)
+    db.add(r)
+    db.commit()
+    storage.put(r.file_url, b"%PDF-1.4 fake", "application/pdf")
+    monkeypatch.setattr(
+        "invoicing.parse.pdf_text_parser.render_pdf_page_png",
+        lambda *a, **k: (_ for _ in ()).throw(RenderUnavailable("no pypdfium2")),
+    )
+    resp = client.get(f"/api/v1/receipts/{r.id}/page.png", headers=auth)
+    assert resp.status_code == 501
+
+
+def test_pdfium_locator_rejects_embedded_match(tmp_path):
+    """定位词边界校验：短数字串嵌在长数字内部时不得误配（回归：日期串误命中流水号）。"""
+    from invoicing.parse.pdf_text_parser import PdfiumLocator
+
+    loc = PdfiumLocator(b"not-a-pdf")  # 不读真实 PDF，只测匹配逻辑
+    text = "流水号：30012026042003189400 交易日期：20260321"
+    assert loc._find_bounded(text, "20260321") > 0            # 独立出现 → 命中
+    assert loc._find_bounded("流水号：9912026032199", "20260321") == -1  # 嵌在长数字内 → 拒绝
+
+
 def test_parse_receipt_missing_fields_returns_none():
     """关键字段缺失 → None（不产半成品，LLM 兜底由调用方处理）。"""
     assert parse_receipt_text("没有金额和户名的文本") is None

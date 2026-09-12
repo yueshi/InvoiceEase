@@ -99,6 +99,8 @@ export interface ReceiptOut {
   direction: string | null;
   needs_review: boolean;
   quality_issues: string[] | null;
+  page_no: number | null;
+  anchor: { bbox: [number, number, number, number] | null; text: string | null; v: number } | null;
   paired_invoice_id: number | null;
   status: string;
   created_at: string;

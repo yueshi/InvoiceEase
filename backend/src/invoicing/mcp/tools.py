@@ -489,6 +489,7 @@ def receipt_list(month: str) -> list[dict]:
                 "direction": r.direction,
                 "needs_review": r.needs_review,
                 "quality_issues": r.quality_issues,
+                "page_no": r.page_no,
                 "paired_invoice_id": r.paired_invoice_id,
                 "status": r.status,
             }

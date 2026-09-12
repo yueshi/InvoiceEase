@@ -69,8 +69,9 @@ RECEIPT_TEXT = (
 
 def test_ingest_noninvoice_pdf_with_receipt_features_rejected(db, tmp_path, monkeypatch):
     """银行回单（有文本层、无发票字段）→ 硬拒绝并提示走 receipt_ingest，不留空壳。"""
+    # 逐页解析（R1.2）后回单文本走 extract_pdf_pages
     monkeypatch.setattr(
-        "invoicing.parse.pdf_text_parser.extract_pdf_text", lambda data: RECEIPT_TEXT
+        "invoicing.parse.pdf_text_parser.extract_pdf_pages", lambda data: [RECEIPT_TEXT]
     )
     monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: None)
     monkeypatch.setattr("invoicing.parse.llm.get_llm_engine", lambda: None)
@@ -88,7 +89,7 @@ def test_ingest_noninvoice_pdf_with_receipt_features_rejected(db, tmp_path, monk
 def test_ingest_noninvoice_pdf_without_receipt_features_rejected(db, tmp_path, monkeypatch):
     """无发票字段且无回单特征 → 硬拒绝（能力受限时说明原因），不留空壳。"""
     monkeypatch.setattr(
-        "invoicing.parse.pdf_text_parser.extract_pdf_text", lambda data: "周末团建通知，自愿参加。"
+        "invoicing.parse.pdf_text_parser.extract_pdf_pages", lambda data: ["周末团建通知，自愿参加。"]
     )
     monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: None)
     monkeypatch.setattr("invoicing.parse.llm.get_llm_engine", lambda: None)

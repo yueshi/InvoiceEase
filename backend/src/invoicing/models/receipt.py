@@ -28,6 +28,9 @@ class BankReceipt(Base):
 
     # 收付方向（P2）：收/付/内部（银行内部交易如手续费/利息）；凭证借贷方向依此
     direction: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # 原件定位（R1.2）：页码 + 锚点（归一化 bbox/锚点串/算法版本）
+    page_no: Mapped[int | None] = mapped_column(nullable=True)
+    anchor: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # 质量校验（P0）：命中问题项需人工核对（空户名/账号残留/本司账户行/金额缺失等）
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     quality_issues: Mapped[list | None] = mapped_column(JSON, nullable=True)

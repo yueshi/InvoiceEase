@@ -8,6 +8,7 @@ import {
   autoPairReceipt,
   exportReceipts,
   fetchReceiptFileUrl,
+  fetchReceiptPageUrl,
   listReceiptUploads,
   listReceipts,
   uploadReceipt,
@@ -72,6 +73,51 @@ async function onViewFile(r: ReceiptOut) {
   } catch (e) {
     message.error(errorMessage(e, "原件打开失败"));
   }
+}
+
+// 原件定位弹窗：所在页渲染图 + 锚点高亮覆盖层；渲染不可用则降级打开原 PDF 第 N 页
+const locateOpen = ref(false);
+const locateRecord = ref<ReceiptOut | null>(null);
+const locateImageUrl = ref("");
+const locateLoading = ref(false);
+
+async function onLocate(r: ReceiptOut) {
+  locateRecord.value = r;
+  locateImageUrl.value = "";
+  locateOpen.value = true;
+  locateLoading.value = true;
+  try {
+    locateImageUrl.value = await fetchReceiptPageUrl(r.id);
+  } catch (e) {
+    // 501（无渲染库）或其它错误 → 降级：直接打开原 PDF 对应页
+    locateOpen.value = false;
+    message.warning(errorMessage(e, `页面渲染不可用，已改为打开原 PDF 第 ${r.page_no ?? 1} 页`));
+    await onViewFileAtPage(r);
+  } finally {
+    locateLoading.value = false;
+  }
+}
+
+async function onViewFileAtPage(r: ReceiptOut) {
+  try {
+    const url = await fetchReceiptFileUrl(r.id);
+    window.open(`${url}#page=${r.page_no ?? 1}&view=FitH`, "_blank");
+  } catch (e) {
+    message.error(errorMessage(e, "原件打开失败"));
+  }
+}
+
+/** 高亮框 CSS（PDF 坐标原点在左下，需换算为 CSS top） */
+function highlightStyle(r: ReceiptOut | null) {
+  const bbox = r?.anchor?.bbox;
+  if (!bbox) return null;
+  const [x0, y0, x1, y1] = bbox;
+  return {
+    left: `${x0 * 100}%`,
+    top: `${(1 - y1) * 100}%`,
+    width: `${(x1 - x0) * 100}%`,
+    height: `${(y1 - y0) * 100}%`,
+  };
 }
 
 async function onBeforeUpload(file: File) {
@@ -169,15 +215,55 @@ onMounted(load);
         <template v-if="column.key === 'action'">
           <a-space>
             <a-button size="small" @click="onAutoPair(record)">自动配对</a-button>
+            <a-button size="small" type="primary" ghost @click="onLocate(record)">
+              定位{{ record.page_no ? ` P${record.page_no}` : "" }}
+            </a-button>
             <a-button size="small" @click="onViewFile(record)">原件</a-button>
           </a-space>
         </template>
       </template>
     </a-table>
+    <a-modal
+      v-model:open="locateOpen"
+      :title="`原件定位${locateRecord?.page_no ? `（第 ${locateRecord.page_no} 页）` : ''}`"
+      width="860px"
+      :footer="null"
+    >
+      <a-spin :spinning="locateLoading">
+        <div v-if="locateImageUrl" style="position: relative; max-height: 70vh; overflow: auto">
+          <img :src="locateImageUrl" style="width: 100%; display: block" />
+          <div
+            v-if="highlightStyle(locateRecord)"
+            class="receipt-anchor-highlight"
+            :style="highlightStyle(locateRecord)!"
+          ></div>
+        </div>
+        <a-alert
+          v-if="locateRecord && !locateRecord.anchor?.bbox"
+          type="info"
+          show-icon
+          style="margin-top: 8px"
+          message="本张回单未能定位到页内精确区域（仅定位到页码），请在本页人工核对。"
+        />
+        <a-space style="margin-top: 12px">
+          <a-button @click="locateRecord && onViewFileAtPage(locateRecord)">打开原 PDF 该页</a-button>
+        </a-space>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
 <style scoped>
+/* 原件定位锚点高亮（浅色主题：半透明黄底 + 描边，不遮挡文字） */
+.receipt-anchor-highlight {
+  position: absolute;
+  background: rgba(250, 219, 20, 0.35);
+  border: 2px solid #d4b106;
+  border-radius: 4px;
+  pointer-events: none;
+  box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.06);
+}
+
 /* 待核对行高亮（浅色主题下淡红底） */
 :deep(.receipt-review-row) > td {
   background: #fff1f0;

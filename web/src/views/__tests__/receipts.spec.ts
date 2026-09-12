@@ -5,9 +5,12 @@ import ReceiptsView from "../ReceiptsView.vue";
 
 vi.mock("../../api/receipts", () => ({
   listReceipts: vi.fn().mockResolvedValue([]),
+  listReceiptUploads: vi.fn().mockResolvedValue([]),
   uploadReceipt: vi.fn(),
   autoPairReceipt: vi.fn(),
   exportReceipts: vi.fn(),
+  fetchReceiptFileUrl: vi.fn(),
+  fetchReceiptPageUrl: vi.fn(),
 }));
 
 describe("ReceiptsView", () => {

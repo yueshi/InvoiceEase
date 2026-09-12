@@ -29,6 +29,8 @@ def _receipt_out(r: BankReceipt) -> dict:
         "direction": r.direction,
         "needs_review": r.needs_review,
         "quality_issues": r.quality_issues,
+        "page_no": r.page_no,
+        "anchor": r.anchor,
         "paired_invoice_id": r.paired_invoice_id,
         "status": r.status,
         "created_at": r.created_at,
@@ -153,6 +155,51 @@ def get_receipt_file(
         content=data,
         media_type=media,
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/{receipt_id}/page.png")
+def get_receipt_page_image(
+    receipt_id: int,
+    dpi: int = Query(150, ge=72, le=300),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role(*_FINANCE)),
+):
+    """原件定位：回单所在页渲染为 PNG（前端叠加锚点高亮框，人工核对用）。
+
+    派生数据按 file_hash+页+DPI 缓存于存储；渲染依赖缺失返回 501，
+    前端降级为「打开原 PDF 第 N 页#page=N」。
+    """
+    from invoicing.parse.pdf_text_parser import RenderUnavailable, render_pdf_page_png
+    from invoicing.storage import get_storage
+
+    r = db.get(BankReceipt, receipt_id)
+    if r is None:
+        raise HTTPException(404, "回单不存在")
+    if r.file_type != "PDF":
+        raise HTTPException(422, "仅 PDF 回单支持页面渲染")
+    page_no = r.page_no or 1
+    storage = get_storage()
+    file_key = (r.file_hash or r.file_url.rsplit("/", 1)[-1]).replace("/", "_")
+    cache_key = f"tenant-default/receipts/pages/{file_key}/p{page_no}@{dpi}.png"
+    try:
+        png = storage.get(cache_key)
+    except Exception:
+        png = None
+    if png is None:
+        try:
+            data = storage.get(r.file_url)
+            png = render_pdf_page_png(data, page_no, dpi=dpi)
+        except RenderUnavailable as e:
+            raise HTTPException(501, f"页面渲染不可用（{e}），请打开原 PDF 第 {page_no} 页") from None
+        try:
+            storage.put(cache_key, png, "image/png")
+        except Exception:
+            pass  # 缓存写失败不阻塞返回
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=3600"},
     )
 
 

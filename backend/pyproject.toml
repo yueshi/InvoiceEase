@@ -24,6 +24,8 @@ dependencies = [
     "openai>=1.60",
     "openpyxl>=3.1",
     "signxml>=3.2",
+    "pypdfium2>=5.13.0",
+    "pillow>=12.3.0",
 ]
 
 [project.optional-dependencies]

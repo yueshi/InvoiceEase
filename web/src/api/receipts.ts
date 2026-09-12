@@ -31,6 +31,11 @@ export async function fetchReceiptFileUrl(receiptId: number): Promise<string> {
   return fetchBlobUrl(`/receipts/${receiptId}/file`);
 }
 
+/** 回单所在页渲染图 blob URL（原件定位高亮用；渲染不可用时后端 501） */
+export async function fetchReceiptPageUrl(receiptId: number): Promise<string> {
+  return fetchBlobUrl(`/receipts/${receiptId}/page.png?dpi=150`);
+}
+
 export async function autoPairReceipt(receiptId: number): Promise<ReceiptOut> {
   const { data } = await api.post<ReceiptOut>(`/receipts/${receiptId}/auto-pair`);
   return data;
