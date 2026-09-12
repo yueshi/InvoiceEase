@@ -3,6 +3,11 @@
 SDK v2 兼容说明：mcp>=2.0.0 的 streamable_http_client 无 headers 参数，官方文档推荐
 预配置 httpx2.AsyncClient(headers=...) 携带鉴权头（降级方案）；mcp_types v2 的错误
 标记字段名为 is_error（旧版为 isError）。
+
+trust_env=False 说明：httpx/httpx2 经 urllib.request.getproxies() 取代理，macOS 上会
+回退读取系统代理配置（scutil）——本机 Clash 类代理（127.0.0.1:7897）对 loopback 目标
+返回 502，导致集成测试 initialize 拿到 MCPError。测试只打本机随机端口，必须绕过
+系统/环境代理。
 """
 import socket
 import threading
@@ -35,7 +40,7 @@ def mcp_url(db):
     # 等待就绪
     for _ in range(50):
         try:
-            httpx.get(f"http://127.0.0.1:{port}/health", timeout=0.5)
+            httpx.get(f"http://127.0.0.1:{port}/health", timeout=0.5, trust_env=False)
             break
         except Exception:
             time.sleep(0.1)
@@ -48,7 +53,7 @@ def mcp_url(db):
 async def test_full_mcp_session_over_http(mcp_url):
     # SDK v2 以预配置 httpx2.AsyncClient 携带真实 Bearer token
     http_client = httpx2.AsyncClient(
-        headers={"Authorization": f"Bearer {settings.mcp_token}"}
+        headers={"Authorization": f"Bearer {settings.mcp_token}"}, trust_env=False
     )
     try:
         async with streamable_http_client(mcp_url, http_client=http_client) as (read, write):
