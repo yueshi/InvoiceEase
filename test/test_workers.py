@@ -215,6 +215,85 @@ def test_parse_invoice_buyer_mismatch_goes_review(db, storage, monkeypatch):
     assert calls == []  # 不进入验真队列
 
 
+def _make_receipt_upload(db, storage, file_hash="h-test", **kw):
+    from invoicing.models import ReceiptUpload
+
+    up = ReceiptUpload(
+        file_hash=file_hash, file_url="test-worker/receipts.pdf",
+        file_type="PDF", status="parsing", **kw,
+    )
+    db.add(up)
+    db.commit()
+    storage.put(up.file_url, b"%PDF-1.4 fake", "application/pdf")
+    return up
+
+
+def test_parse_receipt_upload_task_success(db, storage, monkeypatch):
+    """回单异步解析：逐张入库（带 file_hash 溯源）→ 更新批次状态/计数。"""
+    from datetime import date
+    from decimal import Decimal
+
+    from invoicing.models import BankReceipt, ReceiptUpload
+    from invoicing.workers.tasks import _parse_receipt_upload
+
+    monkeypatch.setattr("invoicing.workers.tasks.get_storage", lambda: storage)
+    monkeypatch.setattr(
+        "invoicing.parse.receipt.parse_receipts_bytes",
+        lambda data, kind: [
+            {"amount": Decimal("1116.00"), "counterparty_name": "国家金库",
+             "trade_date": date(2026, 4, 20), "abstract": "养老保险"},
+            {"amount": Decimal("46.50"), "counterparty_name": "国家金库",
+             "trade_date": None, "abstract": None},
+        ],
+    )
+    up = _make_receipt_upload(db, storage)
+    _parse_receipt_upload(up.id)
+    db.refresh(up)
+    assert up.status == "parsed"
+    assert up.receipt_count == 2
+    assert up.parsed_at is not None
+    rows = db.query(BankReceipt).filter(BankReceipt.file_hash == "h-test").all()
+    assert len(rows) == 2
+    assert {r.file_url for r in rows} == {"test-worker/receipts.pdf"}
+    assert rows[0].status in ("paired", "unmatched")  # 配对建议已执行
+
+
+def test_parse_receipt_upload_task_no_receipts_marks_failed(db, storage, monkeypatch):
+    """整份文件未识别出回单 → 批次 failed 并留原因。"""
+    from invoicing.workers.tasks import _parse_receipt_upload
+
+    monkeypatch.setattr("invoicing.workers.tasks.get_storage", lambda: storage)
+    monkeypatch.setattr(
+        "invoicing.parse.receipt.parse_receipts_bytes", lambda data, kind: []
+    )
+    up = _make_receipt_upload(db, storage, file_hash="h-empty")
+    _parse_receipt_upload(up.id)
+    db.refresh(up)
+    assert up.status == "failed"
+    assert "未识别" in (up.error or "")
+
+
+def test_parse_receipt_upload_task_exception_marks_failed(db, storage, monkeypatch):
+    """解析异常 → 批次 failed + 错误留痕（不静默丢批次）。"""
+    from invoicing.workers.tasks import _parse_receipt_upload
+
+    monkeypatch.setattr("invoicing.workers.tasks.get_storage", lambda: storage)
+
+    def boom(data, kind):
+        raise RuntimeError("LLM 超时")
+
+    monkeypatch.setattr("invoicing.parse.receipt.parse_receipts_bytes", boom)
+    up = _make_receipt_upload(db, storage, file_hash="h-err")
+    # 异常上抛（arq 语义：max_tries 内重试），同时批次已标记 failed 留痕
+    import pytest as _pytest
+
+    with _pytest.raises(RuntimeError):
+        _parse_receipt_upload(up.id)
+    db.expire(up)
+    assert up.status == "failed"
+    assert "LLM 超时" in (up.error or "")
+
+
 def test_parse_invoice_task_duplicate_number_blocks(db, storage):
     from invoicing.workers.tasks import _parse_invoice
 

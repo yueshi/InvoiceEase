@@ -1,5 +1,5 @@
 import { api, downloadFile } from "./client";
-import type { ReceiptOut } from "../types";
+import type { ReceiptOut, ReceiptUploadOut } from "../types";
 
 export async function listReceipts(month: string, unmatchedOnly = false): Promise<ReceiptOut[]> {
   const path = unmatchedOnly ? "/receipts/unmatched" : "/receipts";
@@ -7,11 +7,16 @@ export async function listReceipts(month: string, unmatchedOnly = false): Promis
   return data;
 }
 
-export async function uploadReceipt(file: File): Promise<ReceiptOut[]> {
+export async function uploadReceipt(file: File): Promise<{ upload_id: number; status: string }> {
   const form = new FormData();
   form.append("file", file);
-  // 一份 PDF 可含多张回单：后端逐张入库，返回数组
-  const { data } = await api.post<ReceiptOut[]>("/receipts/upload", form);
+  // 异步解析（R1.1）：立即返回批次号，解析在后台进行
+  const { data } = await api.post<{ upload_id: number; status: string }>("/receipts/upload", form);
+  return data;
+}
+
+export async function listReceiptUploads(): Promise<ReceiptUploadOut[]> {
+  const { data } = await api.get<ReceiptUploadOut[]>("/receipts/uploads");
   return data;
 }
 

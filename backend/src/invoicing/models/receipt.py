@@ -18,6 +18,8 @@ class BankReceipt(Base):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     file_url: Mapped[str] = mapped_column(String(512), nullable=False)
     file_type: Mapped[str] = mapped_column(String(8), nullable=False)
+    # 所属上传批次文件 SHA256（溯源/清理；防重在 receipt_uploads 层）
+    file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     trade_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     counterparty_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -36,3 +38,28 @@ class BankReceipt(Base):
         DateTime(timezone=True), server_default=func.now(), default=utcnow,
         onupdate=func.now(), nullable=False,
     )
+
+
+class ReceiptUpload(Base):
+    """回单上传批次（R1.1 异步解析）：一次上传一份文件，解析由后台任务执行。
+
+    file_hash 唯一 → 同一文件重复上传被拒（409）；status:
+    parsing（解析中）/ parsed（完成，receipt_count 为入库张数）/ failed（error 为原因）。
+    """
+
+    __tablename__ = "receipt_uploads"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    file_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(8), nullable=False)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="parsing")
+    receipt_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), default=utcnow, nullable=False
+    )
+    parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

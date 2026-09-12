@@ -115,7 +115,8 @@ def test_parse_receipts_text_single_block_compat():
 
 
 def test_upload_receipt_multi_block_creates_rows(client, db, monkeypatch, tmp_path):
-    """上传多回单 PDF → 一次入库 N 条（共享原件 URL），API 返回数组。"""
+    """多回单 PDF 上传 → 建批次记录（解析在后台；入库行为由 worker 测试覆盖）。"""
+    from invoicing.models import ReceiptUpload
     from invoicing.storage import LocalFileStorage
 
     auth = _seed_login(client, db)
@@ -123,6 +124,7 @@ def test_upload_receipt_multi_block_creates_rows(client, db, monkeypatch, tmp_pa
         "invoicing.storage.get_storage",
         lambda: LocalFileStorage(root=str(tmp_path / "orig")),
     )
+    monkeypatch.setattr("invoicing.api.receipts.enqueue_receipt_parse_sync", lambda uid: None)
     text = (
         "户名：西安某公司\n交易金额：3,500.00\n" + _BLOCK_MARKER + "\n"
         "户名：北京某公司\n交易金额：46.50\n" + _BLOCK_MARKER + "\n"
@@ -139,11 +141,10 @@ def test_upload_receipt_multi_block_creates_rows(client, db, monkeypatch, tmp_pa
             files={"file": ("multi.pdf", fh, "application/pdf")},
         )
     assert resp.status_code == 200
-    rows = resp.json()
-    assert isinstance(rows, list)
-    assert {r["amount"] for r in rows} == {"3500.00", "46.50"}
-    assert db.query(BankReceipt).count() == 2
-    assert len({r.file_url for r in db.query(BankReceipt).all()}) == 1  # 共享原件
+    body = resp.json()
+    up = db.get(ReceiptUpload, body["upload_id"])
+    assert up is not None and up.status == "parsing"
+    assert up.file_hash  # 防重哈希已落库
 
 
 def test_parse_receipt_fee_table_header_not_amount():
@@ -158,6 +159,135 @@ def test_parse_receipt_fee_table_header_not_amount():
     parsed = parse_receipt_text(text)
     assert parsed is not None
     assert parsed["amount"] == Decimal("899.00")
+
+
+# 建行税票回单块的真实文本结构（脱敏）：字段标签是「付款人全称/收款国库名称」，
+# 与通用规则的「对方户名」完全不同——这是此前 17/19 块规则失败、被迫逐块调 LLM 的根因。
+CCB_TAX_CHUNK = (
+    "，可通过建行网站(www.ccb.com)校验真伪。电子回单可重复打印，请勿重复记账。\n"
+    "纳税人全称及 西安启智合创科技有限公司\n"
+    "纳税人识别号（信用代码）： 91610113MA7MHLFY36\n"
+    "付款人全称： 西安启智合创科技有限公司 咨询（投诉）电话：95533\n"
+    "付款人账号： 61050174004100000779 征收机关名称（委托方）： 国家税务总局西咸新区税务局\n"
+    "付款人开户银行： 建行西安蓝湖树小区支行 收款国库（银行）名称： 国家金库陕西省西咸新区支库\n"
+    "小写（合计）金额：￥1,116.00 缴款书交易流水号： 20260420113137616000009584183300\n"
+    "大写（合计）金额：人民币壹仟壹佰壹拾陆元整 税票号码： 461016260410560121\n"
+    "  税（费）种名称 所属时期 实缴金额\n"
+    "企业职工基本养老保险费                         20260401 20260430    1116.00\n"
+    "凭证字号：30012026042003189400转账日期： 年 月 日2026 04 20\n"
+)
+
+
+def test_parse_receipt_text_ccb_tax_receipt():
+    """税票回单规则直解：收款方取国库/征收机关（付款人全称是本司，不能当对方户名）。"""
+    parsed = parse_receipt_text(CCB_TAX_CHUNK)
+    assert parsed is not None
+    assert parsed["amount"] == Decimal("1116.00")
+    party = parsed["counterparty_name"] or ""
+    assert "国家金库" in party or "税务局" in party
+    assert "西安启智" not in party  # 本司名称不得被当作对方户名
+    assert parsed["trade_date"] == date(2026, 4, 20)
+
+
+def test_parse_receipt_text_ymd_placeholder_date():
+    """无日期关键词的 CCB 版式：`流水号：…年 月 日2026 05 12`（占位符在前）→ 仍可取日期。"""
+    text = (
+        "户名：西安某公司\n"
+        "小写（合计）金额：￥899.00\n"
+        "流水号：6107400412Z24UDDO0S年 月 日2026 05 12\n"
+    )
+    parsed = parse_receipt_text(text)
+    assert parsed is not None
+    assert parsed["trade_date"] == date(2026, 5, 12)
+
+
+def test_upload_receipt_async_returns_parsing_immediately(client, db, monkeypatch, tmp_path):
+    """上传立即返回 parsing（解析在后台线程），不再同步等待 LLM。"""
+    from invoicing.models import ReceiptUpload
+    from invoicing.storage import LocalFileStorage
+
+    auth = _seed_login(client, db)
+    monkeypatch.setattr(
+        "invoicing.storage.get_storage",
+        lambda: LocalFileStorage(root=str(tmp_path / "orig")),
+    )
+    called_in_request = []
+    # 解析必须发生在后台（enqueue），请求路径不得同步调用解析
+    monkeypatch.setattr(
+        "invoicing.api.receipts.enqueue_receipt_parse_sync",
+        lambda upload_id: called_in_request.append(upload_id),
+    )
+    p = tmp_path / "receipt.pdf"
+    p.write_bytes(b"%PDF-1.4 fake")
+    with open(p, "rb") as fh:
+        resp = client.post(
+            "/api/v1/receipts/upload",
+            headers=auth,
+            files={"file": ("receipt.pdf", fh, "application/pdf")},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "parsing" and body["upload_id"] > 0
+    assert called_in_request == [body["upload_id"]]  # 已入队
+    up = db.get(ReceiptUpload, body["upload_id"])
+    assert up is not None and up.status == "parsing"
+    assert db.query(BankReceipt).count() == 0  # 请求时未入库
+
+
+def test_upload_receipt_duplicate_hash_409(client, db, monkeypatch, tmp_path):
+    """同一文件重复上传 → 409（file_hash 唯一），附已有批次信息。"""
+    from invoicing.storage import LocalFileStorage
+
+    auth = _seed_login(client, db)
+    monkeypatch.setattr(
+        "invoicing.storage.get_storage",
+        lambda: LocalFileStorage(root=str(tmp_path / "orig")),
+    )
+    monkeypatch.setattr("invoicing.api.receipts.enqueue_receipt_parse_sync", lambda uid: None)
+    p = tmp_path / "receipt.pdf"
+    p.write_bytes(b"%PDF-1.4 same-bytes")
+    with open(p, "rb") as fh:
+        first = client.post(
+            "/api/v1/receipts/upload",
+            headers=auth,
+            files={"file": ("receipt.pdf", fh, "application/pdf")},
+        )
+    assert first.status_code == 200
+    with open(p, "rb") as fh:
+        second = client.post(
+            "/api/v1/receipts/upload",
+            headers=auth,
+            files={"file": ("receipt-rename.pdf", fh, "application/pdf")},
+        )
+    assert second.status_code == 409
+    assert "已上传" in second.json()["detail"]
+
+
+def test_list_receipt_uploads_endpoint(client, db, monkeypatch, tmp_path):
+    """GET /receipts/uploads：最近批次状态（前端轮询用）。"""
+    from invoicing.models import ReceiptUpload
+    from invoicing.storage import LocalFileStorage
+
+    auth = _seed_login(client, db)
+    monkeypatch.setattr(
+        "invoicing.storage.get_storage",
+        lambda: LocalFileStorage(root=str(tmp_path / "orig")),
+    )
+    monkeypatch.setattr("invoicing.api.receipts.enqueue_receipt_parse_sync", lambda uid: None)
+    p = tmp_path / "receipt.pdf"
+    p.write_bytes(b"%PDF-1.4 fake")
+    with open(p, "rb") as fh:
+        client.post(
+            "/api/v1/receipts/upload",
+            headers=auth,
+            files={"file": ("receipt.pdf", fh, "application/pdf")},
+        )
+    resp = client.get("/api/v1/receipts/uploads", headers=auth)
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 1
+    assert rows[0]["status"] == "parsing"
+    assert rows[0]["receipt_count"] == 0
 
 
 def test_parse_receipt_missing_fields_returns_none():

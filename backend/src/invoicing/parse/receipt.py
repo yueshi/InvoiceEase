@@ -22,8 +22,16 @@ _AMOUNT_RE = re.compile(
 _DATE_RE = re.compile(
     r"(?:转账日期|交易日期|付款日期|日期)\D{0,12}(\d{4})\s*[年/\-]?\s*(\d{1,2})\s*[月/\-]?\s*(\d{1,2})\s*日?"
 )
-_PARTY_RE = re.compile(r"(?:对方户名|收款方名称|对方名称|户名)\s*[:：]?\s*([^\n]+)")
+# 户名关键词含税票回单版式（收款国库/征收机关=收款方；付款人全称是本司不能当对方）。
+# 关键词与冒号间允许 ≤12 字的标签尾巴（如「征收机关名称（委托方）：」），但仅在
+# 确有冒号时消耗——无冒号行（`对方户名 北京某某公司`）直接从关键词后取值。
+_PARTY_RE = re.compile(
+    r"(?:对方户名|收款方名称|对方名称|收款人全称|收款人户名|收款国库|征收机关|户名)"
+    r"(?:[^：:\n]{0,12}[：:])?\s*([^\n]+)"
+)
 _ABSTRACT_RE = re.compile(r"(?:摘要|用途|备注)\s*[:：]?\s*([^\n]+)")
+# CCB 打印版式：占位符「年 月 日」在前、数值在后且无日期关键词（如 `流水号：…年 月 日2026 05 12`）
+_DATE_YMD_RE = re.compile(r"年\s*月\s*日\D{0,8}(\d{4})\s+(\d{1,2})\s+(\d{1,2})")
 
 _NORMALIZE_SUFFIXES = ("股份有限公司", "有限责任公司", "有限公司", "股份公司", "公司")
 
@@ -59,7 +67,7 @@ def parse_receipt_text(text: str) -> dict | None:
     if amount is None or not party:
         return None
     trade_date = None
-    d = _DATE_RE.search(text)
+    d = _DATE_RE.search(text) or _DATE_YMD_RE.search(text)
     if d:
         trade_date = _parse_date_parts(d.group(1), d.group(2), d.group(3))
     a = _ABSTRACT_RE.search(text)

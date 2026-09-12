@@ -101,6 +101,16 @@ export interface ReceiptOut {
   created_at: string;
 }
 
+/** 回单上传批次（异步解析，R1.1） */
+export interface ReceiptUploadOut {
+  id: number;
+  status: "parsing" | "parsed" | "failed";
+  receipt_count: number;
+  error: string | null;
+  created_at: string;
+  parsed_at: string | null;
+}
+
 export const INVOICE_STATUS_LABELS: Record<string, string> = {
   receiving: "收取中", received: "已收取", parsing: "解析中", parsed: "解析完成",
   verifying: "验真查重中", pending_submit: "待提交", pending_review: "待复核",

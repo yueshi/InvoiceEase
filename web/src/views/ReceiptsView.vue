@@ -4,7 +4,13 @@ import { onMounted, ref } from "vue";
 import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
-import { autoPairReceipt, exportReceipts, listReceipts, uploadReceipt } from "../api/receipts";
+import {
+  autoPairReceipt,
+  exportReceipts,
+  listReceiptUploads,
+  listReceipts,
+  uploadReceipt,
+} from "../api/receipts";
 import type { ReceiptOut } from "../types";
 
 // a-month-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()），不能用字符串
@@ -36,19 +42,29 @@ async function load() {
 
 async function onBeforeUpload(file: File) {
   try {
-    const rows = await uploadReceipt(file);
-    if (rows.length === 1) {
-      const r = rows[0];
-      message.success(
-        r.amount
-          ? `已解析：${r.counterparty_name || "未知对方"} ${r.amount} 元（${r.status === "paired" ? `已配对发票 #${r.paired_invoice_id}` : "未配对"}）`
-          : "已上传（解析字段缺失，请人工补充）",
-      );
-    } else {
-      const paired = rows.filter((r) => r.status === "paired").length;
-      message.success(`已入库 ${rows.length} 张回单（其中 ${paired} 张自动配对发票）`);
-    }
-    await load();
+    // 异步解析（R1.1）：上传立即返回批次号，轮询批次状态直到解析完成
+    const { upload_id } = await uploadReceipt(file);
+    message.info("已接收，回单解析中（含 LLM 兜底，约需数十秒），完成后自动刷新");
+    const started = Date.now();
+    const poll = async () => {
+      const uploads = await listReceiptUploads();
+      const up = uploads.find((u) => u.id === upload_id);
+      if (!up || up.status === "parsing") {
+        if (Date.now() - started > 180_000) {
+          message.warning("解析超时，请稍后手动刷新查看结果");
+          return;
+        }
+        setTimeout(poll, 3000);
+        return;
+      }
+      if (up.status === "failed") {
+        message.error(up.error || "回单解析失败");
+        return;
+      }
+      message.success(`解析完成：入库 ${up.receipt_count} 张回单`);
+      await load();
+    };
+    setTimeout(poll, 3000);
   } catch (e) {
     message.error(errorMessage(e));
   }

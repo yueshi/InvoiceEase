@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from invoicing.audit import write_audit
 from invoicing.db import SessionLocal
-from invoicing.models import Invoice, InvoiceStatus, VerifyStatus
+from invoicing.models import BankReceipt, Invoice, InvoiceStatus, ReceiptUpload, VerifyStatus
 from invoicing.models.fields import utcnow
 from invoicing.parse.router import parse_file
 from invoicing.storage import get_storage
@@ -301,6 +301,74 @@ def _verify_invoice(invoice_id: int) -> None:
         db.close()
 
 
+def _parse_receipt_upload(upload_id: int) -> None:
+    """回单上传批次异步解析（R1.1）：读原件 → 分块解析 → 逐张入库+配对 → 更新批次状态。
+
+    在后台线程/arq worker 中执行，上传请求不等待（同步解析 17 块 LLM 兜底可达 2 分钟）。
+    """
+    from invoicing.parse.receipt import parse_receipts_bytes, suggest_pair
+
+    db = SessionLocal()
+    try:
+        up = db.get(ReceiptUpload, upload_id)
+        if up is None or up.status != "parsing":
+            logger.info("跳过回单解析任务 upload_id=%s status=%s", upload_id, up.status if up else None)
+            return
+        data = get_storage().get(up.file_url)
+        rows = parse_receipts_bytes(data, up.file_type)
+        if not rows:
+            up.status = "failed"
+            up.error = "未识别出银行回单信息（规则+LLM 均未提取出金额与户名）"
+            db.commit()
+            from invoicing.notify import notify
+
+            notify("🚫 回单解析失败：整份文件未识别出任何回单")
+            return
+        for fields in rows:
+            r = BankReceipt(
+                file_url=up.file_url,
+                file_type=up.file_type,
+                file_hash=up.file_hash,
+                user_id=up.user_id,
+                trade_date=fields.get("trade_date"),
+                counterparty_name=fields.get("counterparty_name"),
+                amount=fields.get("amount"),
+                abstract=fields.get("abstract"),
+                status="pending",
+            )
+            db.add(r)
+            db.flush()
+            suggested = suggest_pair(db, r.id)
+            if suggested is not None:
+                r.paired_invoice_id = suggested
+                r.status = "paired"
+            else:
+                r.status = "unmatched"
+        up.status = "parsed"
+        up.receipt_count = len(rows)
+        up.parsed_at = utcnow()
+        up.error = None
+        db.commit()
+        from invoicing.notify import notify
+
+        notify(f"✅ 回单解析完成：入库 {len(rows)} 张（批次 #{up.id}）")
+    except Exception as exc:
+        db.rollback()
+        logger.exception("回单解析任务异常 upload_id=%s", upload_id)
+        try:
+            up = db.get(ReceiptUpload, upload_id)
+            if up is not None and up.status == "parsing":
+                up.status = "failed"
+                up.error = str(exc)[:512]
+                db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("回单解析失败兜底异常 upload_id=%s", upload_id)
+        raise
+    finally:
+        db.close()
+
+
 async def parse_invoice_task(ctx, invoice_id: int) -> None:
     await asyncio.to_thread(_parse_invoice, invoice_id)
 
@@ -308,3 +376,7 @@ async def parse_invoice_task(ctx, invoice_id: int) -> None:
 async def verify_invoice_task(ctx, invoice_id: int) -> None:
     # _verify_invoice 在 Task 11 中与本函数同文件定义，运行时解析
     await asyncio.to_thread(_verify_invoice, invoice_id)
+
+
+async def receipt_parse_task(ctx, upload_id: int) -> None:
+    await asyncio.to_thread(_parse_receipt_upload, upload_id)
