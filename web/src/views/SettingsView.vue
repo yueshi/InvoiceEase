@@ -26,7 +26,7 @@ const userForm = reactive<UserCreate>({ username: "", password: "", role: "emplo
 const companyInfos = ref<CompanyInfoOut[]>([]);
 const companyModalOpen = ref(false);
 const editingCompanyId = ref<number | null>(null);
-const companyForm = reactive({ name: "", tax_id: "", kind: "other", is_default: false, remark: "" });
+const companyForm = reactive({ name: "", tax_id: "", kind: "other", is_default: false, remark: "", bank_account: "" });
 // 类型切为非本司时联动清空默认标记，避免 checkbox 禁用但仍勾选的视觉误导
 watch(() => companyForm.kind, (kind) => {
   if (kind !== "self") companyForm.is_default = false;
@@ -122,6 +122,7 @@ function openCompanyModal(record: CompanyInfoOut | null) {
     kind: record?.kind ?? "other",
     is_default: record?.is_default ?? false,
     remark: record?.remark ?? "",
+    bank_account: record?.bank_account ?? "",
   });
   companyModalOpen.value = true;
 }
@@ -142,6 +143,7 @@ async function saveCompany() {
       kind: companyForm.kind,
       is_default: companyForm.kind === "self" && companyForm.is_default,
       remark: companyForm.remark || null,
+      bank_account: companyForm.bank_account || null,
     };
     if (editingCompanyId.value) await updateCompanyInfo(editingCompanyId.value, body);
     else await createCompanyInfo(body);
@@ -287,6 +289,9 @@ const companyColumns = [
         </a-form-item>
         <a-form-item label="默认">
           <a-checkbox v-model:checked="companyForm.is_default" :disabled="companyForm.kind !== 'self'">本司默认</a-checkbox>
+        </a-form-item>
+        <a-form-item v-if="companyForm.kind === 'self'" label="本司银行账号">
+          <a-input v-model:value="companyForm.bank_account" placeholder="回单解析用：命中本司账户行时对方户名留空并待核对" />
         </a-form-item>
         <a-form-item label="备注"><a-input v-model:value="companyForm.remark" /></a-form-item>
       </a-form>

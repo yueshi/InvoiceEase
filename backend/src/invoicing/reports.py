@@ -223,13 +223,18 @@ def receipts_to_csv(db: Session, month: str | None = None, quarter: str | None =
     writer = csv.writer(buf)
     writer.writerow(["日期", "摘要", "对方户名", "金额", "借方", "贷方", "发票号"])
     for r in rows:
+        # P2：借贷方向随收付方向——收（利息/收款回单）=借银行/贷收入；付/未定=借费用/贷银行
+        if r.direction == "收":
+            debit, credit = "银行存款", (r.abstract or "收入")
+        else:
+            debit, credit = (r.abstract or "费用"), "银行存款"
         writer.writerow([
             str(r.trade_date) if r.trade_date else "",
             r.abstract or "",
             r.counterparty_name or "",
             str(r.amount) if r.amount else "",
-            r.abstract or "费用",
-            "银行存款",
+            debit,
+            credit,
             str(r.paired_invoice_id) if r.paired_invoice_id else "",
         ])
     return buf.getvalue().encode("utf-8-sig")  # BOM：Excel 打开中文不乱码

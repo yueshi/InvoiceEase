@@ -17,6 +17,8 @@ class CompanyInfo(Base):
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="other")
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     remark: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # 本司银行账号（kind=self；回单解析判定「本司账户行」用——名称不可靠，账号可靠）
+    bank_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), default=utcnow, nullable=False
     )

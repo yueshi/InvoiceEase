@@ -239,11 +239,13 @@ def test_parse_receipt_upload_task_success(db, storage, monkeypatch):
     monkeypatch.setattr("invoicing.workers.tasks.get_storage", lambda: storage)
     monkeypatch.setattr(
         "invoicing.parse.receipt.parse_receipts_bytes",
-        lambda data, kind: [
+        lambda data, kind, **kw: [
             {"amount": Decimal("1116.00"), "counterparty_name": "国家金库",
-             "trade_date": date(2026, 4, 20), "abstract": "养老保险"},
-            {"amount": Decimal("46.50"), "counterparty_name": "国家金库",
-             "trade_date": None, "abstract": None},
+             "trade_date": date(2026, 4, 20), "abstract": "养老保险",
+             "direction": "付", "quality_issues": []},
+            {"amount": Decimal("0.17"), "counterparty_name": None,
+             "trade_date": date(2026, 6, 21), "abstract": "活期利息",
+             "direction": "收", "quality_issues": ["no_counterparty"]},
         ],
     )
     up = _make_receipt_upload(db, storage)
@@ -252,10 +254,16 @@ def test_parse_receipt_upload_task_success(db, storage, monkeypatch):
     assert up.status == "parsed"
     assert up.receipt_count == 2
     assert up.parsed_at is not None
-    rows = db.query(BankReceipt).filter(BankReceipt.file_hash == "h-test").all()
+    rows = db.query(BankReceipt).filter(BankReceipt.file_hash == "h-test").order_by(BankReceipt.id).all()
     assert len(rows) == 2
     assert {r.file_url for r in rows} == {"test-worker/receipts.pdf"}
     assert rows[0].status in ("paired", "unmatched")  # 配对建议已执行
+    # P0/P2 接线：方向 + 质量标记入库
+    assert rows[0].direction == "付" and rows[0].needs_review is False
+    assert rows[1].direction == "收"
+    assert rows[1].needs_review is True
+    assert rows[1].quality_issues == ["no_counterparty"]
+    assert rows[1].counterparty_name is None
 
 
 def test_parse_receipt_upload_task_no_receipts_marks_failed(db, storage, monkeypatch):
@@ -264,7 +272,7 @@ def test_parse_receipt_upload_task_no_receipts_marks_failed(db, storage, monkeyp
 
     monkeypatch.setattr("invoicing.workers.tasks.get_storage", lambda: storage)
     monkeypatch.setattr(
-        "invoicing.parse.receipt.parse_receipts_bytes", lambda data, kind: []
+        "invoicing.parse.receipt.parse_receipts_bytes", lambda data, kind, **kw: []
     )
     up = _make_receipt_upload(db, storage, file_hash="h-empty")
     _parse_receipt_upload(up.id)
@@ -279,7 +287,7 @@ def test_parse_receipt_upload_task_exception_marks_failed(db, storage, monkeypat
 
     monkeypatch.setattr("invoicing.workers.tasks.get_storage", lambda: storage)
 
-    def boom(data, kind):
+    def boom(data, kind, **kw):
         raise RuntimeError("LLM 超时")
 
     monkeypatch.setattr("invoicing.parse.receipt.parse_receipts_bytes", boom)

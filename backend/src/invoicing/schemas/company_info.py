@@ -15,6 +15,7 @@ class CompanyInfoOut(BaseModel):
     kind: str
     is_default: bool
     remark: str | None
+    bank_account: str | None = None  # 本司银行账号（kind=self；回单本司账户行判定）
     created_at: datetime
     updated_at: datetime
 
@@ -25,6 +26,7 @@ class CompanyInfoCreate(BaseModel):
     kind: str = "other"
     is_default: bool = False
     remark: str | None = None
+    bank_account: str | None = Field(default=None, max_length=64)
 
 
 class CompanyInfoUpdate(BaseModel):
@@ -33,3 +35,4 @@ class CompanyInfoUpdate(BaseModel):
     kind: str | None = None
     is_default: bool | None = None
     remark: str | None = None
+    bank_account: str | None = Field(default=None, max_length=64)

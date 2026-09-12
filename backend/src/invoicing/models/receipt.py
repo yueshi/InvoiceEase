@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, func, text
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from invoicing.db import Base
@@ -25,6 +25,12 @@ class BankReceipt(Base):
     counterparty_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     abstract: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # 收付方向（P2）：收/付/内部（银行内部交易如手续费/利息）；凭证借贷方向依此
+    direction: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # 质量校验（P0）：命中问题项需人工核对（空户名/账号残留/本司账户行/金额缺失等）
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    quality_issues: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     paired_invoice_id: Mapped[int | None] = mapped_column(
         ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True

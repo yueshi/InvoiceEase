@@ -306,7 +306,12 @@ def _parse_receipt_upload(upload_id: int) -> None:
 
     在后台线程/arq worker 中执行，上传请求不等待（同步解析 17 块 LLM 兜底可达 2 分钟）。
     """
-    from invoicing.parse.receipt import parse_receipts_bytes, suggest_pair
+    from invoicing.parse.receipt import (
+        parse_receipts_bytes,
+        self_account_set,
+        self_name_set,
+        suggest_pair,
+    )
 
     db = SessionLocal()
     try:
@@ -315,7 +320,11 @@ def _parse_receipt_upload(upload_id: int) -> None:
             logger.info("跳过回单解析任务 upload_id=%s status=%s", upload_id, up.status if up else None)
             return
         data = get_storage().get(up.file_url)
-        rows = parse_receipts_bytes(data, up.file_type)
+        # P1：本司账号/名称集合——判定「本司账户行」与过滤 LLM 误填本司名
+        rows = parse_receipts_bytes(
+            data, up.file_type,
+            self_accounts=self_account_set(db), self_names=self_name_set(db),
+        )
         if not rows:
             up.status = "failed"
             up.error = "未识别出银行回单信息（规则+LLM 均未提取出金额与户名）"
@@ -325,6 +334,7 @@ def _parse_receipt_upload(upload_id: int) -> None:
             notify("🚫 回单解析失败：整份文件未识别出任何回单")
             return
         for fields in rows:
+            issues = fields.get("quality_issues") or []
             r = BankReceipt(
                 file_url=up.file_url,
                 file_type=up.file_type,
@@ -334,6 +344,9 @@ def _parse_receipt_upload(upload_id: int) -> None:
                 counterparty_name=fields.get("counterparty_name"),
                 amount=fields.get("amount"),
                 abstract=fields.get("abstract"),
+                direction=fields.get("direction"),
+                quality_issues=issues or None,
+                needs_review=bool(issues),
                 status="pending",
             )
             db.add(r)

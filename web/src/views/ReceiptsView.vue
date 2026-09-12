@@ -1,6 +1,6 @@
 <!-- 银行回单：上传/列表/配对/无票筛选/凭证草稿导出（P3/R1-R2，财务角色） -->
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
@@ -19,8 +19,17 @@ const periodType = ref<"month" | "quarter">("month");
 const month = ref<Dayjs>(dayjs());
 const quarter = ref<Dayjs>(dayjs());
 const unmatchedOnly = ref(false);
+const reviewOnly = ref(false); // 只看待核对（质量标记：空户名/账号残留/本司账户行等）
 const rows = ref<ReceiptOut[]>([]);
 const loading = ref(false);
+const displayRows = computed(() =>
+  reviewOnly.value ? rows.value.filter((r) => r.needs_review) : rows.value,
+);
+const REVIEW_ISSUE_LABELS: Record<string, string> = {
+  no_counterparty: "无对方户名（本司账户行）",
+  account_like_party: "户名疑为账户持有人",
+  no_trade_date: "缺交易日期",
+};
 
 /** 季度标签 YYYY-QN（手算避免依赖 dayjs quarterOfYear 插件格式符） */
 function quarterLabel(d: Dayjs): string {
@@ -37,9 +46,11 @@ const columns = [
   { title: "交易日期", dataIndex: "trade_date", key: "trade_date" },
   { title: "对方户名", dataIndex: "counterparty_name", key: "counterparty_name" },
   { title: "金额", dataIndex: "amount", key: "amount" },
+  { title: "收付", dataIndex: "direction", key: "direction", width: 60 },
   { title: "摘要", dataIndex: "abstract", key: "abstract" },
   { title: "发票配对", dataIndex: "paired_invoice_id", key: "paired_invoice_id" },
   { title: "状态", dataIndex: "status", key: "status" },
+  { title: "质量问题", key: "quality" },
   { title: "操作", key: "action" },
 ];
 
@@ -122,18 +133,38 @@ onMounted(load);
       <a-month-picker v-if="periodType === 'month'" v-model:value="month" :allow-clear="false" @change="load" />
       <a-date-picker v-else v-model:value="quarter" picker="quarter" :allow-clear="false" @change="load" />
       <a-checkbox v-model:checked="unmatchedOnly" @change="load">只看无票支出</a-checkbox>
+      <a-checkbox v-model:checked="reviewOnly">只看待核对</a-checkbox>
       <a-button @click="load">刷新</a-button>
       <a-button @click="onExport">导出凭证草稿</a-button>
       <a-upload :before-upload="onBeforeUpload" :show-upload-list="false" accept=".pdf,.png,.jpg,.jpeg">
         <a-button type="primary">上传回单</a-button>
       </a-upload>
     </a-space>
-    <a-table :columns="columns" :data-source="rows" :loading="loading" row-key="id" :pagination="{ pageSize: 20 }">
+    <a-table
+      :columns="columns"
+      :data-source="displayRows"
+      :loading="loading"
+      row-key="id"
+      :pagination="{ pageSize: 20 }"
+      :row-class-name="(r: ReceiptOut) => (r.needs_review ? 'receipt-review-row' : '')"
+    >
       <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'direction'">
+          {{ { 收: '收', 付: '付' }[record.direction as '收' | '付'] || '—' }}
+        </template>
         <template v-if="column.key === 'status'">
           <a-tag :color="record.status === 'paired' ? 'green' : record.status === 'unmatched' ? 'orange' : 'blue'">
             {{ { paired: '已配对', unmatched: '无票', pending: '待处理' }[record.status as 'paired' | 'unmatched' | 'pending'] || record.status }}
           </a-tag>
+          <a-tooltip v-if="record.needs_review" title="解析质量存疑，请核对原件">
+            <a-tag color="red" style="margin-left: 4px">待核对</a-tag>
+          </a-tooltip>
+        </template>
+        <template v-if="column.key === 'quality'">
+          <span v-if="!record.needs_review">—</span>
+          <span v-else style="color: #cf1322">
+            {{ (record.quality_issues || []).map((i: string) => REVIEW_ISSUE_LABELS[i] || i).join('；') }}
+          </span>
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
@@ -145,3 +176,10 @@ onMounted(load);
     </a-table>
   </div>
 </template>
+
+<style scoped>
+/* 待核对行高亮（浅色主题下淡红底） */
+:deep(.receipt-review-row) > td {
+  background: #fff1f0;
+}
+</style>

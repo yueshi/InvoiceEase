@@ -45,6 +45,7 @@ def create_company_info(body: CompanyInfoCreate, db: Session = Depends(get_db), 
         kind=body.kind,
         is_default=body.is_default,
         remark=body.remark,
+        bank_account=body.bank_account,
     )
     db.add(info)
     db.commit()

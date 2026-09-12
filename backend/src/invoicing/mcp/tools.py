@@ -209,6 +209,7 @@ def company_info_save(
     kind: str = CompanyKind.other.value,
     is_default: bool = False,
     remark: str | None = None,
+    bank_account: str | None = None,
 ) -> CompanyInfoOut:
     """保存常用公司（同税号更新；is_default 仅 kind=self，设默认清其他默认）。
 
@@ -236,6 +237,8 @@ def company_info_save(
         info.kind = kind
         info.is_default = is_default
         info.remark = remark
+        if bank_account is not None:
+            info.bank_account = bank_account.strip() or None
         write_audit(
             db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
             detail={"entity": "company_info", "tax_id": tax_id},
@@ -483,6 +486,9 @@ def receipt_list(month: str) -> list[dict]:
                 "counterparty_name": r.counterparty_name,
                 "amount": str(r.amount) if r.amount else None,
                 "abstract": r.abstract,
+                "direction": r.direction,
+                "needs_review": r.needs_review,
+                "quality_issues": r.quality_issues,
                 "paired_invoice_id": r.paired_invoice_id,
                 "status": r.status,
             }

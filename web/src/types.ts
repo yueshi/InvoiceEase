@@ -96,6 +96,9 @@ export interface ReceiptOut {
   counterparty_name: string | null;
   amount: string | null;
   abstract: string | null;
+  direction: string | null;
+  needs_review: boolean;
+  quality_issues: string[] | null;
   paired_invoice_id: number | null;
   status: string;
   created_at: string;
@@ -150,6 +153,7 @@ export interface CompanyInfoOut {
   kind: string;
   is_default: boolean;
   remark: string | null;
+  bank_account: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -159,6 +163,7 @@ export interface CompanyInfoCreate {
   kind?: string;
   is_default?: boolean;
   remark?: string | null;
+  bank_account?: string | null;
 }
 export type CompanyInfoUpdate = Partial<CompanyInfoCreate>;
 export const COMPANY_KIND_LABELS: Record<string, string> = {

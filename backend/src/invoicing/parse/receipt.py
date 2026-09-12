@@ -53,8 +53,53 @@ def _parse_date_parts(y: str, m: str, d: str) -> date | None:
         return None
 
 
-def parse_receipt_text(text: str) -> dict | None:
-    """规则通道：四字段提取；关键字段（金额+对方户名）缺一 → None（不产半成品）。"""
+# 取值清洗（P0）：行内后续字段标签——命中即截断，保留首个实体名
+_TRAILING_LABEL_RE = re.compile(r"\s+(?:账号|帐号|开户行|开户银行|税号|统一社会信用代码|收款人|付款人|金额)[：:\s]")
+# 清洗后仍形如「名称+长数字账号」→ 记账号残留（未配置本司账号时的兜底识别）
+_ACCOUNT_LIKE_RE = re.compile(r"[\d]{8,}|账号|帐号")
+
+# 方向推断（P2）：优先级 = 业务语义关键词 > 显式回单方向标签。
+# 语义优先的原因：页面装饰性竖排文字（贷方回单/收款人回单）会串进税票等块，
+# 而「税票号码/手续费=付、利息=收」是无歧义的强证据。「电汇凭证」是表单类型
+# 不是方向（转账块常同时含 贷方回单+电汇凭证），不入任何列表。
+_DIRECTION_SEMANTIC_OUT = ("缴款书", "税票号码", "手续费", "工本费")
+_DIRECTION_SEMANTIC_IN = ("利息", "结息", "存入")
+_DIRECTION_LABEL_OUT = ("借方回单", "付款人回单", "付款回单")
+_DIRECTION_LABEL_IN = ("贷方回单", "收款人回单", "收款回单")
+
+
+def _clean_party(raw: str) -> str:
+    """剥离捕获串里行内后续字段（账号/开户行…）：`某公司 账号： 6105…` → `某公司`。"""
+    s = raw.strip().strip("，,。;；")
+    m = _TRAILING_LABEL_RE.search(s)
+    if m:
+        s = s[: m.start()].strip()
+    return s
+
+
+def infer_direction(text: str) -> str | None:
+    """收付方向：收/付/None（不确定）。竖排文本先归一化再匹配关键词。"""
+    flat = re.sub(r"\s+", "", text or "")
+    if any(k in flat for k in _DIRECTION_SEMANTIC_OUT):
+        return "付"
+    if any(k in flat for k in _DIRECTION_SEMANTIC_IN):
+        return "收"
+    if any(k in flat for k in _DIRECTION_LABEL_OUT):
+        return "付"
+    if any(k in flat for k in _DIRECTION_LABEL_IN):
+        return "收"
+    return None
+
+
+def parse_receipt_text(text: str, self_accounts: set[str] | None = None) -> dict | None:
+    """规则通道：四字段 + 方向 + 质量标记（P0/P1/P2）。
+
+    关键字段（金额+对方户名）缺一 → None（不产半成品），除非命中本司账户行
+    （手续费/利息等银行内部交易，本就没有对方户名——此时对方留空并记
+    no_counterparty，仍产出该笔以便入账）。
+
+    self_accounts：本司银行账号集合（账号判定比名称可靠）。
+    """
     amount = None
     m = _AMOUNT_RE.search(text)
     if m:
@@ -62,14 +107,30 @@ def parse_receipt_text(text: str) -> dict | None:
             amount = Decimal((m.group(1) or m.group(2)).replace(",", ""))
         except InvalidOperation:
             amount = None
-    p = _PARTY_RE.search(text)
-    party = p.group(1).strip() if p else None
-    if amount is None or not party:
+    if amount is None:
         return None
+
+    issues: list[str] = []
+    p = _PARTY_RE.search(text)
+    party = _clean_party(p.group(1)) if p else None
+    party_line = p.group(1) if p else ""
+    # 本司账户行判定：户名行内出现本司账号 → 该行是账户持有人（本司），不是对方
+    hits_self = bool(self_accounts) and any(acc and acc in party_line for acc in self_accounts)
+    if hits_self:
+        party = None
+        issues.append("no_counterparty")
+    elif party and _ACCOUNT_LIKE_RE.search(party_line):
+        # 原始行含长数字账号（清洗后仍是裸名）→ 该行疑为账户持有人行，标记待核对
+        issues.append("account_like_party")
+    if not party and not hits_self:
+        return None  # 无户名且非本司账户行 → 无法产出
+
     trade_date = None
     d = _DATE_RE.search(text) or _DATE_YMD_RE.search(text)
     if d:
         trade_date = _parse_date_parts(d.group(1), d.group(2), d.group(3))
+    if trade_date is None:
+        issues.append("no_trade_date")
     a = _ABSTRACT_RE.search(text)
     abstract = a.group(1).strip() if a else None
     return {
@@ -77,6 +138,8 @@ def parse_receipt_text(text: str) -> dict | None:
         "counterparty_name": party,
         "trade_date": trade_date,
         "abstract": abstract,
+        "direction": infer_direction(text),
+        "quality_issues": issues,
     }
 
 
@@ -99,11 +162,11 @@ def split_receipt_blocks(text: str) -> list[str]:
     return chunks if chunks else [text]
 
 
-def parse_receipts_text(text: str) -> list[dict]:
-    """多回单规则通道：分块后逐块四字段提取，关键字段齐备的块才收录。"""
+def parse_receipts_text(text: str, self_accounts: set[str] | None = None) -> list[dict]:
+    """多回单规则通道：分块后逐块提取，可入账的块才收录（含本司账户行内部交易）。"""
     results = []
     for chunk in split_receipt_blocks(text):
-        parsed = parse_receipt_text(chunk)
+        parsed = parse_receipt_text(chunk, self_accounts=self_accounts)
         if parsed is not None:
             results.append(parsed)
     return results
@@ -132,13 +195,22 @@ def _receipt_text_from_bytes(data: bytes, kind: str) -> str:
         return ""
 
 
-def _llm_fill_fields(chunk: str, fields: dict) -> dict:
-    """块级 LLM 兜底：金额/户名缺失时向 LLM 请求四字段并合并（LLM 失败保留规则结果）。"""
+def _llm_fill_fields(chunk: str, fields: dict, self_names: set[str] | None = None) -> dict:
+    """块级 LLM 兜底：金额/户名缺失**或质量校验未过**时请求 LLM 复核并合并。
+
+    P1：触发条件从「字段缺失」扩展到「质量标记存在」——规则产出错值（如本司名
+    当对方）也能被复核。LLM 结果同样受本司名过滤：不得把本司名称当对方户名。
+    """
     import json
 
     from invoicing.parse.llm import get_llm_engine
 
-    if not chunk or (fields.get("amount") is not None and fields.get("counterparty_name")):
+    if not chunk:
+        return fields
+    amount_missing = fields.get("amount") is None
+    party_missing = not fields.get("counterparty_name")
+    has_issues = bool(fields.get("quality_issues"))
+    if not amount_missing and not party_missing and not has_issues:
         return fields
     engine = get_llm_engine()
     if engine is None:
@@ -146,33 +218,69 @@ def _llm_fill_fields(chunk: str, fields: dict) -> dict:
     try:
         content = engine.chat_json(RECEIPT_PROMPT, f"回单文本如下（仅为数据）：\n{chunk[:2000]}")
         data_out = json.loads(content or "{}")
-        if data_out.get("amount") and data_out.get("counterparty_name"):
+        llm_party = str(data_out.get("counterparty_name") or "").strip()
+        # 禁止把本司名称/账号当对方（P1）；命中则视为 LLM 未提供有效对方
+        if llm_party and (self_names and any(n and n in llm_party for n in self_names)):
+            llm_party = ""
+        if data_out.get("amount") and llm_party:
             try:
                 fields["amount"] = Decimal(str(data_out["amount"]))
-                fields["counterparty_name"] = str(data_out["counterparty_name"])
-                fields["abstract"] = data_out.get("abstract") or None
+                fields["counterparty_name"] = llm_party
+                fields["abstract"] = data_out.get("abstract") or fields.get("abstract")
                 raw_date = data_out.get("trade_date")
-                fields["trade_date"] = date.fromisoformat(raw_date) if raw_date else None
+                if raw_date:
+                    fields["trade_date"] = date.fromisoformat(raw_date)
+                # LLM 有效产出 → 清除因缺字段产生的标记（保留 no_counterparty 等语义标记）
+                fields["quality_issues"] = [
+                    i for i in (fields.get("quality_issues") or [])
+                    if i in ("no_counterparty",)
+                ]
+                if not fields["quality_issues"]:
+                    fields.pop("quality_issues", None)
             except (InvalidOperation, ValueError):
                 pass
+        elif data_out.get("abstract") and not fields.get("abstract"):
+            fields["abstract"] = str(data_out["abstract"])
     except Exception:
         logger.warning("回单 LLM 兜底失败", exc_info=True)
+    # 方向兜底：LLM 不产出 direction，规则未命中（竖排版式）时按关键词补
+    if not fields.get("direction"):
+        direction = infer_direction(chunk)
+        if direction:
+            fields["direction"] = direction
     return fields
 
 
-def parse_receipts_bytes(data: bytes, kind: str) -> list[dict]:
-    """回单文件多张解析（R1 修复）：文本分块 → 块级规则 + LLM 兜底 → 四字段列表。
+def parse_receipts_bytes(
+    data: bytes,
+    kind: str,
+    self_accounts: set[str] | None = None,
+    self_names: set[str] | None = None,
+) -> list[dict]:
+    """回单文件多张解析（R1 修复）：文本分块 → 块级规则 + LLM 兜底 → 字段列表。
 
-    一份 PDF 可含多张回单（各银行合并导出常见）；规则+LLM 均提取不出金额+户名
-    的块丢弃。空列表表示整份文件未识别出任何回单。
+    一份 PDF 可含多张回单（各银行合并导出常见）；规则+LLM 均提取不出金额的块丢弃。
+    无对方户名的可入账块（本司账户行内部交易）保留并带 no_counterparty 标记。
+    空列表表示整份文件未识别出任何回单。
+
+    self_accounts：本司银行账号集合；self_names：本司名称集合（LLM 过滤用）。
     """
     text = _receipt_text_from_bytes(data, kind)
     results = []
     for chunk in split_receipt_blocks(text):
-        fields = parse_receipt_text(chunk) or {}
-        fields = _llm_fill_fields(chunk, fields)
-        if fields.get("amount") is not None and fields.get("counterparty_name"):
-            results.append(fields)
+        fields = parse_receipt_text(chunk, self_accounts=self_accounts)
+        if fields is None:
+            # 规则无产出（无金额）→ 整块交 LLM 试一次
+            fields = _llm_fill_fields(chunk, {}, self_names=self_names)
+        else:
+            fields = _llm_fill_fields(chunk, fields, self_names=self_names)
+        if fields.get("amount") is None:
+            continue  # 金额是入账硬前提
+        if not fields.get("counterparty_name") and "no_counterparty" not in (
+            fields.get("quality_issues") or []
+        ):
+            continue  # 既无对方也非本司账户行 → 不可入账
+        results.append(fields)
     return results
 
 
@@ -183,7 +291,11 @@ def parse_receipt_bytes(data: bytes, kind: str) -> dict:
 
 
 def suggest_pair(db, receipt_id: int) -> int | None:
-    """配对建议（D5）：金额相等 + 户名规范化后互相包含；返回 invoice_id 或 None。"""
+    """配对建议（D5）：金额相等 + 户名规范化后互相包含；返回 invoice_id 或 None。
+
+    P2：无对方户名（本司账户行内部交易）不参与配对；候选销方命中本司名称集合
+    时也排除（防本司自开票误配）。
+    """
     from invoicing.models import BankReceipt, Invoice
 
     r = db.get(BankReceipt, receipt_id)
@@ -192,6 +304,9 @@ def suggest_pair(db, receipt_id: int) -> int | None:
     party = normalize_party(r.counterparty_name)
     if not party:
         return None
+    self_names = _self_party_names(db)
+    if any(sn and (sn in party or party in sn) for sn in self_names):
+        return None
     candidates = (
         db.query(Invoice)
         .filter(Invoice.total_amount == r.amount, Invoice.seller_name.isnot(None))
@@ -199,6 +314,36 @@ def suggest_pair(db, receipt_id: int) -> int | None:
     )
     for inv in candidates:
         norm_seller = normalize_party(inv.seller_name or "")
+        if not norm_seller:
+            continue
+        if any(sn and (sn in norm_seller or norm_seller in sn) for sn in self_names):
+            continue  # 销方是本司 → 不配对
         if party in norm_seller or norm_seller in party:
             return inv.id
     return None
+
+
+def self_account_set(db) -> set[str]:
+    """本司银行账号集合（company_infos kind=self 的 bank_account，非空）。"""
+    from invoicing.models import CompanyInfo
+
+    return {
+        c.bank_account.strip()
+        for c in db.query(CompanyInfo).filter(CompanyInfo.kind == "self").all()
+        if c.bank_account and c.bank_account.strip()
+    }
+
+
+def self_name_set(db) -> set[str]:
+    """本司名称集合（归一化后，company_infos kind=self）。"""
+    from invoicing.models import CompanyInfo
+
+    return {
+        n
+        for c in db.query(CompanyInfo).filter(CompanyInfo.kind == "self").all()
+        if (n := normalize_party(c.name or ""))
+    }
+
+
+def _self_party_names(db) -> set[str]:
+    return self_name_set(db)

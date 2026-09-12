@@ -402,6 +402,125 @@ def test_receipts_csv_quarter(client, db, monkeypatch, tmp_path):
     assert "899.00" in resp.content.decode("utf-8-sig")
 
 
+# 手续费/利息回单真实版式（脱敏）：唯一「户名」行是账户持有人=本司，回单本身
+# 没有对方户名字段（银行内部交易）
+CCB_FEE_CHUNK = (
+    "，可通过建行网站(www.ccb.com)校验真伪。电子回单可重复打印，请勿重复记账。\n"
+    "户名： 西安启智合创科技有限公司 账号： 61050174004100000779\n"
+    "项目名称 工本费/转账汇款手续费/手续费 金额\n"
+    "4000212普惠远航（B版） ￥899.00 ￥899.00\n"
+    "合计金额 （大写）人民币捌佰玖拾玖元整 ￥899.00\n"
+    "付款方式：转账 打印柜员：Z1999999\n"
+)
+
+CCB_INTEREST_CHUNK = (
+    "，可通过建行网站(www.ccb.com)校验真伪。电子回单可重复打印，请勿重复记账。\n"
+    "户名： 西安启智合创科技有限公司 账号： 61050174004100000779\n"
+    "计息项目 起息日 结息日 本金/积数 利率（%） 利息\n"
+    "活期利息 20260321 20260621 121454.92 0.050000 ￥0.17\n"
+    "合计金额 (大写)人民币壹角柒分 ￥0.17\n"
+    "流水号：年 月 日2026 06 21币别：人民币\n"
+)
+
+
+def test_party_capture_strips_trailing_labels():
+    """P0 取值清洗：户名行捕获剥离线内后续字段标签（账号/开户行等）。"""
+    parsed = parse_receipt_text("户名： 某某科技有限公司 账号： 61050174004100000779\n交易金额：100.00\n")
+    assert parsed is not None
+    assert parsed["counterparty_name"] == "某某科技有限公司"
+
+
+def test_self_account_line_marks_no_counterparty():
+    """P1 本司账户行：命中本司银行账号 → 对方户名留空（不臆造）+ 质量标记。"""
+    parsed = parse_receipt_text(
+        CCB_FEE_CHUNK, self_accounts={"61050174004100000779"}
+    )
+    assert parsed is not None
+    assert parsed["counterparty_name"] is None  # 不把本司当对方
+    assert "no_counterparty" in parsed["quality_issues"]
+    assert parsed["direction"] == "付"  # 手续费=支出方
+
+
+def test_self_account_line_without_config_marks_account_residue():
+    """未配置本司账号时兜底：清洗后仍命中账号模式 → 记账号残留问题（不静默）。"""
+    parsed = parse_receipt_text(CCB_INTEREST_CHUNK)
+    assert parsed is not None
+    assert parsed["counterparty_name"] == "西安启智合创科技有限公司"
+    assert "account_like_party" in parsed["quality_issues"]
+    assert parsed["direction"] == "收"  # 利息=收入
+
+
+def test_interest_receipt_direction_and_date():
+    parsed = parse_receipt_text(CCB_INTEREST_CHUNK, self_accounts={"61050174004100000779"})
+    assert parsed["amount"] == Decimal("0.17")
+    assert parsed["trade_date"] == date(2026, 6, 21)  # 结息日（年 月 日占位乱序）
+
+
+def test_list_receipts_exposes_quality_fields(client, db):
+    """API 带出质量/方向字段（前端待核对高亮与筛选依赖）。"""
+    auth = _seed_login(client, db)
+    db.add(BankReceipt(
+        file_url="r.pdf", file_type="PDF", trade_date=date(2026, 6, 21),
+        counterparty_name=None, amount=Decimal("0.17"), abstract="活期利息",
+        direction="收", needs_review=True, quality_issues=["no_counterparty"],
+    ))
+    db.commit()
+    rows = client.get("/api/v1/receipts?quarter=2026-Q2", headers=auth).json()
+    assert rows[0]["needs_review"] is True
+    assert rows[0]["quality_issues"] == ["no_counterparty"]
+    assert rows[0]["direction"] == "收"
+
+
+def test_company_info_bank_account_roundtrip(client, db):
+    """本司银行账号可保存并回读（P1 判定依据）。"""
+    from invoicing.models import Role, User
+    from invoicing.security import hash_password
+
+    db.add(User(username="admin_ba", password_hash=hash_password("pass123"), role=Role.admin.value))
+    db.commit()
+    token = client.post(
+        "/api/v1/auth/login", json={"username": "admin_ba", "password": "pass123"}
+    ).json()["access_token"]
+    auth = {"Authorization": f"Bearer {token}"}
+    resp = client.post("/api/v1/company-infos", headers=auth, json={
+        "name": "西安启智合创科技有限公司", "tax_id": "91610113MA7MHLFY36",
+        "kind": "self", "is_default": True, "bank_account": "61050174004100000779",
+    })
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["bank_account"] == "61050174004100000779"
+
+
+def test_direction_semantics_beat_page_furniture():
+    """方向优先级：业务语义 > 版式标签——税票块混入页面装饰「收款人回单」仍应判付；
+    转账块（无语义关键词）凭「贷方回单」标签判收。"""
+    from invoicing.parse.receipt import infer_direction
+
+    tax_with_furniture = "税票号码： 461016260410560121 收款人回单 缴款书交易流水号"
+    assert infer_direction(tax_with_furniture) == "付"
+    transfer = "凭证种类 电汇凭证 结算方式 转账 ︵贷方回单︶"
+    assert infer_direction(transfer) == "收"
+    assert infer_direction("中国建设银行单位客户专用回单 借\n方\n回\n单") == "付"
+
+
+def test_llm_path_fills_direction(monkeypatch):
+    """LLM 兜底路径（竖排版式规则失败）也须带出收付方向（关键词归一化匹配）。"""
+    from invoicing.parse import receipt as R
+
+    class FakeEngine:
+        def chat_json(self, prompt, text):
+            return '{"trade_date": "2026-04-20", "counterparty_name": "贾琨", "amount": "1600.00", "abstract": "转账"}'
+
+    monkeypatch.setattr("invoicing.parse.llm.get_llm_engine", lambda: FakeEngine())
+    # 竖排：贷\n方\n回\n单（收）；规则因换行无法匹配 → 走 LLM
+    chunk = (
+        "付\n款\n人\n全\xa0称 贾琨 收\n款\n人\n全\xa0称 西安启智合创科技有限公司\n"
+        "︵\n贷\n方\n回\n单\n︶\n金额 （大写）人民币壹仟陆佰元整 （小写）￥1,600.00\n"
+    )
+    fields = R._llm_fill_fields(chunk, {})
+    assert fields["counterparty_name"] == "贾琨"
+    assert fields["direction"] == "收"
+
+
 def test_parse_receipt_missing_fields_returns_none():
     """关键字段缺失 → None（不产半成品，LLM 兜底由调用方处理）。"""
     assert parse_receipt_text("没有金额和户名的文本") is None
@@ -441,6 +560,48 @@ def test_pair_amount_mismatch_no_pair(db):
     db.add(r)
     db.flush()
     assert suggest_pair(db, r.id) is None
+
+
+def test_suggest_pair_excludes_self(db):
+    """P2：销方是本司的发票不参与配对（防本司自开票误配）。"""
+    from invoicing.models import CompanyInfo
+
+    db.add(CompanyInfo(name="西安启智合创科技有限公司", tax_id="91610113MA7MHLFY36", kind="self"))
+    inv = Invoice(
+        file_url="a.xml", file_type="XML", invoice_number="24312000000012345690",
+        status="pending_submit", total_amount=Decimal("899.00"),
+        seller_name="西安启智合创科技有限公司", issue_date=date(2026, 5, 12),
+    )
+    db.add(inv)
+    db.flush()
+    r = BankReceipt(
+        file_url="r.pdf", file_type="PDF", trade_date=date(2026, 5, 12),
+        counterparty_name="西安启智合创科技有限公司", amount=Decimal("899.00"),
+    )
+    db.add(r)
+    db.flush()
+    assert suggest_pair(db, r.id) is None  # 户名命中本司 → 不配对
+
+
+def test_csv_direction_columns(db):
+    """P2：凭证借贷方向随收付方向；收=借银行/贷费用，付=借费用/贷银行。"""
+    db.add(BankReceipt(
+        file_url="r1.pdf", file_type="PDF", trade_date=date(2026, 4, 20),
+        counterparty_name="税务局", amount=Decimal("1116.00"), abstract="社保",
+        direction="付",
+    ))
+    db.add(BankReceipt(
+        file_url="r2.pdf", file_type="PDF", trade_date=date(2026, 6, 21),
+        counterparty_name=None, amount=Decimal("0.17"), abstract="活期利息",
+        direction="收", needs_review=True, quality_issues=["no_counterparty"],
+    ))
+    db.commit()
+    lines = receipts_to_csv(db, month="2026-04").decode("utf-8-sig").splitlines()
+    assert "社保" in lines[1] and lines[1].split(",")[4] == "社保"      # 借方=费用
+    assert lines[1].split(",")[5] == "银行存款"                        # 贷方=银行
+    lines6 = receipts_to_csv(db, month="2026-06").decode("utf-8-sig").splitlines()
+    assert lines6[1].split(",")[4] == "银行存款"                       # 收：借方=银行
+    assert lines6[1].split(",")[5] == "活期利息"                       # 贷方=摘要(利息收入)
 
 
 def test_receipts_csv_has_voucher_columns(db):
