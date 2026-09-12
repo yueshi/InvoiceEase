@@ -116,9 +116,13 @@ def build_server() -> MCPServer:
     def invoice_report(month: str) -> str:
         return mcp_tools.invoice_report(month)
 
-    @server.tool(description="银行回单入库（PDF/图片）→ 解析（规则+LLM）→ 自动配对发票建议（金额+户名）。")
+    @server.tool(description="银行回单入库（PDF/图片，异步批次模式）：立即返回批次号，后台解析（规则+LLM，一份 PDF 可含多张回单）+ 自动配对发票建议。稍后用 receipt_upload_status 轮询进度；完成后 receipt_list 查看。同一文件重复提交会被拒绝。")
     def receipt_ingest(file_path: str) -> dict:
         return mcp_tools.receipt_ingest(file_path)
+
+    @server.tool(description="查询回单上传批次解析状态（receipt_ingest 的配套轮询工具）：parsing/parsed/failed + 入库张数。")
+    def receipt_parse_status(upload_id: int) -> dict:
+        return mcp_tools.receipt_upload_status(upload_id)
 
     @server.tool(description="银行回单清单（month 格式 YYYY-MM）。")
     def receipt_list(month: str) -> list[dict]:

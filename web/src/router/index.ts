@@ -8,6 +8,7 @@ const routes = [
   { path: "/", component: () => import("../views/DashboardView.vue") },
   { path: "/invoices", component: () => import("../views/InvoiceListView.vue") },
   { path: "/receipts", component: () => import("../views/ReceiptsView.vue") },
+  { path: "/tasks", component: () => import("../views/AsyncTasksView.vue"), meta: { financeOnly: true } },
   { path: "/audit", component: () => import("../views/AuditView.vue"), meta: { adminOnly: true } },
   { path: "/settings", component: () => import("../views/SettingsView.vue"), meta: { adminOnly: true } },
 ];
@@ -29,6 +30,12 @@ router.beforeEach(async (to) => {
     }
   }
   if (to.meta.adminOnly && !auth.isAdmin) {
+    return { path: "/" };
+  }
+  if (
+    to.meta.financeOnly &&
+    !["finance_staff", "finance_manager", "admin"].includes(auth.role ?? "")
+  ) {
     return { path: "/" };
   }
   return true;

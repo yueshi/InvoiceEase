@@ -13,6 +13,13 @@ from invoicing.reports import receipts_to_csv
 from invoicing.security import hash_password
 
 
+def db_get(model, id_):
+    from invoicing.db import SessionLocal
+
+    with SessionLocal() as s:
+        return s.get(model, id_)
+
+
 @pytest.fixture()
 def client(db):
     app = create_app()
@@ -288,6 +295,66 @@ def test_list_receipt_uploads_endpoint(client, db, monkeypatch, tmp_path):
     assert len(rows) == 1
     assert rows[0]["status"] == "parsing"
     assert rows[0]["receipt_count"] == 0
+
+
+def test_mcp_receipt_ingest_async_batch(db, tmp_path, monkeypatch):
+    """MCP receipt_ingest 切批次模式：立即返回批次号（解析入队），重复提交 ValueError。"""
+    from invoicing.models import ReceiptUpload
+    from invoicing.mcp.tools import receipt_ingest, receipt_upload_status
+    from invoicing.storage import LocalFileStorage
+
+    monkeypatch.setattr(
+        "invoicing.storage.get_storage",
+        lambda: LocalFileStorage(root=str(tmp_path / "orig")),
+    )
+    monkeypatch.setattr(
+        "invoicing.mcp.tools.enqueue_receipt_parse_sync", lambda uid: None
+    )
+    p = tmp_path / "receipt.pdf"
+    p.write_bytes(b"%PDF-1.4 fake")
+    result = receipt_ingest(str(p))
+    assert result["status"] == "parsing"
+    assert result["upload_id"] > 0
+    up = db_get(ReceiptUpload, result["upload_id"])
+    assert up is not None and up.status == "parsing"
+
+    # WorkBuddy 重复提交同一文件 → ValueError 附已有批次信息
+    import pytest
+
+    with pytest.raises(ValueError, match="已上传过"):
+        receipt_ingest(str(p))
+
+    # 状态查询工具
+    st = receipt_upload_status(result["upload_id"])
+    assert st["id"] == result["upload_id"]
+    assert st["status"] == "parsing"
+
+
+def test_receipt_file_endpoint_serves_original(client, db, monkeypatch, tmp_path):
+    """回单原件查看端点：财务角色可下载原始文件（人工核对/补录用）。"""
+    from invoicing.storage import LocalFileStorage
+
+    auth = _seed_login(client, db)
+    storage = LocalFileStorage(root=str(tmp_path / "orig"))
+    monkeypatch.setattr("invoicing.storage.get_storage", lambda: storage)
+    r = BankReceipt(
+        file_url="tenant-default/receipts/x.pdf", file_type="PDF",
+        counterparty_name="某某公司", amount=Decimal("1116.00"), status="unmatched",
+    )
+    db.add(r)
+    db.commit()
+    storage.put(r.file_url, b"%PDF-1.4 original-bytes", "application/pdf")
+    resp = client.get(f"/api/v1/receipts/{r.id}/file", headers=auth)
+    assert resp.status_code == 200
+    assert resp.content == b"%PDF-1.4 original-bytes"
+    assert "application/pdf" in resp.headers["content-type"]
+    assert "inline" in resp.headers.get("content-disposition", "")
+
+
+def test_receipt_file_endpoint_404(client, db):
+    auth = _seed_login(client, db)
+    resp = client.get("/api/v1/receipts/99999/file", headers=auth)
+    assert resp.status_code == 404
 
 
 def test_parse_receipt_missing_fields_returns_none():

@@ -1,4 +1,4 @@
-import { api, downloadFile } from "./client";
+import { api, downloadFile, fetchBlobUrl } from "./client";
 import type { ReceiptOut, ReceiptUploadOut } from "../types";
 
 export async function listReceipts(month: string, unmatchedOnly = false): Promise<ReceiptOut[]> {
@@ -18,6 +18,11 @@ export async function uploadReceipt(file: File): Promise<{ upload_id: number; st
 export async function listReceiptUploads(): Promise<ReceiptUploadOut[]> {
   const { data } = await api.get<ReceiptUploadOut[]>("/receipts/uploads");
   return data;
+}
+
+/** 回单原件 blob URL（带鉴权；新标签页打开供人工核对/补录） */
+export async function fetchReceiptFileUrl(receiptId: number): Promise<string> {
+  return fetchBlobUrl(`/receipts/${receiptId}/file`);
 }
 
 export async function autoPairReceipt(receiptId: number): Promise<ReceiptOut> {

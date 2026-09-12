@@ -7,6 +7,7 @@ import { errorMessage } from "../api/client";
 import {
   autoPairReceipt,
   exportReceipts,
+  fetchReceiptFileUrl,
   listReceiptUploads,
   listReceipts,
   uploadReceipt,
@@ -37,6 +38,15 @@ async function load() {
     errorMessage(e, "回单加载失败");
   } finally {
     loading.value = false;
+  }
+}
+
+async function onViewFile(r: ReceiptOut) {
+  try {
+    const url = await fetchReceiptFileUrl(r.id);
+    window.open(url, "_blank");
+  } catch (e) {
+    message.error(errorMessage(e, "原件打开失败"));
   }
 }
 
@@ -108,7 +118,10 @@ onMounted(load);
           </a-tag>
         </template>
         <template v-if="column.key === 'action'">
-          <a-button size="small" @click="onAutoPair(record)">自动配对</a-button>
+          <a-space>
+            <a-button size="small" @click="onAutoPair(record)">自动配对</a-button>
+            <a-button size="small" @click="onViewFile(record)">原件</a-button>
+          </a-space>
         </template>
       </template>
     </a-table>

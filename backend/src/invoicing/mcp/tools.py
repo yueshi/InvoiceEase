@@ -8,11 +8,21 @@ from fastapi import HTTPException
 from invoicing.audit import write_audit
 from invoicing.db import SessionLocal
 from invoicing.fetch.service import poll_mailbox
-from invoicing.models import AuditAction, AuditLog, CompanyInfo, CompanyKind, Mailbox, Role, User
+from invoicing.models import (
+    AuditAction,
+    AuditLog,
+    CompanyInfo,
+    CompanyKind,
+    Mailbox,
+    ReceiptUpload,
+    Role,
+    User,
+)
 from invoicing.schemas.company_info import CompanyInfoOut, TAX_ID_PATTERN
 from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut
 from invoicing.schemas.mailbox import PollResultOut
 from invoicing.workflow import services
+from invoicing.workers.queue import enqueue_receipt_parse_sync
 
 
 def _mcp_admin_user() -> User:
@@ -395,18 +405,20 @@ def invoice_health_report(month: str) -> str:
         return monthly_health(db, month)
 
 
-def receipt_ingest(file_path: str) -> list[dict]:
-    """银行回单入库（P3/R1）：PDF/图片 → 存档 → 多张解析（分块规则+LLM 兜底）→ 逐条自动配对。
+def receipt_ingest(file_path: str) -> dict:
+    """银行回单入库（R1.1 批次异步模式）：存档 → 建批次 → 后台解析 → 立即返回批次号。
 
-    一份 PDF 可含多张回单：每张入库一条（共享同一原件 URL），返回数组。
+    一份 PDF 可含多张回单，解析（分块规则+LLM 兜底）可达分钟级，同步执行会拖垮
+    Agent 客户端并诱发重复提交——WorkBuddy 应立即拿到批次号，稍后用
+    receipt_upload_status 轮询；解析完成后回单出现在 receipt_list。同一文件
+    重复提交被 file_hash 唯一约束拒绝。
     """
+    import hashlib
     from pathlib import Path
     from uuid import uuid4
 
     from invoicing.fetch.filters import classify_attachment
     from invoicing.mcp.extract import _read_file
-    from invoicing.models import BankReceipt
-    from invoicing.parse.receipt import parse_receipts_bytes, suggest_pair
     from invoicing.storage import get_storage
 
     path = Path(file_path)
@@ -414,42 +426,48 @@ def receipt_ingest(file_path: str) -> list[dict]:
     kind = classify_attachment(path.name, "", data)
     if kind not in ("PDF", "IMAGE"):
         raise ValueError(f"不支持的格式: {kind or '未知'}（仅 PDF/图片回单）")
-    rows = parse_receipts_bytes(data, kind)
-    if not rows:
-        raise ValueError("未识别出银行回单信息（规则+LLM 均未提取出金额与户名）")
-    key = f"tenant-default/receipts/{uuid4().hex}-{path.name}"
-    get_storage().put(key, data, "application/octet-stream")
-    out = []
+
+    file_hash = hashlib.sha256(data).hexdigest()
     with SessionLocal() as db:
-        for fields in rows:
-            r = BankReceipt(
-                file_url=key,
-                file_type=kind,
-                trade_date=fields.get("trade_date"),
-                counterparty_name=fields.get("counterparty_name"),
-                amount=fields.get("amount"),
-                abstract=fields.get("abstract"),
-                status="pending",
+        existing = db.query(ReceiptUpload).filter(ReceiptUpload.file_hash == file_hash).first()
+        if existing is not None:
+            state = "解析中" if existing.status == "parsing" else (
+                f"已入库 {existing.receipt_count} 张" if existing.status == "parsed" else "解析失败"
             )
-            db.add(r)
-            db.flush()
-            suggested = suggest_pair(db, r.id)
-            if suggested is not None:
-                r.paired_invoice_id = suggested
-                r.status = "paired"
-            else:
-                r.status = "unmatched"
-            db.commit()
-            out.append({
-                "id": r.id,
-                "trade_date": str(r.trade_date) if r.trade_date else None,
-                "counterparty_name": r.counterparty_name,
-                "amount": str(r.amount) if r.amount else None,
-                "abstract": r.abstract,
-                "paired_invoice_id": r.paired_invoice_id,
-                "status": r.status,
-            })
-    return out
+            raise ValueError(
+                f"该回单文件已上传过（批次 #{existing.id}，{state}），请勿重复提交；"
+                f"用 receipt_upload_status({existing.id}) 查询进度"
+            )
+        key = f"tenant-default/receipts/{uuid4().hex}-{path.name}"
+        get_storage().put(key, data, "application/octet-stream")
+        up = ReceiptUpload(
+            file_hash=file_hash, file_url=key, file_type=kind, status="parsing"
+        )
+        db.add(up)
+        db.commit()
+        upload_id = up.id
+    enqueue_receipt_parse_sync(upload_id)
+    return {
+        "upload_id": upload_id,
+        "status": "parsing",
+        "message": "已接收，后台解析中；用 receipt_upload_status 轮询，完成后 receipt_list 查看",
+    }
+
+
+def receipt_upload_status(upload_id: int) -> dict:
+    """回单上传批次解析状态（receipt_ingest 异步模式的配套轮询工具）。"""
+    with SessionLocal() as db:
+        up = db.get(ReceiptUpload, upload_id)
+        if up is None:
+            raise ValueError(f"批次不存在: {upload_id}")
+        return {
+            "id": up.id,
+            "status": up.status,
+            "receipt_count": up.receipt_count,
+            "error": up.error,
+            "created_at": str(up.created_at),
+            "parsed_at": str(up.parsed_at) if up.parsed_at else None,
+        }
 
 
 def receipt_list(month: str) -> list[dict]:

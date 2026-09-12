@@ -120,6 +120,28 @@ def unmatched_receipts(
     return [_receipt_out(r) for r in rows]
 
 
+@router.get("/{receipt_id}/file")
+def get_receipt_file(
+    receipt_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role(*_FINANCE)),
+):
+    """回单原件查看（人工核对/补录用）：inline 预览，浏览器直接打开。"""
+    from invoicing.storage import get_storage
+
+    r = db.get(BankReceipt, receipt_id)
+    if r is None:
+        raise HTTPException(404, "回单不存在")
+    data = get_storage().get(r.file_url)
+    filename = r.file_url.rsplit("/", 1)[-1]
+    media = "application/pdf" if r.file_type == "PDF" else "image/jpeg"
+    return Response(
+        content=data,
+        media_type=media,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @router.post("/{receipt_id}/pair")
 def pair_receipt(
     receipt_id: int,
