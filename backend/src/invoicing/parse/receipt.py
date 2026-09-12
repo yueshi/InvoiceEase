@@ -11,7 +11,11 @@ from decimal import Decimal, InvalidOperation
 logger = logging.getLogger(__name__)
 
 _AMOUNT_RE = re.compile(r"(?:交易金额|付款金额|支付金额|金额)\D{0,4}([\d,]+(?:\.\d{1,2})?)")
-_DATE_RE = re.compile(r"(?:交易日期|付款日期|日期)\D{0,4}(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?)")
+# 建行等回单 PDF 文本层常乱序（如 `转账日期： 年 月 日2026 04 20`——占位符在值前、
+# 空格分隔），分隔符须可选、关键词与数字间距放宽到 12 个非数字字符。
+_DATE_RE = re.compile(
+    r"(?:转账日期|交易日期|付款日期|日期)\D{0,12}(\d{4})\s*[年/\-]?\s*(\d{1,2})\s*[月/\-]?\s*(\d{1,2})\s*日?"
+)
 _PARTY_RE = re.compile(r"(?:对方户名|收款方名称|对方名称|户名)\s*[:：]?\s*([^\n]+)")
 _ABSTRACT_RE = re.compile(r"(?:摘要|用途|备注)\s*[:：]?\s*([^\n]+)")
 
@@ -28,12 +32,9 @@ def normalize_party(name: str) -> str:
     return s.strip()
 
 
-def _parse_date(raw: str) -> date | None:
-    cleaned = raw.replace("年", "-").replace("月", "-").replace("日", "").replace("/", "-")
-    if " " in cleaned:
-        cleaned = cleaned.split(" ")[0]
+def _parse_date_parts(y: str, m: str, d: str) -> date | None:
     try:
-        return date.fromisoformat(cleaned)
+        return date(int(y), int(m), int(d))
     except ValueError:
         return None
 
@@ -54,7 +55,7 @@ def parse_receipt_text(text: str) -> dict | None:
     trade_date = None
     d = _DATE_RE.search(text)
     if d:
-        trade_date = _parse_date(d.group(1))
+        trade_date = _parse_date_parts(d.group(1), d.group(2), d.group(3))
     a = _ABSTRACT_RE.search(text)
     abstract = a.group(1).strip() if a else None
     return {

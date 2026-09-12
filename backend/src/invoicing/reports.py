@@ -4,9 +4,10 @@
 （一般纳税人成本口径）；by_type/by_center 按价税合计分布，明细行三金额齐备。
 """
 import io
-from datetime import date
+from datetime import date, datetime, time
 from decimal import Decimal
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from invoicing.models import Invoice
@@ -25,6 +26,35 @@ def _month_bounds(month: str) -> tuple[date, date]:
     start = date(year, mon, 1)
     end = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
     return start, end
+
+
+def receipts_in_month(db: Session, month: str) -> list:
+    """当月回单清单（R1 修复：缺日期回单不得隐身）。
+
+    trade_date 落当月优先；trade_date 为 NULL（规则/LLM 均未提取出日期）时按
+    created_at 归当月。此前直接按 trade_date 过滤，SQL 中 NULL 比较恒假，
+    缺日期回单在任何月份视图都不可见。
+    """
+    from invoicing.models import BankReceipt
+
+    start, end = _month_bounds(month)
+    start_dt = datetime.combine(start, time.min)
+    end_dt = datetime.combine(end, time.min)
+    return (
+        db.query(BankReceipt)
+        .filter(
+            or_(
+                and_(BankReceipt.trade_date >= start, BankReceipt.trade_date < end),
+                and_(
+                    BankReceipt.trade_date.is_(None),
+                    BankReceipt.created_at >= start_dt,
+                    BankReceipt.created_at < end_dt,
+                ),
+            )
+        )
+        .order_by(BankReceipt.trade_date, BankReceipt.id)
+        .all()
+    )
 
 
 def _month_rows(db: Session, month: str, tenant_id: str) -> list[Invoice]:
@@ -158,13 +188,7 @@ def receipts_to_csv(db: Session, month: str) -> bytes:
 
     from invoicing.models import BankReceipt
 
-    start, end = _month_bounds(month)
-    rows = (
-        db.query(BankReceipt)
-        .filter(BankReceipt.trade_date >= start, BankReceipt.trade_date < end)
-        .order_by(BankReceipt.trade_date, BankReceipt.id)
-        .all()
-    )
+    rows = receipts_in_month(db, month)
     buf = _io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["日期", "摘要", "对方户名", "金额", "借方", "贷方", "发票号"])

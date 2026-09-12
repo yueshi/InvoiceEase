@@ -446,17 +446,10 @@ def receipt_ingest(file_path: str) -> dict:
 
 def receipt_list(month: str) -> list[dict]:
     """回单清单（P3/R1）：month=YYYY-MM。"""
-    from invoicing.models import BankReceipt
-    from invoicing.reports import _month_bounds
+    from invoicing.reports import receipts_in_month
 
-    start, end = _month_bounds(month)
     with SessionLocal() as db:
-        rows = (
-            db.query(BankReceipt)
-            .filter(BankReceipt.trade_date >= start, BankReceipt.trade_date < end)
-            .order_by(BankReceipt.trade_date, BankReceipt.id)
-            .all()
-        )
+        rows = receipts_in_month(db, month)
         return [
             {
                 "id": r.id,

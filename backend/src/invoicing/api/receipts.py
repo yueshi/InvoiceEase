@@ -84,16 +84,9 @@ def list_receipts(
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    from invoicing.reports import _month_bounds
+    from invoicing.reports import receipts_in_month
 
-    start, end = _month_bounds(month)
-    rows = (
-        db.query(BankReceipt)
-        .filter(BankReceipt.trade_date >= start, BankReceipt.trade_date < end)
-        .order_by(BankReceipt.trade_date, BankReceipt.id)
-        .all()
-    )
-    return [_receipt_out(r) for r in rows]
+    return [_receipt_out(r) for r in receipts_in_month(db, month)]
 
 
 @router.get("/unmatched")
@@ -103,19 +96,9 @@ def unmatched_receipts(
     _: User = Depends(require_role(*_FINANCE)),
 ):
     """无票费用提示（R2）：未配对回单清单。"""
-    from invoicing.reports import _month_bounds
+    from invoicing.reports import receipts_in_month
 
-    start, end = _month_bounds(month)
-    rows = (
-        db.query(BankReceipt)
-        .filter(
-            BankReceipt.trade_date >= start,
-            BankReceipt.trade_date < end,
-            BankReceipt.paired_invoice_id.is_(None),
-        )
-        .order_by(BankReceipt.trade_date, BankReceipt.id)
-        .all()
-    )
+    rows = [r for r in receipts_in_month(db, month) if r.paired_invoice_id is None]
     return [_receipt_out(r) for r in rows]
 
 
