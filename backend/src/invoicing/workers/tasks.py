@@ -46,6 +46,18 @@ def _save_xml_original(storage, inv: Invoice, xml_data: bytes) -> None:
         inv.xml_url = xml_key
 
 
+def _parse_chain_armed() -> bool:
+    """识别能力是否在位（OCR 或 LLM 任一可用）。
+
+    全链未武装时（如仅装基础依赖的开发环境），无文本层 PDF 的「空解析」无法区分
+    「非发票文档」与「引擎缺失」，宁可走待复核不误删（发票绝不丢）。
+    """
+    from invoicing.parse.llm import get_llm_engine
+    from invoicing.parse.ocr import get_ocr_provider
+
+    return get_ocr_provider() is not None or get_llm_engine() is not None
+
+
 def _parse_invoice(invoice_id: int) -> None:
     parsed_code = parsed_number = None  # 查重探针值：解析成功后捕获，回滚后 inv 属性失效仍可用
     db = SessionLocal()
@@ -57,6 +69,37 @@ def _parse_invoice(invoice_id: int) -> None:
         storage = get_storage()
         data = storage.get(inv.file_url)
         outcome = parse_file(inv.file_type, data)
+
+        if outcome.parsed is None and not outcome.errors and _parse_chain_armed():
+            # 非发票硬拒绝：识别能力在位但整链（XBRL/文本层/OCR/VLM）零提取 →
+            # 不是电子发票原件（如银行回单、通知函），物理删除不留空壳污染发票库。
+            # 审计先写：记录删除后 invoice_id 经 FK SET NULL 置空，明细仍可追溯。
+            write_audit(
+                db, action="PARSE", invoice_id=inv.id, channel="system",
+                detail={
+                    "result": "not_invoice",
+                    "source": outcome.source,
+                    "file_type": inv.file_type,
+                    "file_name": (inv.file_url or "").rsplit("/", 1)[-1],
+                    # 记录删除后 invoice_id 经 FK SET NULL 置空，凭此键回溯本次拒收
+                    # （MCP ingest 重载 inv is None 时据此区分「非发票拒收」与「重复拦截」）
+                    "discarded_invoice_id": invoice_id,
+                },
+            )
+            _cleanup_dependents_of(db, inv.id)
+            for key in (inv.file_url, inv.xml_url):
+                if not key:
+                    continue
+                try:
+                    storage.delete(key)
+                except Exception:
+                    logger.warning("非发票拒收原件删除失败 invoice_id=%s key=%s", inv.id, key, exc_info=True)
+            db.delete(inv)
+            db.commit()
+            from invoicing.notify import notify
+
+            notify(f"🚫 非发票文档已拒收：整链解析未提取出发票字段（{outcome.source}）")
+            return
 
         # 纠错字典 + 购买方归属校验追加错误：仅成功分支填充（confidence<1.0 门控在 enrich_parsed 内部）
         extra: list = []

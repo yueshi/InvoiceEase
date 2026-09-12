@@ -51,7 +51,7 @@ def build_server() -> MCPServer:
     def validate_invoice(invoice_data: dict) -> ValidationResult:
         return mcp_extract.validate_invoice_data(invoice_data)
 
-    @server.tool(description="导入本地发票原件入库：原件归档 → 解析 → 验真，返回发票记录（重复发票返回已拦截状态）。")
+    @server.tool(description="导入本地电子发票原件（XML/数电 OFD/PDF）入库：原件归档 → 解析 → 验真，返回发票记录（重复发票返回已拦截状态）。仅接受电子发票原件；银行回单等非发票文档请改用 receipt_ingest，拍照/截图件不支持。")
     def invoice_ingest(file_path: str) -> InvoiceOut:
         return mcp_tools.ingest_invoice(file_path)
 

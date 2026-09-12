@@ -249,6 +249,51 @@ def test_parse_invoice_task_duplicate_number_blocks(db, storage):
     )
 
 
+def test_parse_invoice_task_not_invoice_hard_rejected(db, storage, monkeypatch):
+    """非发票硬拒绝：识别能力可用（OCR/LLM 任一在位）但整链未提取出任何字段 →
+    物理删除 + 审计留痕 result=not_invoice，不留空壳污染发票库。"""
+    from invoicing.parse.schemas import ParseOutcome
+    from invoicing.workers.tasks import _parse_invoice
+
+    monkeypatch.setattr(
+        "invoicing.workers.tasks.parse_file",
+        lambda ft, data: ParseOutcome(source="PDF_UNSTRUCTURED", parsed=None, errors=[]),
+    )
+    # 识别能力在位：OCR 可用（LLM 未配置也可）
+    monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: object())
+
+    inv = _make_invoice(db, storage)
+    _parse_invoice(inv.id)
+    db.expunge(inv)
+    assert db.get(Invoice, inv.id) is None  # 空壳不落库
+    logs = db.query(AuditLog).filter(AuditLog.action == "PARSE").all()
+    assert any(
+        l.detail.get("result") == "not_invoice"
+        and l.detail.get("source") == "PDF_UNSTRUCTURED"
+        for l in logs
+    )
+
+
+def test_parse_invoice_task_empty_parse_without_capability_keeps_review(db, storage, monkeypatch):
+    """能力缺失时保守降级：OCR/LLM 均未配置，无文本层 PDF 无法判断是否发票 →
+    维持待复核空壳（发票绝不丢），不触发硬拒绝。"""
+    from invoicing.parse.schemas import ParseOutcome
+    from invoicing.workers.tasks import _parse_invoice
+
+    monkeypatch.setattr(
+        "invoicing.workers.tasks.parse_file",
+        lambda ft, data: ParseOutcome(source="PDF_UNSTRUCTURED", parsed=None, errors=[]),
+    )
+    monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: None)
+    monkeypatch.setattr("invoicing.parse.llm.get_llm_engine", lambda: None)
+
+    inv = _make_invoice(db, storage)
+    _parse_invoice(inv.id)
+    db.refresh(inv)
+    assert inv.status == "pending_review"  # 人工决定去留
+    assert db.get(Invoice, inv.id) is not None
+
+
 def test_parse_invoice_validation_error_keeps_fields(db, storage):
     """回归：校验矛盾票（字段齐全但金额矛盾）→ 待复核且已提取字段入库，复核人只改单字段。"""
     import io

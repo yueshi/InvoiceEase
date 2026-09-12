@@ -57,6 +57,68 @@ def test_ingest_image_with_ocr_full_pipeline(tmp_path, monkeypatch):
     assert inv.file_type == "IMAGE"
 
 
+RECEIPT_TEXT = (
+    "中国银行 电子回单\n"
+    "交易日期：2026年07月09日\n"
+    "付款人户名：示例出行科技有限公司\n"
+    "对方户名：测试采购有限公司\n"
+    "交易金额：3,500.00\n"
+    "摘要：机票款\n"
+)
+
+
+def test_ingest_noninvoice_pdf_with_receipt_features_rejected(db, tmp_path, monkeypatch):
+    """银行回单（有文本层、无发票字段）→ 硬拒绝并提示走 receipt_ingest，不留空壳。"""
+    monkeypatch.setattr(
+        "invoicing.parse.pdf_text_parser.extract_pdf_text", lambda data: RECEIPT_TEXT
+    )
+    monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: None)
+    monkeypatch.setattr("invoicing.parse.llm.get_llm_engine", lambda: None)
+
+    p = tmp_path / "receipt.pdf"
+    p.write_bytes(b"%PDF-1.4 fake")
+    before = db.query(Invoice).count()
+    with pytest.raises(ValueError, match="receipt_ingest"):
+        ingest_invoice(str(p))
+    assert db.query(Invoice).count() == before  # 空壳不落库
+    logs = db.query(AuditLog).filter(AuditLog.action == "PARSE").all()
+    assert any(l.detail.get("result") == "not_invoice" for l in logs)
+
+
+def test_ingest_noninvoice_pdf_without_receipt_features_rejected(db, tmp_path, monkeypatch):
+    """无发票字段且无回单特征 → 硬拒绝（能力受限时说明原因），不留空壳。"""
+    monkeypatch.setattr(
+        "invoicing.parse.pdf_text_parser.extract_pdf_text", lambda data: "周末团建通知，自愿参加。"
+    )
+    monkeypatch.setattr("invoicing.parse.ocr.get_ocr_provider", lambda: None)
+    monkeypatch.setattr("invoicing.parse.llm.get_llm_engine", lambda: None)
+
+    p = tmp_path / "note.pdf"
+    p.write_bytes(b"%PDF-1.4 fake")
+    before = db.query(Invoice).count()
+    with pytest.raises(ValueError, match="未识别|OCR"):
+        ingest_invoice(str(p))
+    assert db.query(Invoice).count() == before
+
+
+def test_ingest_worker_hard_rejected_surfaces_not_invoice_message(db, tmp_path, monkeypatch):
+    """本地模式 worker 已硬拒绝（记录物理删除）→ 工具报「非发票」而非误判「重复」。"""
+    from invoicing.parse.schemas import ParseOutcome
+
+    monkeypatch.setattr(
+        "invoicing.workers.tasks.parse_file",
+        lambda ft, data: ParseOutcome(source="PDF_UNSTRUCTURED", parsed=None, errors=[]),
+    )
+    # 识别能力在位（LLM 引擎可用）：整链零提取 → worker 物理删除
+    monkeypatch.setattr("invoicing.parse.llm.get_llm_engine", lambda: object())
+
+    p = tmp_path / "receipt.pdf"
+    p.write_bytes(b"%PDF-1.4 fake")
+    with pytest.raises(ValueError, match="不是电子发票原件"):
+        ingest_invoice(str(p))
+    assert db.query(Invoice).count() == 0
+
+
 def test_ingest_duplicate_returns_existing(db, tmp_path):
     first = ingest_invoice(str(FIXTURES / "dianzi.xml"))
     assert first.status == "pending_submit"

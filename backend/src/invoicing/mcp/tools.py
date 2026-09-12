@@ -68,6 +68,26 @@ def get_invoice_mcp(invoice_id: int) -> InvoiceOut:
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
+def _not_invoice_reason(data: bytes, kind: str) -> str:
+    """非发票拒收的可行动提示：命中回单特征 → 引导 receipt_ingest；
+    识别能力缺失 → 说明受限；其余 → 明确「不是电子发票原件」。"""
+    from invoicing.parse.receipt import parse_receipt_bytes
+    from invoicing.workers.tasks import _parse_chain_armed
+
+    receipt = parse_receipt_bytes(data, kind)
+    if receipt.get("amount") is not None and receipt.get("counterparty_name"):
+        return (
+            "该文件疑似银行回单，不是电子发票原件。"
+            "请改用 receipt_ingest 工具处理银行回单。"
+        )
+    if not _parse_chain_armed():
+        return (
+            "该 PDF 未提取到发票字段：文件无文本层，且本环境未配置 OCR/LLM 引擎，"
+            "无法识别图片型原件。请部署 OCR 引擎或通过 Web 端上传处理。"
+        )
+    return "该文件不是电子发票原件（未识别出发票字段），已拒收。"
+
+
 def ingest_invoice(file_path: str) -> InvoiceOut:
     """WorkBuddy 归档闭环：原件入存储 → 解析 → 验真（本地模式内联）→ 返回发票记录。
     注意：本地模式返回终态 InvoiceOut；redis 模式返回 parsing 中间态（异步 worker 处理），状态以发票详情查询为准。"""
@@ -118,27 +138,49 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
     with SessionLocal() as db:
         inv = db.get(Invoice, invoice_id)
         if inv is None:
-            # 重复拦截：新记录已被物理删除（审计留痕），返回指向的已有记录
-            # C5/C1 修复：审计现在挂在已有原票上，discarded_invoice_id 走 detail。
+            # 新记录在解析阶段已被物理删除（审计留痕），按审计明细区分两种情形：
+            # not_invoice（非发票硬拒绝）/ duplicate（重复拦截，返回指向的已有记录）。
             from invoicing.models import Invoice as InvoiceModel
 
             parse_logs = db.query(AuditLog).filter(
                 AuditLog.action == "PARSE",
             ).order_by(AuditLog.id.desc()).all()
+            not_inv_log = None
             dup_log = None
             for log in parse_logs:
                 detail = log.detail or {}
-                if detail.get("discarded_invoice_id") == invoice_id:
+                if detail.get("discarded_invoice_id") != invoice_id:
+                    continue
+                if detail.get("result") == "not_invoice":
+                    not_inv_log = log
+                    break
+                if detail.get("result") == "duplicate":
                     dup_log = log
                     break
-                if detail.get("duplicate_of_id") == invoice_id:
-                    dup_log = log
-                    break
+            if not_inv_log is not None:
+                # worker 已拒收并清理原件，这里把可行动的原因透传给调用方
+                raise ValueError(_not_invoice_reason(data, kind))
             existing_id = (dup_log.detail or {}).get("duplicate_of_id") if dup_log else None
             existing = db.get(InvoiceModel, existing_id) if existing_id else None
             if existing is not None:
                 return InvoiceOut.model_validate(existing, from_attributes=True)
             raise ValueError("发票重复且原记录不可用")
+
+        # 非发票硬拒绝（WorkBuddy 边界）：空解析产生的全空壳记录（无号码/无金额/零置信）
+        # 不返回给调用方——就地删除并给出可行动的错误提示，库内无残留。
+        if inv.invoice_number is None and inv.total_amount is None and not inv.confidence_score:
+            from invoicing.workflow.services import _cleanup_dependents_of
+
+            get_storage().delete(key)
+            reason = _not_invoice_reason(data, kind)
+            write_audit(
+                db, action="PARSE", invoice_id=inv.id, channel="mcp",
+                detail={"result": "not_invoice", "rejected_by": "mcp_ingest", "file_type": kind},
+            )
+            _cleanup_dependents_of(db, inv.id)
+            db.delete(inv)
+            db.commit()
+            raise ValueError(reason)
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
