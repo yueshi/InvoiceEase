@@ -1,9 +1,15 @@
 import { api, downloadFile, fetchBlobUrl } from "./client";
 import type { ReceiptOut, ReceiptUploadOut } from "../types";
 
-export async function listReceipts(month: string, unmatchedOnly = false): Promise<ReceiptOut[]> {
+/** 查询周期：按月（YYYY-MM）或按季度（YYYY-QN），恰给其一 */
+export interface ReceiptPeriod {
+  month?: string;
+  quarter?: string;
+}
+
+export async function listReceipts(period: ReceiptPeriod, unmatchedOnly = false): Promise<ReceiptOut[]> {
   const path = unmatchedOnly ? "/receipts/unmatched" : "/receipts";
-  const { data } = await api.get<ReceiptOut[]>(path, { params: { month } });
+  const { data } = await api.get<ReceiptOut[]>(path, { params: period });
   return data;
 }
 
@@ -30,6 +36,8 @@ export async function autoPairReceipt(receiptId: number): Promise<ReceiptOut> {
   return data;
 }
 
-export async function exportReceipts(month: string): Promise<void> {
-  await downloadFile(`/receipts/export?month=${month}`, `receipts-${month}.csv`);
+export async function exportReceipts(period: ReceiptPeriod): Promise<void> {
+  const key = period.quarter ?? period.month ?? "";
+  const query = period.quarter ? `quarter=${period.quarter}` : `month=${period.month}`;
+  await downloadFile(`/receipts/export?${query}`, `receipts-${key}.csv`);
 }

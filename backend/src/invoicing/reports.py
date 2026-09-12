@@ -28,16 +28,36 @@ def _month_bounds(month: str) -> tuple[date, date]:
     return start, end
 
 
-def receipts_in_month(db: Session, month: str) -> list:
-    """当月回单清单（R1 修复：缺日期回单不得隐身）。
+def _quarter_bounds(quarter: str) -> tuple[date, date]:
+    """季度边界：`YYYY-QN`（N=1-4）→ [首日, 次季首日)。"""
+    import re as _re
 
-    trade_date 落当月优先；trade_date 为 NULL（规则/LLM 均未提取出日期）时按
-    created_at 归当月。此前直接按 trade_date 过滤，SQL 中 NULL 比较恒假，
-    缺日期回单在任何月份视图都不可见。
+    m = _re.match(r"^(\d{4})-Q([1-4])$", quarter or "")
+    if not m:
+        raise ValueError(f"非法季度: {quarter}（格式 YYYY-QN，N=1-4）")
+    year, q = int(m.group(1)), int(m.group(2))
+    start_mon = (q - 1) * 3 + 1
+    start = date(year, start_mon, 1)
+    end = date(year + 1, 1, 1) if q == 4 else date(year, start_mon + 3, 1)
+    return start, end
+
+
+def period_bounds(month: str | None = None, quarter: str | None = None) -> tuple[date, date]:
+    """周期边界解析：month 与 quarter 恰给其一（互斥），否则 ValueError。"""
+    if bool(month) == bool(quarter):
+        raise ValueError("month 与 quarter 必须且只能提供一个")
+    return _quarter_bounds(quarter) if quarter else _month_bounds(month)
+
+
+def receipts_in_range(db: Session, start: date, end: date) -> list:
+    """区间回单清单（R1 修复：缺日期回单不得隐身）。
+
+    trade_date 落区间优先；trade_date 为 NULL（规则/LLM 均未提取出日期）时按
+    created_at 归区间。此前直接按 trade_date 过滤，SQL 中 NULL 比较恒假，
+    缺日期回单在任何视图都不可见。
     """
     from invoicing.models import BankReceipt
 
-    start, end = _month_bounds(month)
     start_dt = datetime.combine(start, time.min)
     end_dt = datetime.combine(end, time.min)
     return (
@@ -55,6 +75,16 @@ def receipts_in_month(db: Session, month: str) -> list:
         .order_by(BankReceipt.trade_date, BankReceipt.id)
         .all()
     )
+
+
+def receipts_in_month(db: Session, month: str) -> list:
+    """当月回单（兼容入口，MCP receipt_list 等沿用）。"""
+    return receipts_in_range(db, *_month_bounds(month))
+
+
+def receipts_in_period(db: Session, month: str | None = None, quarter: str | None = None) -> list:
+    """按月或按季度取回单（month/quarter 恰给其一）。"""
+    return receipts_in_range(db, *period_bounds(month, quarter))
 
 
 def _month_rows(db: Session, month: str, tenant_id: str) -> list[Invoice]:
@@ -178,7 +208,7 @@ def monthly_health(db: Session, month: str) -> str:
     ])
 
 
-def receipts_to_csv(db: Session, month: str) -> bytes:
+def receipts_to_csv(db: Session, month: str | None = None, quarter: str | None = None) -> bytes:
     """银行回单凭证草稿 CSV（P3/R1）：金蝶/用友凭证导入通用列。
 
     借方=费用类（摘要），贷方=银行存款；已配对行附发票号。
@@ -188,7 +218,7 @@ def receipts_to_csv(db: Session, month: str) -> bytes:
 
     from invoicing.models import BankReceipt
 
-    rows = receipts_in_month(db, month)
+    rows = receipts_in_period(db, month=month, quarter=quarter)
     buf = _io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["日期", "摘要", "对方户名", "金额", "借方", "贷方", "发票号"])

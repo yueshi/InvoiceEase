@@ -14,6 +14,7 @@ router = APIRouter(prefix="/receipts", tags=["receipts"])
 _FINANCE = ("finance_staff", "finance_manager", "admin")
 
 _MONTH_PATTERN = r"^\d{4}-\d{2}$"
+_QUARTER_PATTERN = r"^\d{4}-Q[1-4]$"
 
 
 def _receipt_out(r: BankReceipt) -> dict:
@@ -98,26 +99,36 @@ def list_receipt_uploads(
 
 @router.get("")
 def list_receipts(
-    month: str = Query(pattern=_MONTH_PATTERN),
+    month: str | None = Query(None, pattern=_MONTH_PATTERN),
+    quarter: str | None = Query(None, pattern=_QUARTER_PATTERN),
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    from invoicing.reports import receipts_in_month
+    """回单列表：month=YYYY-MM 或 quarter=YYYY-QN（恰给其一）。"""
+    from invoicing.reports import receipts_in_period
 
-    return [_receipt_out(r) for r in receipts_in_month(db, month)]
+    try:
+        rows = receipts_in_period(db, month=month, quarter=quarter)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    return [_receipt_out(r) for r in rows]
 
 
 @router.get("/unmatched")
 def unmatched_receipts(
-    month: str = Query(pattern=_MONTH_PATTERN),
+    month: str | None = Query(None, pattern=_MONTH_PATTERN),
+    quarter: str | None = Query(None, pattern=_QUARTER_PATTERN),
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    """无票费用提示（R2）：未配对回单清单。"""
-    from invoicing.reports import receipts_in_month
+    """无票费用提示（R2）：未配对回单清单（month 或 quarter）。"""
+    from invoicing.reports import receipts_in_period
 
-    rows = [r for r in receipts_in_month(db, month) if r.paired_invoice_id is None]
-    return [_receipt_out(r) for r in rows]
+    try:
+        rows = receipts_in_period(db, month=month, quarter=quarter)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    return [_receipt_out(r) for r in rows if r.paired_invoice_id is None]
 
 
 @router.get("/{receipt_id}/file")
@@ -188,14 +199,19 @@ def auto_pair_receipt(
 
 @router.get("/export")
 def export_receipts(
-    month: str = Query(pattern=_MONTH_PATTERN),
+    month: str | None = Query(None, pattern=_MONTH_PATTERN),
+    quarter: str | None = Query(None, pattern=_QUARTER_PATTERN),
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    """凭证草稿 CSV（金蝶/用友通用列）。"""
-    data = receipts_to_csv(db, month)
+    """凭证草稿 CSV（金蝶/用友通用列；month 或 quarter）。"""
+    try:
+        data = receipts_to_csv(db, month=month, quarter=quarter)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    period = quarter or month
     return Response(
         content=data,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="receipts-{month}.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="receipts-{period}.csv"'},
     )

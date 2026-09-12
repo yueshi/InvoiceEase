@@ -357,6 +357,51 @@ def test_receipt_file_endpoint_404(client, db):
     assert resp.status_code == 404
 
 
+def test_list_receipts_quarter_filter(client, db):
+    """季度过滤：Q2 = 4/5/6 月；q1 不含 4 月；month/quarter 互斥。"""
+    from datetime import date as _date
+
+    auth = _seed_login(client, db)
+    rows = [
+        BankReceipt(file_url="r1.pdf", file_type="PDF", trade_date=_date(2026, 4, 20),
+                    counterparty_name="A", amount=Decimal("100.00"), status="unmatched"),
+        BankReceipt(file_url="r2.pdf", file_type="PDF", trade_date=_date(2026, 6, 25),
+                    counterparty_name="B", amount=Decimal("200.00"), status="unmatched"),
+        BankReceipt(file_url="r3.pdf", file_type="PDF", trade_date=_date(2026, 7, 1),
+                    counterparty_name="C", amount=Decimal("300.00"), status="unmatched"),
+    ]
+    for r in rows:
+        db.add(r)
+    db.commit()
+
+    q2 = client.get("/api/v1/receipts?quarter=2026-Q2", headers=auth)
+    assert q2.status_code == 200
+    assert {r["counterparty_name"] for r in q2.json()} == {"A", "B"}
+
+    q3 = client.get("/api/v1/receipts?quarter=2026-Q3", headers=auth)
+    assert {r["counterparty_name"] for r in q3.json()} == {"C"}
+
+    # month 与 quarter 互斥：同时给 → 422
+    both = client.get("/api/v1/receipts?month=2026-04&quarter=2026-Q2", headers=auth)
+    assert both.status_code == 422
+    # 非法季度格式 → 422
+    bad = client.get("/api/v1/receipts?quarter=2026-Q5", headers=auth)
+    assert bad.status_code == 422
+
+
+def test_receipts_csv_quarter(client, db, monkeypatch, tmp_path):
+    """凭证草稿 CSV 支持按季度导出。"""
+    from datetime import date as _date
+
+    auth = _seed_login(client, db)
+    db.add(BankReceipt(file_url="r.pdf", file_type="PDF", trade_date=_date(2026, 5, 12),
+                       counterparty_name="某某公司", amount=Decimal("899.00"), status="unmatched"))
+    db.commit()
+    resp = client.get("/api/v1/receipts/export?quarter=2026-Q2", headers=auth)
+    assert resp.status_code == 200
+    assert "899.00" in resp.content.decode("utf-8-sig")
+
+
 def test_parse_receipt_missing_fields_returns_none():
     """关键字段缺失 → None（不产半成品，LLM 兜底由调用方处理）。"""
     assert parse_receipt_text("没有金额和户名的文本") is None

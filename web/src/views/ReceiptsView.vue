@@ -14,11 +14,24 @@ import {
 } from "../api/receipts";
 import type { ReceiptOut } from "../types";
 
-// a-month-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()），不能用字符串
+// a-month-picker / a-date-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()）
+const periodType = ref<"month" | "quarter">("month");
 const month = ref<Dayjs>(dayjs());
+const quarter = ref<Dayjs>(dayjs());
 const unmatchedOnly = ref(false);
 const rows = ref<ReceiptOut[]>([]);
 const loading = ref(false);
+
+/** 季度标签 YYYY-QN（手算避免依赖 dayjs quarterOfYear 插件格式符） */
+function quarterLabel(d: Dayjs): string {
+  return `${d.year()}-Q${Math.floor(d.month() / 3) + 1}`;
+}
+
+function periodParam(): { month?: string; quarter?: string } {
+  return periodType.value === "month"
+    ? { month: month.value.format("YYYY-MM") }
+    : { quarter: quarterLabel(quarter.value) };
+}
 
 const columns = [
   { title: "交易日期", dataIndex: "trade_date", key: "trade_date" },
@@ -33,7 +46,7 @@ const columns = [
 async function load() {
   loading.value = true;
   try {
-    rows.value = await listReceipts(month.value.format("YYYY-MM"), unmatchedOnly.value);
+    rows.value = await listReceipts(periodParam(), unmatchedOnly.value);
   } catch (e) {
     errorMessage(e, "回单加载失败");
   } finally {
@@ -92,7 +105,7 @@ async function onAutoPair(r: ReceiptOut) {
 }
 
 function onExport() {
-  exportReceipts(month.value.format("YYYY-MM")).catch((e) => message.error(errorMessage(e)));
+  exportReceipts(periodParam()).catch((e) => message.error(errorMessage(e)));
 }
 
 onMounted(load);
@@ -102,7 +115,12 @@ onMounted(load);
   <div>
     <h3>银行回单</h3>
     <a-space style="margin-bottom: 16px" wrap>
-      <a-month-picker v-model:value="month" :allow-clear="false" @change="load" />
+      <a-radio-group v-model:value="periodType" button-style="solid" @change="load">
+        <a-radio-button value="month">按月</a-radio-button>
+        <a-radio-button value="quarter">按季度</a-radio-button>
+      </a-radio-group>
+      <a-month-picker v-if="periodType === 'month'" v-model:value="month" :allow-clear="false" @change="load" />
+      <a-date-picker v-else v-model:value="quarter" picker="quarter" :allow-clear="false" @change="load" />
       <a-checkbox v-model:checked="unmatchedOnly" @change="load">只看无票支出</a-checkbox>
       <a-button @click="load">刷新</a-button>
       <a-button @click="onExport">导出凭证草稿</a-button>
