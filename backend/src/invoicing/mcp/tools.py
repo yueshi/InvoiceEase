@@ -119,14 +119,23 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
         inv = db.get(Invoice, invoice_id)
         if inv is None:
             # 重复拦截：新记录已被物理删除（审计留痕），返回指向的已有记录
-            dup_log = (
-                db.query(AuditLog)
-                .filter(AuditLog.invoice_id == invoice_id, AuditLog.action == "PARSE")
-                .order_by(AuditLog.id.desc())
-                .first()
-            )
+            # C5/C1 修复：审计现在挂在已有原票上，discarded_invoice_id 走 detail。
+            from invoicing.models import Invoice as InvoiceModel
+
+            parse_logs = db.query(AuditLog).filter(
+                AuditLog.action == "PARSE",
+            ).order_by(AuditLog.id.desc()).all()
+            dup_log = None
+            for log in parse_logs:
+                detail = log.detail or {}
+                if detail.get("discarded_invoice_id") == invoice_id:
+                    dup_log = log
+                    break
+                if detail.get("duplicate_of_id") == invoice_id:
+                    dup_log = log
+                    break
             existing_id = (dup_log.detail or {}).get("duplicate_of_id") if dup_log else None
-            existing = db.get(Invoice, existing_id) if existing_id else None
+            existing = db.get(InvoiceModel, existing_id) if existing_id else None
             if existing is not None:
                 return InvoiceOut.model_validate(existing, from_attributes=True)
             raise ValueError("发票重复且原记录不可用")
@@ -242,7 +251,8 @@ def invoice_update(
     )
     with SessionLocal() as db:
         inv = _http_to_value_error(
-            services.update_invoice, db, None, invoice_id, body.model_dump(exclude_none=True)
+            services.update_invoice, db, None, invoice_id,
+            body.model_dump(exclude_none=True), channel="mcp",
         )
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
@@ -250,13 +260,17 @@ def invoice_update(
 def invoice_delete(invoice_id: int) -> dict:
     """删除发票（审计全字段快照 + 原件清理）；不存在抛 ValueError。"""
     with SessionLocal() as db:
-        return _http_to_value_error(services.delete_invoice, db, None, invoice_id)
+        return _http_to_value_error(
+            services.delete_invoice, db, None, invoice_id, channel="mcp"
+        )
 
 
 def invoice_unblock(invoice_id: int) -> InvoiceOut:
     """人工放行被拦截发票：blocked → 待复核（清除重复标记）；非 blocked 抛 ValueError。"""
     with SessionLocal() as db:
-        inv = _http_to_value_error(services.unblock_invoice, db, None, invoice_id)
+        inv = _http_to_value_error(
+            services.unblock_invoice, db, None, invoice_id, channel="mcp"
+        )
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 

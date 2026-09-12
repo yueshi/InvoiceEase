@@ -1,9 +1,21 @@
 # schemas/invoice.py
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, PlainSerializer, computed_field
+
+
+# 金额类型：内部 Decimal 保持精度，JSON 序列化时强制 2 位小数（金融标准/财会显示习惯）。
+# 例如 Decimal('364.7') → API 返回 "364.70"；Decimal('0.06') → "0.06"。
+MoneyStr = Annotated[
+    Decimal | None,
+    PlainSerializer(
+        lambda v: None if v is None else f"{v:.2f}",
+        return_type=str | None,
+        when_used="json",
+    ),
+]
 
 
 class InvoiceOut(BaseModel):
@@ -17,9 +29,9 @@ class InvoiceOut(BaseModel):
     invoice_code: str | None
     invoice_number: str | None
     issue_date: date | None
-    amount_without_tax: Decimal | None
-    tax_amount: Decimal | None
-    total_amount: Decimal | None
+    amount_without_tax: MoneyStr
+    tax_amount: MoneyStr
+    total_amount: MoneyStr
     total_amount_cn: str | None
     seller_name: str | None
     seller_tax_id: str | None
@@ -80,9 +92,9 @@ class InvoiceUpdate(BaseModel):
     invoice_code: str | None = None
     invoice_number: str | None = None
     issue_date: date | None = None
-    amount_without_tax: Decimal | None = None
-    tax_amount: Decimal | None = None
-    total_amount: Decimal | None = None
+    amount_without_tax: MoneyStr = None
+    tax_amount: MoneyStr = None
+    total_amount: MoneyStr = None
     total_amount_cn: str | None = None
     seller_name: str | None = None
     seller_tax_id: str | None = None

@@ -12,6 +12,7 @@ from invoicing.parse.router import parse_file
 from invoicing.storage import get_storage
 from invoicing.verify.dedup import find_duplicate
 from invoicing.verify.provider import get_provider
+from invoicing.workflow.services import _cleanup_dependents_of
 from invoicing.workflow.state import transition
 from invoicing.workers.queue import enqueue_verify_sync
 
@@ -137,17 +138,31 @@ def _parse_invoice(invoice_id: int) -> None:
         )
         if existing is not None:
             # 重复拦截：审计留痕 + 物理删除（不留全字段为空的 blocked 空壳记录）
+            # 审计挂在已有原票（existing.id）上——被丢弃的重复没有 invoice_id 语义，
+            # 否则 PRAGMA foreign_keys=ON 时 audit_logs.invoice_id FK 拦 db.delete(inv)
             write_audit(
-                db, action="PARSE", invoice_id=inv.id, channel="system",
+                db, action="PARSE", invoice_id=existing.id, channel="system",
                 detail={
                     "result": "duplicate",
                     "duplicate_of_id": existing.id,
+                    "discarded_invoice_id": inv.id,
                     "invoice_number": parsed_number,
                 },
             )
             from invoicing.notify import notify
 
             notify(f"🚫 重复拦截：`{parsed_number}` 与已有发票 #{existing.id} 重复")
+            # C1 根因修复：删原票前先清指向它的 dependents，避免悬空 FK
+            cleared = _cleanup_dependents_of(db, existing.id)
+            if cleared:
+                write_audit(
+                    db, action="PARSE", invoice_id=existing.id, channel="system",
+                    detail={
+                        "result": "duplicate_cleanup",
+                        "cleared_dependents": cleared,
+                        "reason": "原票被物理删除前清理悬空 duplicate_of_id",
+                    },
+                )
             db.delete(inv)
             db.commit()
         else:

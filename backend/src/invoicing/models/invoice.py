@@ -80,7 +80,9 @@ class Invoice(Base):
     verify_detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duplicate_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    duplicate_of_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)
+    duplicate_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True
+    )
 
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=InvoiceStatus.received.value, index=False

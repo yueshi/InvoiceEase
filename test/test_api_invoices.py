@@ -325,9 +325,11 @@ def test_unblock_clears_duplicate_and_goes_review(client, db):
     from invoicing.models import AuditLog
 
     _seed(db, "caiwu7", Role.finance_staff.value)
-    inv = _invoice(db, status="blocked")
+    # C5 修复：PRAGMA foreign_keys=ON 后 duplicate_of_id 必须指向真实存在的发票
+    original = _invoice(db, status="parsed", invoice_number="24312000000070000001")
+    inv = _invoice(db, status="blocked", invoice_number="24312000000070000002")
     inv.duplicate_flag = True
-    inv.duplicate_of_id = 123
+    inv.duplicate_of_id = original.id
     db.flush()
     token = _login(client, "caiwu7")
     resp = client.post(f"/api/v1/invoices/{inv.id}/unblock", headers={"Authorization": f"Bearer {token}"})

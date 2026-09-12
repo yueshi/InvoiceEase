@@ -236,8 +236,17 @@ def test_parse_invoice_task_duplicate_number_blocks(db, storage):
     # 重复拦截：审计留痕 + 物理删除（不留全字段为空的 blocked 空壳）
     db.expunge(second)  # 另一会话已删除，需先移出本会话 identity map
     assert db.get(Invoice, second.id) is None
-    logs = db.query(AuditLog).filter(AuditLog.action == "PARSE", AuditLog.invoice_id == second.id).all()
-    assert any(l.detail.get("result") == "duplicate" and l.detail.get("duplicate_of_id") == first.id for l in logs)
+    # C5 修复：审计挂在已有原票（existing.id）上，被丢弃的重复 id 走 detail（C1+PRAGMA 兼容）
+    logs = db.query(AuditLog).filter(
+        AuditLog.action == "PARSE",
+        AuditLog.invoice_id == first.id,
+    ).all()
+    assert any(
+        l.detail.get("result") == "duplicate"
+        and l.detail.get("duplicate_of_id") == first.id
+        and l.detail.get("discarded_invoice_id") == second.id
+        for l in logs
+    )
 
 
 def test_parse_invoice_validation_error_keeps_fields(db, storage):

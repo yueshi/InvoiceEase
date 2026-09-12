@@ -9,7 +9,11 @@ TRANSITIONS: dict[str, set[str]] = {
     "verifying": {"pending_submit", "pending_review", "blocked"},
     "pending_review": {"pending_submit", "rejected", "verifying"},
     "pending_submit": {"verifying", "submitted"},
-    "blocked": {"pending_review"},  # 人工放行（unblock）：拦截票转待复核
+    # blocked 双出口（C4 修复）：
+    # - "pending_review"：人工 unblock 路径
+    # - "parsed"：仅由 update_invoice + _revalidate_invoice 三态 VALID 触发，
+    #   REST/MCP 端点不暴露新边，仅自动恢复路径使用（audit 留痕）
+    "blocked": {"pending_review", "parsed"},
     "rejected": set(),
     "submitted": {"archived"},
     "archived": set(),

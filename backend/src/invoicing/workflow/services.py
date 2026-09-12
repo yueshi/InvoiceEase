@@ -1,4 +1,6 @@
 # workflow/services.py
+from enum import Enum
+
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -123,9 +125,37 @@ _SNAPSHOT_COLS = (
 
 _AMOUNT_FIELDS = ("amount_without_tax", "tax_amount", "total_amount", "total_amount_cn")
 
+# C3 统一门控集合：金额字段 + 关键业务字段（影响校验重算 + AI 预判作废）。
+# 单一真相来源，避免 update_invoice 内"金额/敏感"两套集合不一致导致陈旧错误。
+_REVIEW_SENSITIVE_FIELDS: frozenset[str] = frozenset(_AMOUNT_FIELDS) | frozenset({
+    "buyer_name", "buyer_tax_id", "seller_name", "seller_tax_id",
+    "invoice_type", "issue_date",
+})
 
-def _revalidate_invoice(inv: Invoice) -> None:
-    """金额字段变更后重算 validation_errors：用户修正值参与校验，覆盖源文件提取告警。"""
+
+class RevalidateState(str, Enum):
+    """_revalidate_invoice 三态结果（C2/C7 修复）。
+
+    - VALID: 字段齐全且校验通过 → 应清空 inv.validation_errors + 可触发自动 transition
+    - INVALID: 字段齐全但校验出错误 → 应写入新 validation_errors
+    - INCOMPLETE: 关键字段缺失无法校验 → 保留旧 validation_errors（不变）
+    """
+
+    VALID = "valid"
+    INVALID = "invalid"
+    INCOMPLETE = "incomplete"
+
+
+def _revalidate_invoice(inv: Invoice) -> tuple[RevalidateState, list[dict] | None]:
+    """重算 validation_errors（C2/C7 修复：返回三态，调用方据此决定清空/写入/保留）。
+
+    Returns:
+        (RevalidateState.VALID, []) 字段齐全且校验通过
+        (RevalidateState.INVALID, errors) 字段齐全但校验出错误
+        (RevalidateState.INCOMPLETE, None) 关键字段缺失无法校验
+
+    调用方根据状态决定是否清空 inv.validation_errors / 触发自动状态恢复。
+    """
     from invoicing.parse.schemas import ParsedInvoice
     from invoicing.parse.validation import validate
 
@@ -136,7 +166,7 @@ def _revalidate_invoice(inv: Invoice) -> None:
         or inv.tax_amount is None
         or inv.total_amount is None
     ):
-        return  # 字段不全无法校验，保留既有错误
+        return RevalidateState.INCOMPLETE, None  # 字段不全，调用方应保留旧错
     parsed = ParsedInvoice(
         invoice_number=inv.invoice_number,
         issue_date=inv.issue_date,
@@ -152,7 +182,9 @@ def _revalidate_invoice(inv: Invoice) -> None:
         parse_source=inv.parse_source or "",
     )
     errs = validate(parsed)
-    inv.validation_errors = [e.model_dump() for e in errs] if errs else None
+    if not errs:
+        return RevalidateState.VALID, []
+    return RevalidateState.INVALID, [e.model_dump() for e in errs]
 
 
 def upload_invoice(db: Session, current_user: User, filename: str, data: bytes) -> Invoice:
@@ -215,10 +247,16 @@ def upload_invoice(db: Session, current_user: User, filename: str, data: bytes) 
     return inv
 
 
-def update_invoice(db: Session, current_user: User | None, invoice_id: int, data: dict) -> Invoice:
+def update_invoice(db: Session, current_user: User | None, invoice_id: int, data: dict, *, channel: str | None = None) -> Invoice:
     """更新发票业务字段（人工复核纠正）；状态变更走 review/verify 专用端点。
 
-    current_user 可为 None（MCP 通道无用户上下文，审计 user_id 留空）。"""
+    current_user 可为 None（MCP 通道无用户上下文，审计 user_id 留空）。
+    channel: 显式传入审计通道；为 None 时按 current_user 推断（向后兼容）。
+
+    C2/C3/C4 修复：
+    - 校验门控从 _AMOUNT_FIELDS 扩展到 _REVIEW_SENSITIVE_FIELDS（统一门控）
+    - _revalidate_invoice 三态返回；VALID 触发自动 blocked/pending_review → parsed + enqueue_verify
+    """
     from fastapi import HTTPException
 
     inv = db.get(Invoice, invoice_id)
@@ -232,35 +270,85 @@ def update_invoice(db: Session, current_user: User | None, invoice_id: int, data
         if old != value:
             setattr(inv, field, value)
             changed[field] = str(value)
-    if any(f in changed for f in _AMOUNT_FIELDS):
-        _revalidate_invoice(inv)  # 用户修正金额/大写 → 校验告警重算
+
+    # C2/C7/C4：关键字段变更 → 重算校验并按三态分支
+    revalidate_state: RevalidateState | None = None
+    revalidate_errors: list[dict] | None = None
+    prior_had_errors = bool(inv.validation_errors)
+    if any(f in changed for f in _REVIEW_SENSITIVE_FIELDS):
+        revalidate_state, revalidate_errors = _revalidate_invoice(inv)
+        if revalidate_state is RevalidateState.VALID:
+            inv.validation_errors = None
+        elif revalidate_state is RevalidateState.INVALID:
+            inv.validation_errors = revalidate_errors
+        # INCOMPLETE: 保留旧错（不写入）
+
+    # C6：invoice_type 变更时重判红字（C6 修复入口）
+    if "invoice_type" in changed:
+        from invoicing.parse.red_flag import detect_red_invoice
+
+        new_red = detect_red_invoice(None, inv.invoice_type)
+        inv.red_flag = new_red
+
     # B4：关键字段变更 → 既有 AI 预判基于旧数据作废（理由不得基于旧数据），班表下轮重算
-    _REVIEW_SENSITIVE_FIELDS = set(_AMOUNT_FIELDS) | {
-        "buyer_name", "buyer_tax_id", "seller_name", "seller_tax_id", "invoice_type", "issue_date",
-    }
     if changed and any(f in _REVIEW_SENSITIVE_FIELDS for f in changed):
         inv.ai_review_verdict = None
         inv.ai_review_reason = None
         inv.ai_review_confidence = None
         inv.ai_reviewed_at = None
+
+    # C4：校验由非空变空 → 自动状态恢复（blocked/pending_review → parsed）
+    auto_recovered = False
+    if (
+        revalidate_state is RevalidateState.VALID
+        and prior_had_errors
+        and inv.status in (InvoiceStatus.pending_review.value, InvoiceStatus.blocked.value)
+    ):
+        try:
+            transition(inv, InvoiceStatus.parsed.value)
+            auto_recovered = True
+        except ValueError:
+            pass  # 状态机拒绝时忽略（理论上 state.py 已允许 blocked → parsed）
+
     if changed:
+        effective_channel = channel or ("web" if current_user else "mcp")
+        user_id = current_user.id if current_user else None
+        detail: dict = {"changed": changed}
+        if revalidate_state is not None:
+            detail["validation"] = revalidate_state.value
+            if revalidate_state is RevalidateState.VALID:
+                detail["validation_errors_cleared"] = True
+        if auto_recovered:
+            detail["auto_recovered_to"] = inv.status
         write_audit(
-            db, action="INVOICE_UPDATE", user_id=current_user.id if current_user else None,
-            invoice_id=inv.id, channel="web" if current_user else "mcp",
-            detail={"changed": changed},
+            db, action="INVOICE_UPDATE", user_id=user_id,
+            invoice_id=inv.id, channel=effective_channel,
+            detail=detail,
         )
+
     db.commit()
+
+    # C4：状态自动恢复后，若进 parsed 且无红字 → enqueue_verify（与 worker 解析后行为一致）
+    if auto_recovered and not inv.red_flag:
+        enqueue_verify_sync(inv.id)
+
     return inv
 
 
 
 
-def unblock_invoice(db: Session, current_user: User | None, invoice_id: int) -> Invoice:
+def unblock_invoice(db: Session, current_user: User | None, invoice_id: int, *, channel: str | None = None) -> Invoice:
     """人工放行：blocked → 待复核（清除重复标记与悬空引用）。
 
     current_user 可为 None（MCP 通道无用户上下文）。
+    channel: 显式传入审计通道；为 None 时按 current_user 推断（向后兼容）。
+
+    C10 修复：放行后若从未验真过（verify_status=pending），强制 enqueue_verify_sync，
+    满足「验真覆盖率 100%」合规硬约束。否则被误判重复的票放行后可绕过验真提交。
     """
     from fastapi import HTTPException
+
+    from invoicing.models import VerifyStatus
 
     inv = db.get(Invoice, invoice_id)
     if inv is None:
@@ -270,16 +358,47 @@ def unblock_invoice(db: Session, current_user: User | None, invoice_id: int) -> 
     inv.duplicate_flag = False
     inv.duplicate_of_id = None
     transition(inv, InvoiceStatus.pending_review.value)
+    # C10：放行后强制验真（除非已经验真过：passed/failed）
+    verify_dispatched = inv.verify_status == VerifyStatus.pending.value
+    effective_channel = channel or ("web" if current_user else "mcp")
+    user_id = current_user.id if current_user else None
     write_audit(
-        db, action="UNBLOCK", user_id=current_user.id if current_user else None,
-        invoice_id=inv.id, channel="web" if current_user else "mcp",
-        detail={"from": "blocked", "to": "pending_review"},
+        db, action="UNBLOCK", user_id=user_id,
+        invoice_id=inv.id, channel=effective_channel,
+        detail={
+            "from": "blocked",
+            "to": "pending_review",
+            "verify_dispatched": verify_dispatched,
+        },
     )
     db.commit()
+    if verify_dispatched:
+        enqueue_verify_sync(inv.id)
     return inv
 
-def delete_invoice(db: Session, current_user: User | None, invoice_id: int) -> dict:
-    """删除发票：先写全字段快照审计（合规留痕），再删原件与记录。"""
+def _cleanup_dependents_of(db: Session, invoice_id: int) -> int:
+    """清理指向 `invoice_id` 的悬空重复引用（C1 根因修复）。
+
+    删除/重复拦截前必须先调本函数——否则删掉原票后，依赖票的 duplicate_of_id
+    仍指向不存在的 id，前端显示「重复：是」但跳转 404。
+
+    Returns:
+        清理的依赖票行数（affected dependents）。
+    """
+    dependents = db.query(Invoice).filter(Invoice.duplicate_of_id == invoice_id).all()
+    for dep in dependents:
+        dep.duplicate_flag = False
+        dep.duplicate_of_id = None
+        if dep.status == InvoiceStatus.blocked.value:
+            transition(dep, InvoiceStatus.pending_review.value)
+    return len(dependents)
+
+
+def delete_invoice(db: Session, current_user: User | None, invoice_id: int, *, channel: str | None = None) -> dict:
+    """删除发票：先写全字段快照审计（合规留痕），再删原件与记录。
+
+    channel: 显式传入审计通道；为 None 时按 current_user 推断（向后兼容）。
+    """
     import logging
 
     from fastapi import HTTPException
@@ -289,18 +408,15 @@ def delete_invoice(db: Session, current_user: User | None, invoice_id: int) -> d
     if inv is None:
         raise HTTPException(404, "发票不存在")
     snapshot = {col: str(getattr(inv, col)) for col in _SNAPSHOT_COLS}
+    effective_channel = channel or ("web" if current_user else "mcp")
+    user_id = current_user.id if current_user else None
     write_audit(
-        db, action="INVOICE_DELETE", user_id=current_user.id if current_user else None,
-        invoice_id=inv.id, channel="web" if current_user else "mcp",
+        db, action="INVOICE_DELETE", user_id=user_id,
+        invoice_id=inv.id, channel=effective_channel,
         detail={"snapshot": snapshot},
     )
-    # 悬空引用清理：指向本记录的重复标记清除；被拦截的依赖票转待复核（人工重新判断）
-    dependents = db.query(Invoice).filter(Invoice.duplicate_of_id == invoice_id).all()
-    for dep in dependents:
-        dep.duplicate_flag = False
-        dep.duplicate_of_id = None
-        if dep.status == InvoiceStatus.blocked.value:
-            transition(dep, InvoiceStatus.pending_review.value)
+    # 悬空引用清理：先清 dependents 再删本记录（FK CASCADE 兜底，本函数保证应用层一致）
+    _cleanup_dependents_of(db, invoice_id)
     storage = get_storage()
     for key in (inv.file_url, inv.xml_url):
         if not key:

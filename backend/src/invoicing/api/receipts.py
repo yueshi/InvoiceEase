@@ -22,7 +22,7 @@ def _receipt_out(r: BankReceipt) -> dict:
         "file_type": r.file_type,
         "trade_date": str(r.trade_date) if r.trade_date else None,
         "counterparty_name": r.counterparty_name,
-        "amount": str(r.amount) if r.amount else None,
+        "amount": f"{r.amount:.2f}" if r.amount is not None else None,
         "abstract": r.abstract,
         "paired_invoice_id": r.paired_invoice_id,
         "status": r.status,

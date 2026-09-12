@@ -24,7 +24,9 @@ class BankReceipt(Base):
     amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     abstract: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
-    paired_invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)
+    paired_invoice_id: Mapped[int | None] = mapped_column(
+        ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True
+    )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending/paired/unmatched
 
     created_at: Mapped[datetime] = mapped_column(
