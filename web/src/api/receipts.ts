@@ -14,6 +14,14 @@ export async function listReceipts(period: ReceiptPeriod, unmatchedOnly = false)
   return data;
 }
 
+/** 周期外提示（P1-4）：全部时间的回单条数（当前周期空时判断"别处还有多少"） */
+export async function probeReceiptsPeriod(unmatchedOnly = false): Promise<number> {
+  const { data } = await api.get<{ total: number }>("/receipts/period-probe", {
+    params: { unmatched: unmatchedOnly },
+  });
+  return data.total;
+}
+
 export async function uploadReceipt(file: File): Promise<{ upload_id: number; status: string }> {
   const form = new FormData();
   form.append("file", file);

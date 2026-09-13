@@ -24,6 +24,12 @@ export async function eligibleInvoices(): Promise<EligibleInvoiceOut[]> {
   return data;
 }
 
+/** 报销相关配置：差旅伙食补助公司标准（表单预填 + 金额实时预览用） */
+export async function getExpenseConfig(): Promise<{ travel_allowance_daily_standard: number }> {
+  const { data } = await api.get<{ travel_allowance_daily_standard: number }>("/expenses/config");
+  return data;
+}
+
 export async function createEntry(
   claimId: number,
   body: { entry_type: string; title: string; occurred_on?: string | null; scene_fields?: Record<string, string> | null; note?: string },

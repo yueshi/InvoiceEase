@@ -11,6 +11,7 @@ import {
   deleteClaim,
   eligibleInvoices,
   getClaim,
+  getExpenseConfig,
   listClaims,
   rejectClaim,
   removeEntry,
@@ -26,6 +27,7 @@ import {
   SCENE_FIELDS,
   TRAVEL_SUBTYPES,
   VOUCHER_TYPE_LABELS,
+  allowanceAmount,
   type ClaimOut,
   type ClaimDetailOut,
   type EligibleInvoiceOut,
@@ -57,6 +59,30 @@ const sceneDefs = computed(() => {
   }
   return SCENE_FIELDS[entryForm.entry_type] || [];
 });
+// 差旅伙食补助：金额 = 天数 × 日标准（后端落成内部凭证，见 P1-3）
+// 日标准默认取公司配置（「按规定标准发放」才符合不征个税的前提）
+const allowanceStandard = ref(100);
+async function loadExpenseConfig() {
+  try {
+    allowanceStandard.value = (await getExpenseConfig()).travel_allowance_daily_standard;
+  } catch {
+    /* 配置拉取失败不阻断：保留默认值，后端仍会按公司标准计算 */
+  }
+}
+
+/** 补助金额实时预览（日标准留空 → 按公司标准，与后端兜底一致） */
+const allowancePreview = computed(() =>
+  allowanceAmount(entryForm.scene.days, entryForm.scene.daily_standard || allowanceStandard.value),
+);
+
+function onSubtypeChange() {
+  entryForm.scene = {};
+  // 选中「伙食补助」时预填公司标准，避免只填天数算不出钱
+  if (travelSubtype.value === "allowance") {
+    entryForm.scene.daily_standard = String(allowanceStandard.value);
+  }
+}
+
 const entryTypeOptions = [
   { value: "travel", label: "差旅" },
   { value: "procurement", label: "采购" },
@@ -287,7 +313,10 @@ const detailStatus = computed(() =>
   detail.value ? CLAIM_STATUS_LABELS[detail.value.claim.status] : undefined,
 );
 
-onMounted(load);
+onMounted(() => {
+  load();
+  loadExpenseConfig();
+});
 </script>
 
 <template>
@@ -438,6 +467,7 @@ onMounted(load);
                 <template v-else-if="column.key === 'source'">
                   <span v-if="record.invoice_id">发票 #{{ record.invoice_id }}</span>
                   <span v-else-if="record.receipt_id">回单 #{{ record.receipt_id }}</span>
+                  <span v-else-if="record.auto_rule">自动计算</span>
                   <span v-else>人工凭证</span>
                   <span v-if="record.note" style="color: #888">（{{ record.note }}）</span>
                 </template>
@@ -451,7 +481,10 @@ onMounted(load);
                   </a-tooltip>
                 </template>
                 <template v-else-if="column.key === 'op'">
-                  <a v-if="detailEditable" @click="onRemove(record.id)">移除</a>
+                  <a-tooltip v-if="record.auto_rule" title="由补助天数 × 日标准自动计算；改天数或标准即可">
+                    <span style="color: #888">自动</span>
+                  </a-tooltip>
+                  <a v-else-if="detailEditable" @click="onRemove(record.id)">移除</a>
                 </template>
               </template>
             </a-table>
@@ -475,7 +508,7 @@ onMounted(load);
           <a-date-picker v-model:value="entryForm.occurred_on" value-format="YYYY-MM-DD" style="width: 100%" />
         </a-form-item>
         <a-form-item v-if="entryForm.entry_type === 'travel'" label="差旅子类">
-          <a-select v-model:value="travelSubtype" @change="entryForm.scene = {}">
+          <a-select v-model:value="travelSubtype" @change="onSubtypeChange">
             <a-select-option v-for="t in TRAVEL_SUBTYPES" :key="t.value" :value="t.value">
               {{ t.label }}
             </a-select-option>
@@ -486,6 +519,19 @@ onMounted(load);
             <a-input v-model:value="entryForm.scene[f.key]" :placeholder="f.key.includes('date') ? 'YYYY-MM-DD' : ''" />
           </a-form-item>
         </template>
+        <a-alert
+          v-if="travelSubtype === 'allowance' && entryForm.entry_type === 'travel'"
+          type="success"
+          show-icon
+          style="margin-bottom: 12px"
+          :message="allowancePreview
+            ? `补助金额 = ${entryForm.scene.days || 0} 天 × ${entryForm.scene.daily_standard || allowanceStandard} 元/天 = ${allowancePreview} 元`
+            : `请填写补助天数；日标准留空按公司标准 ${allowanceStandard} 元/天`"
+        >
+          <template #description>
+            补助无发票，将自动生成一条内部凭证（可税前扣除）；日标准默认取公司配置，可按实际调整。
+          </template>
+        </a-alert>
         <a-form-item label="备注">
           <a-input v-model:value="entryForm.note" />
         </a-form-item>

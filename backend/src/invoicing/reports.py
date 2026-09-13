@@ -71,6 +71,30 @@ def period_bounds(
     return _month_bounds(month)
 
 
+def _receipts_query(db: Session, start: date | None = None, end: date | None = None):
+    """回单查询骨架（供清单与计数共用，避免两处各写一遍区间语义）。
+
+    区间语义见 receipts_in_range；start/end 都为 None = 全部时间。
+    """
+    from invoicing.models import BankReceipt
+
+    q = db.query(BankReceipt)
+    if start is None or end is None:
+        return q
+    start_dt = datetime.combine(start, time.min)
+    end_dt = datetime.combine(end, time.min)
+    return q.filter(
+        or_(
+            and_(BankReceipt.trade_date >= start, BankReceipt.trade_date < end),
+            and_(
+                BankReceipt.trade_date.is_(None),
+                BankReceipt.created_at >= start_dt,
+                BankReceipt.created_at < end_dt,
+            ),
+        )
+    )
+
+
 def receipts_in_range(db: Session, start: date, end: date) -> list:
     """区间回单清单（R1 修复：缺日期回单不得隐身）。
 
@@ -80,23 +104,24 @@ def receipts_in_range(db: Session, start: date, end: date) -> list:
     """
     from invoicing.models import BankReceipt
 
-    start_dt = datetime.combine(start, time.min)
-    end_dt = datetime.combine(end, time.min)
     return (
-        db.query(BankReceipt)
-        .filter(
-            or_(
-                and_(BankReceipt.trade_date >= start, BankReceipt.trade_date < end),
-                and_(
-                    BankReceipt.trade_date.is_(None),
-                    BankReceipt.created_at >= start_dt,
-                    BankReceipt.created_at < end_dt,
-                ),
-            )
-        )
+        _receipts_query(db, start, end)
         .order_by(BankReceipt.trade_date, BankReceipt.id)
         .all()
     )
+
+
+def count_receipts(
+    db: Session, month: str | None = None, quarter: str | None = None, year: str | None = None
+) -> int:
+    """周期内回单条数（周期外提示用：不物化行，回单是逐笔量级）。
+
+    都不给 = 全部时间的总数——前端据此提示「其他周期还有 N 条」。
+    """
+    bounds = period_bounds(month, quarter, year)
+    if bounds is None:
+        return _receipts_query(db).count()
+    return _receipts_query(db, *bounds).count()
 
 
 def receipts_in_month(db: Session, month: str) -> list:

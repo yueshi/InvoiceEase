@@ -11,7 +11,7 @@
 """
 import logging
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -88,6 +88,80 @@ def _require_owner_draft(claim: ExpenseClaim, user: User) -> None:
         raise ValueError("无权操作他人的报销单")
     if claim.status != ExpenseClaimStatus.DRAFT:
         raise ValueError(f"仅草稿可修改（当前 {claim.status}）")
+
+
+ALLOWANCE_RULE = "travel_allowance"  # 差旅伙食补助的自动凭证标识（ExpenseItem.auto_rule）
+
+
+def _positive_decimal(raw, label: str) -> Decimal:
+    """场景字段里的人工输入 → 正数（天数/日标准都必须是正数）。"""
+    text = str(raw if raw is not None else "").strip()
+    try:
+        value = Decimal(text)
+    except (InvalidOperation, ArithmeticError):
+        raise ValueError(f"{label}必须为正数（当前：{text or '空'}）") from None
+    if not value.is_finite() or value <= 0:
+        raise ValueError(f"{label}必须为正数（当前：{text or '空'}）")
+    return value
+
+
+def _trim(v: Decimal) -> str:
+    """金额/天数去尾零显示（Decimal('4.00') → '4'，Decimal('100') → '100'）。"""
+    return format(v.normalize(), "f")
+
+
+def _allowance_amount(entry_type: str, scene: dict) -> tuple[Decimal | None, str | None]:
+    """差旅-伙食补助 → (金额, 摘要)；非补助事项返回 (None, None)。
+
+    补助没有发票（国税函〔2009〕3 号：差旅费津贴不属于工资薪金，凭内部凭证扣除），
+    所以只有把它物化成凭证，才能计入事项金额（entry.amount = Σ其下凭证）。
+    日标准留空时取公司标准，避免「只填了天数却算不出钱」。
+    """
+    if entry_type != EntryType.TRAVEL.value or scene.get("subtype") != "allowance":
+        return None, None
+    days = _positive_decimal(scene.get("days"), "补助天数")
+    raw_standard = str(scene.get("daily_standard") or "").strip()
+    standard = (
+        _positive_decimal(raw_standard, "日补助标准")
+        if raw_standard
+        else _money_q(settings.travel_allowance_daily_standard)
+    )
+    return _money_q(days * standard), f"{_trim(days)} 天 × {_trim(standard)} 元/天"
+
+
+def _sync_allowance_item(db: Session, entry: ExpenseEntry) -> None:
+    """差旅伙食补助的自动凭证：有则改、无则建、不再适用则撤（幂等）。
+
+    改天数只更新同一条（不会重复累加）；事项改成非补助子类时撤销，
+    否则会留下一笔与场景字段脱钩的钱。
+    """
+    amount, note = _allowance_amount(entry.entry_type, entry.scene_fields or {})
+    db.flush()
+    existing = (
+        db.query(ExpenseItem)
+        .filter(ExpenseItem.entry_id == entry.id, ExpenseItem.auto_rule == ALLOWANCE_RULE)
+        .first()
+    )
+    if amount is None:
+        if existing is None:
+            return
+        db.delete(existing)
+    elif existing is None:
+        db.add(
+            ExpenseItem(
+                claim_id=entry.claim_id, entry_id=entry.id,
+                voucher_type=VoucherType.INTERNAL.value, amount=amount,
+                expense_type=EntryType.TRAVEL.value, note=note,
+                deductible=True,
+                deductible_note="内部凭证：差旅费津贴据实扣除（凭公司标准与出差事实）",
+                auto_rule=ALLOWANCE_RULE, active=True,
+            )
+        )
+    else:
+        existing.amount = amount
+        existing.note = note
+        existing.active = True
+    _recalc_total(db, _get_claim(db, entry.claim_id))
 
 
 def _recalc_entry_amount(db: Session, entry: ExpenseEntry) -> None:
@@ -248,10 +322,11 @@ def create_entry(
     )
     db.add(entry)
     db.flush()
+    _sync_allowance_item(db, entry)  # 伙食补助：按天数×标准自动生成内部凭证
     write_audit(
         db, action="EXPENSE_ADD_ENTRY", user_id=user.id, channel="web",
         detail={"claim_no": claim.claim_no, "entry_id": entry.id, "entry_type": entry_type,
-                "title": entry.title},
+                "title": entry.title, "amount": str(entry.amount)},
     )
     db.commit()
     return entry
@@ -273,12 +348,18 @@ def update_entry(
     validate_scene_fields(merged_type, merged_scene)
     for k, v in data.items():
         setattr(entry, k, v)
+    _sync_allowance_item(db, entry)  # 天数/标准/子类变更 → 同步补助凭证
     db.commit()
     return entry
 
 
 def remove_entry(db: Session, user: User, entry_id: int) -> None:
-    """删除事项：释放其下凭证占用的发票（active=False）。"""
+    """删除事项：释放其下凭证占用的发票；凭证行随 FK CASCADE 一并删除。
+
+    注意：明细**不要**再 `db.delete(item)`/改 active —— entry 删除时 DB 级联已经
+    移除了它们，ORM 再发一条 DELETE/UPDATE 会「expected to delete 1 row(s);
+    0 were matched」（本仓库真实复现过）。这里只释放发票占用，然后 expunge。
+    """
     entry = db.get(ExpenseEntry, entry_id)
     if entry is None:
         raise ValueError(f"事项不存在: {entry_id}")
@@ -286,12 +367,11 @@ def remove_entry(db: Session, user: User, entry_id: int) -> None:
     _require_owner_draft(claim, user)
     items = db.query(ExpenseItem).filter(ExpenseItem.entry_id == entry.id).all()
     for item in items:
-        item.active = False
         if item.invoice_id:
             inv = db.get(Invoice, item.invoice_id)
             if inv is not None and inv.reimbursement_status == "pending":
-                inv.reimbursement_status = "none"
-        db.delete(item)
+                inv.reimbursement_status = "none"  # 释放占用
+        db.expunge(item)
     db.delete(entry)
     _recalc_total(db, claim)
     write_audit(
@@ -506,6 +586,8 @@ def remove_item(db: Session, user: User, item_id: int) -> None:
     item = db.get(ExpenseItem, item_id)
     if item is None:
         raise ValueError(f"明细不存在: {item_id}")
+    if item.auto_rule:
+        raise ValueError("该凭证由系统自动计算，不能单独删除；请修改补助天数或日标准")
     claim = _get_claim(db, item.claim_id)
     _require_owner_draft(claim, user)
 
@@ -632,11 +714,9 @@ def delete_claim(db: Session, user: User, claim_id: int) -> dict:
     snapshot = {col: str(getattr(claim, col)) for col in _CLAIM_SNAPSHOT_COLS}
     items = db.query(ExpenseItem).filter(ExpenseItem.claim_id == claim.id).all()
     snapshot["item_count"] = str(len(items))
-    _release_items(db, claim)  # 明细失效 + 发票回到 none
-    for item in items:
-        db.delete(item)
-    for entry in db.query(ExpenseEntry).filter(ExpenseEntry.claim_id == claim.id).all():
-        db.delete(entry)
+    # 只释放发票占用，不置 active：事项与明细行随 claim 删除由 FK CASCADE 清掉
+    # （再显式 db.delete 会与级联重复，触发「0 rows matched」）
+    _release_items(db, claim, mark_inactive=False)
     write_audit(
         db, action="EXPENSE_DELETE", user_id=user.id, channel="web",
         detail={"claim_no": claim.claim_no, "snapshot": snapshot},
@@ -646,17 +726,21 @@ def delete_claim(db: Session, user: User, claim_id: int) -> dict:
     return {"ok": True}
 
 
-def _release_items(db: Session, claim: ExpenseClaim) -> None:
+def _release_items(db: Session, claim: ExpenseClaim, mark_inactive: bool = True) -> None:
     """驳回/撤回/删除：明细失效并释放发票占用（一票一报约束即时解除）。
 
     须同时释放 pending（审批中占用）与 **claimed（已通过）**——删除已通过的单据
     时若不释放 claimed，那些发票会永久卡在「已报销」无法重新报销。
+
+    mark_inactive=False 用于**整单删除**：明细行随 FK CASCADE 消失，再置 active
+    会多出一条 UPDATE（行已没了）。
     """
     items = db.query(ExpenseItem).filter(
         ExpenseItem.claim_id == claim.id, ExpenseItem.active.is_(True)
     ).all()
     for item in items:
-        item.active = False
+        if mark_inactive:
+            item.active = False
         if item.invoice_id:
             inv = db.get(Invoice, item.invoice_id)
             if inv is not None and inv.reimbursement_status in ("pending", "claimed"):

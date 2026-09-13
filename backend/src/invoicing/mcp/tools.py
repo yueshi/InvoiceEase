@@ -295,6 +295,11 @@ def expense_add_entry(claim_id: int, entry_type: str, title: str,
 
     entry_type: travel（差旅，需城市+起止日期）/ procurement（采购，建议合同号订单号）/
     entertainment（招待，需对象+人数）/ office / other。
+
+    差旅子类 scene_fields={"subtype": ...}：transport（交通：方式+出发到达城市+日期）/
+    accommodation（住宿：城市+入住离店）/ local_transport（市内交通：城市+日期）/
+    **allowance（伙食补助：days 天数 + daily_standard 日标准；无需发票，
+    系统按 天数×标准 自动生成内部凭证并计入金额，daily_standard 缺省用公司标准）**。
     """
     from datetime import date as _date
 

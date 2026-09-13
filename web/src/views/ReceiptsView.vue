@@ -11,6 +11,7 @@ import {
   fetchReceiptPageUrl,
   listReceiptUploads,
   listReceipts,
+  probeReceiptsPeriod,
   uploadReceipt,
 } from "../api/receipts";
 import { BANK_LABELS, type ReceiptOut } from "../types";
@@ -63,6 +64,35 @@ function onDetail(r: ReceiptOut) {
   detailOpen.value = true;
 }
 
+// 周期外提示：当前周期查不到时，告诉用户"全部时间还有 N 条"
+// （历史痛点：回单页默认「本月」，跨月补录的回单看不见也无提示，被当成上传失败）
+const outsidePeriodCount = ref(0);
+
+async function probeOutsidePeriod() {
+  if (periodType.value === "all" || rows.value.length > 0) {
+    outsidePeriodCount.value = 0;
+    return;
+  }
+  try {
+    outsidePeriodCount.value = await probeReceiptsPeriod(unmatchedOnly.value);
+  } catch {
+    outsidePeriodCount.value = 0;
+  }
+}
+
+function showAllPeriods() {
+  periodType.value = "all";
+  outsidePeriodCount.value = 0;
+  load();
+}
+
+/** 当前周期标签（提示文案用） */
+const periodLabel = computed(() => {
+  if (periodType.value === "month") return month.value.format("YYYY-MM");
+  if (periodType.value === "quarter") return quarterLabel(quarter.value);
+  return year.value.format("YYYY");
+});
+
 async function load() {
   loading.value = true;
   try {
@@ -72,6 +102,7 @@ async function load() {
   } finally {
     loading.value = false;
   }
+  probeOutsidePeriod();
 }
 
 async function onViewFile(r: ReceiptOut) {
@@ -191,6 +222,24 @@ onMounted(load);
         <a-button type="primary">上传回单</a-button>
       </a-upload>
     </a-space>
+    <a-alert
+      v-if="!loading && rows.length === 0 && outsidePeriodCount > 0"
+      type="info"
+      show-icon
+      style="margin-bottom: 12px"
+      :message="`当前周期（${periodLabel}）内无回单，但其他周期有 ${outsidePeriodCount} 条`"
+    >
+      <template #description>
+        回单的交易日期可能在其他周期（如跨月补录）——
+        <a @click="showAllPeriods">查看全部时间</a>
+      </template>
+    </a-alert>
+    <p v-else-if="!loading && rows.length === 0" style="color: #888; margin-bottom: 8px">
+      当前筛选无回单；可切换周期或选「全部」（不做日期过滤）。
+    </p>
+    <p v-else-if="!loading && displayRows.length === 0" style="color: #888; margin-bottom: 8px">
+      当前周期有 {{ rows.length }} 条回单，但都被「只看待核对」筛掉了。
+    </p>
     <a-table
       :columns="columns"
       :data-source="displayRows"

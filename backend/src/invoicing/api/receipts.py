@@ -122,6 +122,23 @@ def list_receipts(
     return [_receipt_out(r) for r in rows]
 
 
+@router.get("/period-probe")
+def receipt_period_probe(
+    unmatched: bool = Query(False, description="只统计未配对回单（与列表页筛选一致）"),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role(*_FINANCE)),
+):
+    """周期外提示（P1-4）：当前周期无数据时，告诉前端**全部时间**还有多少条。
+
+    历史上回单页默认「本月」，跨月补录的回单看不见也无提示，用户以为上传失败。
+    """
+    from invoicing.reports import count_receipts, receipts_in_period
+
+    if unmatched:  # 未配对是派生条件，只能逐行判定
+        return {"total": sum(1 for r in receipts_in_period(db) if r.paired_invoice_id is None)}
+    return {"total": count_receipts(db)}
+
+
 @router.get("/unmatched")
 def unmatched_receipts(
     month: str | None = Query(None, pattern=_MONTH_PATTERN),

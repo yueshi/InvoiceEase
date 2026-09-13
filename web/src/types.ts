@@ -269,6 +269,8 @@ export interface ExpenseItemOut {
   deductible: boolean;
   deductible_note: string | null;
   active: boolean;
+  /** 非空 = 系统自动计算（如 travel_allowance 差旅伙食补助），不可单独删除 */
+  auto_rule?: string | null;
 }
 
 export interface EntryOut {
@@ -286,6 +288,18 @@ export interface ClaimDetailOut {
   claim: ClaimOut;
   entries: Array<EntryOut & { items: ExpenseItemOut[] }>;
   items: ExpenseItemOut[];
+}
+
+/**
+ * 差旅伙食补助金额 = 天数 × 日标准（量化到分）。
+ * 与后端 `workflow/expenses._allowance_amount` 同一算式——前端只做实时预览，
+ * 权威值仍由后端落成内部凭证后回填。
+ */
+export function allowanceAmount(days: string | number, dailyStandard: string | number): string {
+  const d = Number(days);
+  const s = Number(dailyStandard);
+  if (!Number.isFinite(d) || !Number.isFinite(s) || d <= 0 || s <= 0) return "";
+  return (Math.round(d * s * 100) / 100).toFixed(2);
 }
 
 /** 差旅子类（调研：行程明细含车船票/住宿天数；补贴计算表） */

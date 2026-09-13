@@ -732,3 +732,97 @@ def test_pair_direction_aware(db, users):
     db.add(incoming)
     db.commit()
     assert suggest_pair(db, incoming.id) == sales_inv.id
+
+
+# ---- P1-3 补贴计算（差旅伙食补助：天数 × 日标准 → 内部凭证） -----------------
+
+
+def _allowance_entry(db, user, **scene):
+    """差旅-伙食补助事项（P1-3 的主角）。"""
+    claim = svc.create_claim(db, user, title="差旅报销")
+    entry = svc.create_entry(
+        db, user, claim.id, "travel", "伙食补助",
+        scene_fields={"subtype": "allowance", **scene},
+    )
+    return claim, entry
+
+
+def test_allowance_auto_creates_internal_voucher(db, users):
+    """补助没有发票（国税函〔2009〕3 号：差旅费津贴凭内部凭证扣除），
+    故按 天数 × 日标准 自动物化成一条 internal 凭证 —— 事项金额才可见。"""
+    claim, entry = _allowance_entry(db, users["emp"], days="4", daily_standard="100")
+
+    item = db.query(ExpenseItem).filter(ExpenseItem.entry_id == entry.id).one()
+    assert item.voucher_type == "internal"
+    assert item.amount == Decimal("400.00")
+    assert item.auto_rule == "travel_allowance"
+    assert item.expense_type == "travel"
+    assert item.deductible is True
+    db.refresh(entry)
+    db.refresh(claim)
+    assert entry.amount == Decimal("400.00")
+    assert claim.total_amount == Decimal("400.00")
+
+
+def test_allowance_defaults_to_company_standard(db, users):
+    """日标准留空 → 用公司标准（settings），避免「只填天数却算不出钱」。"""
+    _, entry = _allowance_entry(db, users["emp"], days="2")
+    item = db.query(ExpenseItem).filter(ExpenseItem.entry_id == entry.id).one()
+    assert item.amount == Decimal("200.00")  # 公司标准 100 元/天
+
+
+def test_allowance_update_is_idempotent(db, users):
+    """改天数/标准 → 只更新同一条自动凭证（幂等），不新增、不重复累加。"""
+    claim, entry = _allowance_entry(db, users["emp"], days="4", daily_standard="100")
+    svc.update_entry(
+        db, users["emp"], entry.id,
+        scene_fields={"subtype": "allowance", "days": "6", "daily_standard": "80"},
+    )
+
+    items = db.query(ExpenseItem).filter(ExpenseItem.entry_id == entry.id).all()
+    assert len(items) == 1
+    assert items[0].amount == Decimal("480.00")
+    db.refresh(claim)
+    assert claim.total_amount == Decimal("480.00")  # 不累加成 880
+
+
+def test_allowance_rejects_bad_numbers(db, users):
+    with pytest.raises(ValueError, match="补助天数"):
+        _allowance_entry(db, users["emp"], days="0", daily_standard="100")
+    with pytest.raises(ValueError, match="补助天数"):
+        _allowance_entry(db, users["emp"], days="两天", daily_standard="100")
+    with pytest.raises(ValueError, match="日补助标准"):
+        _allowance_entry(db, users["emp"], days="2", daily_standard="-1")
+
+
+def test_allowance_entry_is_submittable(db, users):
+    """补助事项（无发票）不再被「还没有关联凭证」拦住 —— P1-3 的验收点。"""
+    claim, entry = _allowance_entry(db, users["emp"], days="3", daily_standard="100")
+    assert entry.amount == Decimal("300.00")
+    svc.submit_claim(db, users["emp"], claim.id)
+    db.refresh(claim)
+    assert claim.status == ExpenseClaimStatus.PENDING
+    assert claim.total_amount == Decimal("300.00")
+
+
+def test_auto_item_not_removable_and_removed_with_entry(db, users):
+    """自动凭证不可单独删除（否则金额与天数脱钩）；删事项时随事项一并清理。"""
+    claim, entry = _allowance_entry(db, users["emp"], days="3", daily_standard="100")
+    item = db.query(ExpenseItem).filter(ExpenseItem.entry_id == entry.id).one()
+    with pytest.raises(ValueError, match="自动计算"):
+        svc.remove_item(db, users["emp"], item.id)
+
+    svc.remove_entry(db, users["emp"], entry.id)
+    assert db.query(ExpenseItem).filter(ExpenseItem.entry_id == entry.id).count() == 0
+
+
+def test_allowance_subtype_switch_withdraws_auto_item(db, users):
+    """事项改成非补助子类 → 自动凭证撤销（否则留下一笔算不清的钱）。"""
+    claim, entry = _allowance_entry(db, users["emp"], days="3", daily_standard="100")
+    svc.update_entry(
+        db, users["emp"], entry.id,
+        scene_fields={"subtype": "local_transport", "city": "北京", "travel_date": "2026-06-11"},
+    )
+    assert db.query(ExpenseItem).filter(ExpenseItem.entry_id == entry.id).count() == 0
+    db.refresh(claim)
+    assert claim.total_amount == Decimal("0.00")

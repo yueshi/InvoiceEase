@@ -1020,3 +1020,39 @@ def test_receipts_csv_has_voucher_columns(db):
     assert "日期" in header
     assert "借方" in header
     assert "1000.00" in csv_data
+
+
+def test_period_probe_reports_other_periods(client, db):
+    """P1-4 周期外提示：跨月补录的回单在当前月看不到时，要能告诉前端"别处还有几条"。
+
+    历史痛点：回单页默认「本月」，6 月的回单在 9 月页面空白且无提示 ——
+    用户以为上传失败（发票页早前已修过同类问题，回单页当时漏了）。
+    """
+    auth = _seed_login(client, db)
+    db.add_all([
+        BankReceipt(file_url="a.pdf", file_type="PDF", trade_date=date(2026, 6, 3),
+                    counterparty_name="A", amount=Decimal("100.00"), status="unmatched"),
+        BankReceipt(file_url="b.pdf", file_type="PDF", trade_date=date(2026, 6, 4),
+                    counterparty_name="B", amount=Decimal("200.00"), status="unmatched",
+                    paired_invoice_id=None),
+    ])
+    db.commit()
+
+    # 当前月（2026-09）为空，但全部时间有 2 条 → 前端据此提示
+    assert client.get("/api/v1/receipts?month=2026-09", headers=auth).json() == []
+    probe = client.get("/api/v1/receipts/period-probe", headers=auth)
+    assert probe.status_code == 200 and probe.json()["total"] == 2
+
+    # 未配对筛选下同样成立（与列表页筛选口径一致）
+    db.query(BankReceipt).filter(BankReceipt.counterparty_name == "B").one()
+    inv = Invoice(file_url="i.xml", file_type="XML", invoice_number="24312000000000009001",
+                  status="parsed", verify_status="passed")
+    db.add(inv)
+    db.commit()
+    paired = db.query(BankReceipt).filter(BankReceipt.counterparty_name == "A").one()
+    paired.paired_invoice_id = inv.id
+    db.commit()
+    assert client.get(
+        "/api/v1/receipts/period-probe?unmatched=true", headers=auth
+    ).json()["total"] == 1
+    assert client.get("/api/v1/receipts/period-probe", headers=auth).json()["total"] == 2

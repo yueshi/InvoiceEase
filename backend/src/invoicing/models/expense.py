@@ -164,6 +164,9 @@ class ExpenseItem(Base):
     deductible_note: Mapped[str | None] = mapped_column(String(256), nullable=True)
     # 占用标记：报销单驳回/撤回后置 False，释放发票/回单（一票一报约束即时解除）
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # 自动计算标识（如 travel_allowance）：由事项场景字段派生、随事项同步更新，
+    # 不允许单独删除；NULL = 人工录入的凭证
+    auto_rule: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), default=utcnow, nullable=False

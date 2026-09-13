@@ -116,6 +116,7 @@ class ItemOut(BaseModel):
     deductible: bool
     deductible_note: str | None
     active: bool
+    auto_rule: str | None = None  # 非空 = 系统自动计算（如差旅伙食补助），不可单独删除
 
 
 class EligibleInvoiceOut(BaseModel):
@@ -174,6 +175,17 @@ def eligible_invoices(db: Session = Depends(get_db), user: User = Depends(get_cu
         )
         for i in rows
     ]
+
+
+@router.get("/config")
+def expense_config(user: User = Depends(get_current_user)):
+    """报销相关配置（前端表单预填/实时预览用）：差旅伙食补助公司标准等。"""
+    from invoicing.config import settings
+
+    return {
+        "travel_allowance_daily_standard": settings.travel_allowance_daily_standard,
+        "petty_cash_threshold": settings.expense_petty_cash_threshold,
+    }
 
 
 def _entry_out(e) -> EntryOut:
