@@ -11,7 +11,7 @@
 """
 import logging
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -20,8 +20,10 @@ from invoicing.audit import write_audit
 from invoicing.config import settings
 from invoicing.models import (
     BankReceipt,
+    EntryType,
     ExpenseClaim,
     ExpenseClaimStatus,
+    ExpenseEntry,
     ExpenseItem,
     Invoice,
     User,
@@ -32,6 +34,10 @@ from invoicing.models.fields import utcnow
 logger = logging.getLogger(__name__)
 
 EXPENSE_TYPES = ("travel", "office", "entertainment", "procurement", "other")
+_ENTRY_TYPE_LABELS = {
+    "travel": "差旅", "procurement": "采购", "entertainment": "招待",
+    "office": "办公", "other": "其他",
+}
 _FINANCE_ROLES = ("finance_staff", "finance_manager", "admin")
 
 # 人工凭证类型（无票支出，需按 28 号公告校验要素）
@@ -41,6 +47,17 @@ _MANUAL_VOUCHER_TYPES = (
     VoucherType.CONTRACT.value,
     VoucherType.OVERSEAS.value,
 )
+
+
+_CENT = Decimal("0.01")
+
+
+def _money_q(v) -> Decimal:
+    """金额量化到分：SQLite 的 SUM 会返回 float，直接 Decimal(float) 会带出
+    `2991.1500000000000909…` 这类长尾（真实数据已复现）。"""
+    if v is None:
+        return Decimal("0")
+    return Decimal(str(v)).quantize(_CENT, rounding=ROUND_HALF_UP)
 
 
 def _is_finance(user: User) -> bool:
@@ -73,14 +90,27 @@ def _require_owner_draft(claim: ExpenseClaim, user: User) -> None:
         raise ValueError(f"仅草稿可修改（当前 {claim.status}）")
 
 
+def _recalc_entry_amount(db: Session, entry: ExpenseEntry) -> None:
+    """事项金额 = 其凭证合计（自动，不接受手工修改）。"""
+    db.flush()
+    total = (
+        db.query(func.coalesce(func.sum(ExpenseItem.amount), 0))
+        .filter(ExpenseItem.entry_id == entry.id, ExpenseItem.active.is_(True))
+        .scalar()
+    )
+    entry.amount = _money_q(total)
+
+
 def _recalc_total(db: Session, claim: ExpenseClaim) -> None:
     db.flush()  # SessionLocal autoflush=False：先落库再聚合，否则看不到新增明细
+    for entry in db.query(ExpenseEntry).filter(ExpenseEntry.claim_id == claim.id).all():
+        _recalc_entry_amount(db, entry)
     total = (
         db.query(func.coalesce(func.sum(ExpenseItem.amount), 0))
         .filter(ExpenseItem.claim_id == claim.id, ExpenseItem.active.is_(True))
         .scalar()
     )
-    claim.total_amount = Decimal(str(total or 0))
+    claim.total_amount = _money_q(total)
 
 
 # ---- 建单 / 明细 ----------------------------------------------------------
@@ -107,6 +137,121 @@ def create_claim(db: Session, user: User, title: str, remark: str | None = None)
     return claim
 
 
+# 场景必填/建议要素（调研：差旅行程、采购三单、招待对象人数）
+_SCENE_REQUIRED: dict[str, dict] = {
+    EntryType.TRAVEL.value: {
+        "required": ("from_city", "to_city", "start_date", "end_date"),
+        "labels": {"from_city": "出发城市", "to_city": "到达城市",
+                   "start_date": "行程开始日期", "end_date": "行程结束日期"},
+    },
+    EntryType.ENTERTAINMENT.value: {
+        "required": ("guests", "headcount"),
+        "labels": {"guests": "招待对象", "headcount": "招待人数"},
+    },
+}
+_SCENE_SUGGESTED: dict[str, dict] = {
+    EntryType.PROCUREMENT.value: {
+        "suggested": ("supplier", "contract_no", "order_no"),
+        "labels": {"supplier": "供应商", "contract_no": "合同号", "order_no": "订单号"},
+    },
+}
+
+
+def validate_scene_fields(entry_type: str, scene_fields: dict | None) -> list[str]:
+    """场景要素校验：必填缺失 → 抛错；建议项缺失 → 返回提示（不阻断）。"""
+    scene = scene_fields or {}
+    spec = _SCENE_REQUIRED.get(entry_type)
+    if spec:
+        missing = [spec["labels"][k] for k in spec["required"] if not str(scene.get(k) or "").strip()]
+        if missing:
+            raise ValueError(f"{_ENTRY_TYPE_LABELS.get(entry_type, entry_type)}事项缺少必填要素：{'、'.join(missing)}")
+    hints = []
+    sspec = _SCENE_SUGGESTED.get(entry_type)
+    if sspec:
+        missing = [sspec["labels"][k] for k in sspec["suggested"] if not str(scene.get(k) or "").strip()]
+        if missing:
+            hints.append(f"建议补充：{'、'.join(missing)}（采购三单匹配所需）")
+    return hints
+
+
+def create_entry(
+    db: Session,
+    user: User,
+    claim_id: int,
+    entry_type: str,
+    title: str,
+    occurred_on: date | None = None,
+    scene_fields: dict | None = None,
+    note: str | None = None,
+) -> ExpenseEntry:
+    """新建事项（费用明细行，凭证挂在其下）。"""
+    claim = _get_claim(db, claim_id)
+    _require_owner_draft(claim, user)
+    if entry_type not in _ENTRY_TYPE_LABELS:
+        raise ValueError(f"非法事项类型: {entry_type}（可选 {'/'.join(_ENTRY_TYPE_LABELS)}）")
+    if not (title or "").strip():
+        raise ValueError("请填写事项说明")
+    validate_scene_fields(entry_type, scene_fields)
+    entry = ExpenseEntry(
+        claim_id=claim.id, entry_type=entry_type, title=title.strip(),
+        occurred_on=occurred_on, scene_fields=scene_fields or None, note=note,
+        amount=Decimal("0"),
+    )
+    db.add(entry)
+    db.flush()
+    write_audit(
+        db, action="EXPENSE_ADD_ENTRY", user_id=user.id, channel="web",
+        detail={"claim_no": claim.claim_no, "entry_id": entry.id, "entry_type": entry_type,
+                "title": entry.title},
+    )
+    db.commit()
+    return entry
+
+
+def update_entry(
+    db: Session, user: User, entry_id: int, **fields
+) -> ExpenseEntry:
+    """更新事项（草稿态）；类型变更时校验新场景要素。"""
+    entry = db.get(ExpenseEntry, entry_id)
+    if entry is None:
+        raise ValueError(f"事项不存在: {entry_id}")
+    claim = _get_claim(db, entry.claim_id)
+    _require_owner_draft(claim, user)
+    allowed = {"entry_type", "title", "occurred_on", "scene_fields", "note"}
+    data = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    merged_type = data.get("entry_type", entry.entry_type)
+    merged_scene = data.get("scene_fields", entry.scene_fields)
+    validate_scene_fields(merged_type, merged_scene)
+    for k, v in data.items():
+        setattr(entry, k, v)
+    db.commit()
+    return entry
+
+
+def remove_entry(db: Session, user: User, entry_id: int) -> None:
+    """删除事项：释放其下凭证占用的发票（active=False）。"""
+    entry = db.get(ExpenseEntry, entry_id)
+    if entry is None:
+        raise ValueError(f"事项不存在: {entry_id}")
+    claim = _get_claim(db, entry.claim_id)
+    _require_owner_draft(claim, user)
+    items = db.query(ExpenseItem).filter(ExpenseItem.entry_id == entry.id).all()
+    for item in items:
+        item.active = False
+        if item.invoice_id:
+            inv = db.get(Invoice, item.invoice_id)
+            if inv is not None and inv.reimbursement_status == "pending":
+                inv.reimbursement_status = "none"
+        db.delete(item)
+    db.delete(entry)
+    _recalc_total(db, claim)
+    write_audit(
+        db, action="EXPENSE_REMOVE_ENTRY", user_id=user.id, channel="web",
+        detail={"claim_no": claim.claim_no, "entry_id": entry_id},
+    )
+    db.commit()
+
+
 def eligible_invoices(db: Session, user: User) -> list[Invoice]:
     """员工可选发票：本人上传的 ∪ 公共池（无归属）；已验真、未拦截、未占用。"""
     return (
@@ -123,16 +268,28 @@ def eligible_invoices(db: Session, user: User) -> list[Invoice]:
     )
 
 
+def _require_entry(db: Session, claim: ExpenseClaim, entry_id: int | None) -> ExpenseEntry:
+    """凭证必须挂到本单的事项下（P0.5）。"""
+    if entry_id is None:
+        raise ValueError("请先选择事项（凭证需挂到具体费用事项下）")
+    entry = db.get(ExpenseEntry, entry_id)
+    if entry is None or entry.claim_id != claim.id:
+        raise ValueError(f"事项不属于该报销单: {entry_id}")
+    return entry
+
+
 def add_invoice(
     db: Session,
     user: User,
     claim_id: int,
     invoice_id: int,
+    entry_id: int | None = None,
     expense_type: str = "other",
     note: str | None = None,
 ) -> ExpenseItem:
     claim = _get_claim(db, claim_id)
     _require_owner_draft(claim, user)
+    entry = _require_entry(db, claim, entry_id)
     if expense_type not in EXPENSE_TYPES:
         raise ValueError(f"非法费用类型: {expense_type}（可选 {'/'.join(EXPENSE_TYPES)}）")
 
@@ -160,6 +317,7 @@ def add_invoice(
 
     item = ExpenseItem(
         claim_id=claim.id,
+        entry_id=entry.id,
         invoice_id=inv.id,
         voucher_type=VoucherType.INVOICE.value,
         amount=inv.total_amount,  # 整票报销（P0）
@@ -183,6 +341,7 @@ def add_receipt(
     user: User,
     claim_id: int,
     receipt_id: int,
+    entry_id: int | None = None,
     voucher_type: str = VoucherType.BANK_RECEIPT.value,
     expense_type: str = "other",
     note: str | None = None,
@@ -190,6 +349,7 @@ def add_receipt(
     """无票支出：银行回单/缴款书回单作为明细（金额取自回单）。"""
     claim = _get_claim(db, claim_id)
     _require_owner_draft(claim, user)
+    entry = _require_entry(db, claim, entry_id)
     if voucher_type not in (VoucherType.BANK_RECEIPT.value, VoucherType.TAX_RECEIPT.value):
         raise ValueError("回单明细仅支持 bank_receipt / tax_receipt")
     r = db.get(BankReceipt, receipt_id)
@@ -206,7 +366,7 @@ def add_receipt(
         raise ValueError("该回单已被占用（一单一报）")
 
     item = ExpenseItem(
-        claim_id=claim.id, receipt_id=r.id, voucher_type=voucher_type,
+        claim_id=claim.id, entry_id=entry.id, receipt_id=r.id, voucher_type=voucher_type,
         amount=r.amount, expense_type=expense_type, note=note, active=True,
     )
     db.add(item)
@@ -223,6 +383,7 @@ def add_manual_voucher(
     db: Session,
     user: User,
     claim_id: int,
+    entry_id: int | None,
     voucher_type: str,
     amount: Decimal,
     expense_type: str = "other",
@@ -234,6 +395,7 @@ def add_manual_voucher(
     """人工凭证（无票支出）：按 28 号公告校验要素与税前扣除资格。"""
     claim = _get_claim(db, claim_id)
     _require_owner_draft(claim, user)
+    entry = _require_entry(db, claim, entry_id)
     if voucher_type not in _MANUAL_VOUCHER_TYPES:
         raise ValueError(f"非法凭证类型: {voucher_type}")
     if expense_type not in EXPENSE_TYPES:
@@ -245,7 +407,7 @@ def add_manual_voucher(
         voucher_type, Decimal(str(amount)), payee_name, payee_id_no
     )
     item = ExpenseItem(
-        claim_id=claim.id, voucher_type=voucher_type, amount=Decimal(str(amount)),
+        claim_id=claim.id, entry_id=entry.id, voucher_type=voucher_type, amount=Decimal(str(amount)),
         expense_type=expense_type, note=note, payee_name=payee_name, payee_id_no=payee_id_no,
         attachment_url=attachment_url, deductible=deductible, deductible_note=deductible_note,
         active=True,
@@ -317,11 +479,15 @@ def remove_item(db: Session, user: User, item_id: int) -> None:
 def submit_claim(db: Session, user: User, claim_id: int) -> ExpenseClaim:
     claim = _get_claim(db, claim_id)
     _require_owner_draft(claim, user)
+    entries = db.query(ExpenseEntry).filter(ExpenseEntry.claim_id == claim.id).all()
+    if not entries:
+        raise ValueError("报销单没有事项，无法提交")
+    empty = [e.title for e in entries if item_count_of_entry(db, e.id) == 0]
+    if empty:
+        raise ValueError(f"以下事项还没有关联凭证：{'、'.join(empty)}")
     items = db.query(ExpenseItem).filter(
         ExpenseItem.claim_id == claim.id, ExpenseItem.active.is_(True)
     ).count()
-    if items == 0:
-        raise ValueError("报销单没有明细，无法提交")
     _recalc_total(db, claim)
     claim.status = ExpenseClaimStatus.PENDING
     claim.submitted_at = utcnow()
@@ -423,6 +589,23 @@ def list_claims(db: Session, user: User, status: str | None = None) -> list[Expe
     return q.order_by(ExpenseClaim.created_at.desc(), ExpenseClaim.id.desc()).all()
 
 
+def item_count_of_entry(db: Session, entry_id: int) -> int:
+    return (
+        db.query(ExpenseItem)
+        .filter(ExpenseItem.entry_id == entry_id, ExpenseItem.active.is_(True))
+        .count()
+    )
+
+
+def list_entries(db: Session, claim_id: int) -> list[ExpenseEntry]:
+    return (
+        db.query(ExpenseEntry)
+        .filter(ExpenseEntry.claim_id == claim_id)
+        .order_by(ExpenseEntry.id)
+        .all()
+    )
+
+
 def item_count(db: Session, claim_id: int) -> int:
     """有效明细数（列表展示用）。"""
     return (
@@ -432,14 +615,18 @@ def item_count(db: Session, claim_id: int) -> int:
     )
 
 
-def claim_detail(db: Session, user: User, claim_id: int) -> tuple[ExpenseClaim, list[ExpenseItem]]:
+def claim_detail(
+    db: Session, user: User, claim_id: int
+) -> tuple[ExpenseClaim, list[ExpenseEntry], list[ExpenseItem]]:
+    """单据详情：返回 单据 + 事项 + 有效凭证（凭证带 entry_id 便于前端分组）。"""
     claim = _get_claim(db, claim_id)
     if not _is_finance(user) and claim.applicant_id != user.id:
         raise ValueError("无权查看他人的报销单")
+    entries = list_entries(db, claim.id)
     items = (
         db.query(ExpenseItem)
         .filter(ExpenseItem.claim_id == claim.id, ExpenseItem.active.is_(True))
         .order_by(ExpenseItem.id)
         .all()
     )
-    return claim, items
+    return claim, entries, items

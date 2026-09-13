@@ -44,43 +44,50 @@ def _invoice(db, number="24312000000012345678", **kw):
     return inv
 
 
+def _claim_with_entry(db, user, title="测试报销", entry_type="other", entry_title="默认事项", **scene):
+    claim = svc.create_claim(db, user, title=title)
+    entry = svc.create_entry(db, user, claim.id, entry_type, entry_title, scene_fields=scene or None)
+    return claim, entry
+
+
 def test_claim_draft_add_invoice_and_totals(db, users):
     inv = _invoice(db, user_id=users["emp"].id)
-    claim = svc.create_claim(db, users["emp"], title="6 月差旅报销")
+    claim, entry = _claim_with_entry(db, users["emp"], title="6 月差旅报销")
 
     assert claim.claim_no.startswith("FY-")
     assert claim.status == ExpenseClaimStatus.DRAFT
 
-    svc.add_invoice(db, users["emp"], claim.id, inv.id, expense_type="travel", note="高铁票")
+    svc.add_invoice(db, users["emp"], claim.id, inv.id, entry.id, expense_type="travel", note="高铁票")
     db.refresh(claim)
+    db.refresh(entry)
     assert claim.total_amount == Decimal("100.00")
+    assert entry.amount == Decimal("100.00")  # 事项金额 = 凭证合计
     db.refresh(inv)
     assert inv.reimbursement_status == "pending"  # 占用中
 
-    # 重复加入同一张票 → 拒绝（一票一报）
     with pytest.raises(ValueError, match="已在本报销单"):
-        svc.add_invoice(db, users["emp"], claim.id, inv.id)
+        svc.add_invoice(db, users["emp"], claim.id, inv.id, entry.id)
 
 
 def test_one_invoice_one_claim_across_claims(db, users):
-    """跨报销单占用：他人/另一单再占用同一张票 → 拒绝（一票一报核心）。"""
+    """跨报销单占用：另一单再占用同一张票 → 拒绝（一票一报核心）。"""
     inv = _invoice(db, user_id=None)  # 公共池
-    c1 = svc.create_claim(db, users["emp"], title="A")
-    svc.add_invoice(db, users["emp"], c1.id, inv.id, expense_type="office")
+    c1, e1 = _claim_with_entry(db, users["emp"], title="A")
+    svc.add_invoice(db, users["emp"], c1.id, inv.id, e1.id, expense_type="office")
 
-    c2 = svc.create_claim(db, users["other"], title="B")
+    c2, e2 = _claim_with_entry(db, users["other"], title="B")
     with pytest.raises(ValueError, match="已被"):
-        svc.add_invoice(db, users["other"], c2.id, inv.id, expense_type="office")
+        svc.add_invoice(db, users["other"], c2.id, inv.id, e2.id, expense_type="office")
 
 
 def test_verify_required_and_blocked_rejected(db, users):
     unverified = _invoice(db, number="24312000000000000001", verify_status="pending")
     blocked = _invoice(db, number="24312000000000000002", status="blocked")
-    claim = svc.create_claim(db, users["emp"], title="X")
+    claim, entry = _claim_with_entry(db, users["emp"], title="X")
     with pytest.raises(ValueError, match="验真"):
-        svc.add_invoice(db, users["emp"], claim.id, unverified.id, expense_type="other")
+        svc.add_invoice(db, users["emp"], claim.id, unverified.id, entry.id, expense_type="other")
     with pytest.raises(ValueError, match="拦截"):
-        svc.add_invoice(db, users["emp"], claim.id, blocked.id, expense_type="other")
+        svc.add_invoice(db, users["emp"], claim.id, blocked.id, entry.id, expense_type="other")
 
 
 def test_employee_scope_only_own_or_public(db, users):
@@ -93,15 +100,15 @@ def test_employee_scope_only_own_or_public(db, users):
     assert mine.id in eligible and public.id in eligible
     assert others.id not in eligible
 
-    claim = svc.create_claim(db, users["emp"], title="范围")
+    claim, entry = _claim_with_entry(db, users["emp"], title="范围")
     with pytest.raises(ValueError, match="无权|不可报销"):
-        svc.add_invoice(db, users["emp"], claim.id, others.id, expense_type="other")
+        svc.add_invoice(db, users["emp"], claim.id, others.id, entry.id, expense_type="other")
 
 
 def test_submit_approve_flow_marks_invoice_claimed(db, users):
     inv = _invoice(db, user_id=users["emp"].id)
-    claim = svc.create_claim(db, users["emp"], title="提交与审批")
-    svc.add_invoice(db, users["emp"], claim.id, inv.id, expense_type="travel")
+    claim, entry = _claim_with_entry(db, users["emp"], title="提交与审批")
+    svc.add_invoice(db, users["emp"], claim.id, inv.id, entry.id, expense_type="travel")
     svc.submit_claim(db, users["emp"], claim.id)
     db.refresh(claim)
     assert claim.status == ExpenseClaimStatus.PENDING
@@ -116,8 +123,8 @@ def test_submit_approve_flow_marks_invoice_claimed(db, users):
 
 def test_reject_releases_invoice_and_item(db, users):
     inv = _invoice(db, user_id=users["emp"].id)
-    claim = svc.create_claim(db, users["emp"], title="驳回释放")
-    svc.add_invoice(db, users["emp"], claim.id, inv.id, expense_type="travel")
+    claim, entry = _claim_with_entry(db, users["emp"], title="驳回释放")
+    svc.add_invoice(db, users["emp"], claim.id, inv.id, entry.id, expense_type="travel")
     svc.submit_claim(db, users["emp"], claim.id)
     svc.reject_claim(db, users["fin"], claim.id, reason="发票抬头不符")
 
@@ -129,15 +136,15 @@ def test_reject_releases_invoice_and_item(db, users):
     item = db.query(ExpenseItem).filter(ExpenseItem.claim_id == claim.id).one()
     assert item.active is False
 
-    # 释放后可再次报销（新单）
-    c2 = svc.create_claim(db, users["emp"], title="重新报")
-    svc.add_invoice(db, users["emp"], c2.id, inv.id, expense_type="travel")
+    # 释放后可再次报销（新单 + 新事项）
+    c2, e2 = _claim_with_entry(db, users["emp"], title="重新报")
+    svc.add_invoice(db, users["emp"], c2.id, inv.id, e2.id, expense_type="travel")
 
 
 def test_withdraw_only_own_draft_or_pending(db, users):
     inv = _invoice(db, user_id=users["emp"].id)
-    claim = svc.create_claim(db, users["emp"], title="撤回")
-    svc.add_invoice(db, users["emp"], claim.id, inv.id, expense_type="travel")
+    claim, entry = _claim_with_entry(db, users["emp"], title="撤回")
+    svc.add_invoice(db, users["emp"], claim.id, inv.id, entry.id, expense_type="travel")
     svc.submit_claim(db, users["emp"], claim.id)
     svc.withdraw_claim(db, users["emp"], claim.id)
     db.refresh(claim)
@@ -145,10 +152,35 @@ def test_withdraw_only_own_draft_or_pending(db, users):
     assert claim.status == ExpenseClaimStatus.WITHDRAWN
     assert inv.reimbursement_status == "none"
 
-    # 他人不可撤回
-    c2 = svc.create_claim(db, users["emp"], title="不可撤")
+    c2, _ = _claim_with_entry(db, users["emp"], title="不可撤")
     with pytest.raises(ValueError, match="无权|本人"):
         svc.withdraw_claim(db, users["other"], c2.id)
+
+
+def test_scene_required_fields_enforced(db, users):
+    """场景必填：差旅需城市+起止日期；招待需对象+人数（调研自实务口径）。"""
+    claim = svc.create_claim(db, users["emp"], title="场景校验")
+    with pytest.raises(ValueError, match="出发城市"):
+        svc.create_entry(db, users["emp"], claim.id, "travel", "北京出差", scene_fields={})
+    with pytest.raises(ValueError, match="招待对象"):
+        svc.create_entry(db, users["emp"], claim.id, "entertainment", "客户晚宴", scene_fields={})
+    # 齐全则通过
+    ok = svc.create_entry(
+        db, users["emp"], claim.id, "travel", "北京出差",
+        scene_fields={"from_city": "上海", "to_city": "北京",
+                      "start_date": "2026-06-10", "end_date": "2026-06-12"},
+    )
+    assert ok.id is not None
+
+
+def test_submit_requires_each_entry_has_items(db, users):
+    """提交前置：每个事项都必须有凭证（不允许空事项）。"""
+    claim, entry = _claim_with_entry(db, users["emp"], title="空事项")
+    with pytest.raises(ValueError, match="没有关联凭证"):
+        svc.submit_claim(db, users["emp"], claim.id)
+    claim2 = svc.create_claim(db, users["emp"], title="无事项")
+    with pytest.raises(ValueError, match="没有事项"):
+        svc.submit_claim(db, users["emp"], claim2.id)
 
 
 def test_no_invoice_expense_bank_receipt(db, users):
@@ -157,8 +189,9 @@ def test_no_invoice_expense_bank_receipt(db, users):
                     amount=Decimal("899.00"), trade_date=date(2026, 5, 12), status="unmatched")
     db.add(r)
     db.commit()
-    claim = svc.create_claim(db, users["emp"], title="手续费")
-    svc.add_receipt(db, users["emp"], claim.id, r.id, voucher_type="bank_receipt",
+    claim, entry = _claim_with_entry(db, users["emp"], title="手续费", entry_type="office",
+                                     entry_title="账户管理费")
+    svc.add_receipt(db, users["emp"], claim.id, r.id, entry.id, voucher_type="bank_receipt",
                     expense_type="office", note="账户管理费")
     db.refresh(claim)
     assert claim.total_amount == Decimal("899.00")
@@ -168,18 +201,19 @@ def test_no_invoice_expense_bank_receipt(db, users):
 
 def test_receipt_voucher_requires_payee_elements(db, users):
     """收款凭证（小额零星个人）：缺姓名/身份证号 → 不可税前扣除（28 号公告要素）。"""
-    claim = svc.create_claim(db, users["emp"], title="零星采购")
+    claim, entry = _claim_with_entry(db, users["emp"], title="零星采购", entry_type="office",
+                                     entry_title="工地买菜")
     item = svc.add_manual_voucher(
-        db, users["emp"], claim.id, voucher_type="receipt_voucher",
+        db, users["emp"], claim.id, entry.id, voucher_type="receipt_voucher",
         amount=Decimal("480.00"), expense_type="office", note="工地买菜",
         payee_name=None, payee_id_no=None,
     )
     assert item.deductible is False
     assert "身份证" in (item.deductible_note or "") or "姓名" in (item.deductible_note or "")
 
-    claim2 = svc.create_claim(db, users["emp"], title="零星采购2")
+    claim2, entry2 = _claim_with_entry(db, users["emp"], title="零星采购2", entry_type="office")
     ok = svc.add_manual_voucher(
-        db, users["emp"], claim2.id, voucher_type="receipt_voucher",
+        db, users["emp"], claim2.id, entry2.id, voucher_type="receipt_voucher",
         amount=Decimal("480.00"), expense_type="office",
         payee_name="张三", payee_id_no="110101199001011234",
     )
@@ -188,9 +222,9 @@ def test_receipt_voucher_requires_payee_elements(db, users):
 
 def test_over_threshold_hints_invoice_needed(db, users):
     """超小额零星阈值（默认 500）→ 提示需取得发票（标记不可扣除 + 说明）。"""
-    claim = svc.create_claim(db, users["emp"], title="超标")
+    claim, entry = _claim_with_entry(db, users["emp"], title="超标", entry_type="office")
     item = svc.add_manual_voucher(
-        db, users["emp"], claim.id, voucher_type="receipt_voucher",
+        db, users["emp"], claim.id, entry.id, voucher_type="receipt_voucher",
         amount=Decimal("800.00"), expense_type="office",
         payee_name="张三", payee_id_no="110101199001011234",
     )
@@ -198,16 +232,10 @@ def test_over_threshold_hints_invoice_needed(db, users):
     assert "500" in (item.deductible_note or "") or "发票" in (item.deductible_note or "")
 
 
-def test_submit_requires_items(db, users):
-    claim = svc.create_claim(db, users["emp"], title="空单")
-    with pytest.raises(ValueError, match="明细"):
-        svc.submit_claim(db, users["emp"], claim.id)
-
-
 def test_approve_requires_pending_and_finance_role(db, users):
     inv = _invoice(db, user_id=users["emp"].id)
-    claim = svc.create_claim(db, users["emp"], title="越权审批")
-    svc.add_invoice(db, users["emp"], claim.id, inv.id, expense_type="travel")
+    claim, entry = _claim_with_entry(db, users["emp"], title="越权审批")
+    svc.add_invoice(db, users["emp"], claim.id, inv.id, entry.id, expense_type="travel")
     with pytest.raises(ValueError, match="待审批"):
         svc.approve_claim(db, users["fin"], claim.id)  # 草稿不可审批
     svc.submit_claim(db, users["emp"], claim.id)
@@ -256,8 +284,25 @@ def test_expense_api_full_flow(client, db, users):
     claim = client.post("/api/v1/expenses", headers=emp, json={"title": "6 月打车"}).json()
     assert claim["claim_no"].startswith("FY-")
 
+    # 建事项（差旅需城市+起止日期）→ 再挂票
+    entry = client.post(
+        f"/api/v1/expenses/{claim['id']}/entries", headers=emp,
+        json={"entry_type": "travel", "title": "机场往返打车", "occurred_on": "2026-06-12",
+              "scene_fields": {"from_city": "上海", "to_city": "北京",
+                               "start_date": "2026-06-10", "end_date": "2026-06-13"}},
+    )
+    assert entry.status_code == 200, entry.text
+    entry_id = entry.json()["id"]
+
+    # 差旅事项缺城市 → 422（场景必填校验）
+    bad_entry = client.post(
+        f"/api/v1/expenses/{claim['id']}/entries", headers=emp,
+        json={"entry_type": "travel", "title": "缺城市", "scene_fields": {}},
+    )
+    assert bad_entry.status_code == 422 and "出发城市" in bad_entry.json()["detail"]
+
     added = client.post(
-        f"/api/v1/expenses/{claim['id']}/invoices", headers=emp,
+        f"/api/v1/expenses/{claim['id']}/entries/{entry_id}/invoices", headers=emp,
         json={"invoice_id": inv.id, "expense_type": "travel", "note": "机场往返"},
     )
     assert added.status_code == 200, added.text
@@ -268,6 +313,9 @@ def test_expense_api_full_flow(client, db, users):
 
     detail = client.get(f"/api/v1/expenses/{claim['id']}", headers=emp).json()
     assert detail["claim"]["total_amount"] == "266.00" and len(detail["items"]) == 1
+    assert len(detail["entries"]) == 1
+    assert detail["entries"][0]["amount"] == "266.00"  # 事项金额 = 凭证合计
+    assert len(detail["entries"][0]["items"]) == 1
 
     sub = client.post(f"/api/v1/expenses/{claim['id']}/submit", headers=emp)
     assert sub.json()["status"] == ExpenseClaimStatus.PENDING.value
@@ -290,8 +338,12 @@ def test_expense_api_no_invoice_voucher(client, db, users):
     """无票支出：收款凭证要素不全 → 返回不可税前扣除标记（API 透出）。"""
     emp = _login(client, "emp1")
     claim = client.post("/api/v1/expenses", headers=emp, json={"title": "零星"}).json()
+    entry = client.post(
+        f"/api/v1/expenses/{claim['id']}/entries", headers=emp,
+        json={"entry_type": "office", "title": "工地零星采购"},
+    ).json()
     resp = client.post(
-        f"/api/v1/expenses/{claim['id']}/vouchers", headers=emp,
+        f"/api/v1/expenses/{claim['id']}/entries/{entry['id']}/vouchers", headers=emp,
         json={"voucher_type": "receipt_voucher", "amount": "480.00", "expense_type": "office",
               "note": "工地买菜"},
     )
@@ -323,8 +375,14 @@ def test_mcp_expense_tools_full_flow(db, users):
     assert all(i["id"] != bad.id for i in pool)  # 未验真不可选
 
     claim = mt.expense_create("6 月差旅", remark="高铁+打车")
+    entry = mt.expense_add_entry(
+        claim["id"], "travel", "上海→北京 高铁", occurred_on="2026-06-10",
+        scene_fields={"from_city": "上海", "to_city": "北京",
+                      "start_date": "2026-06-10", "end_date": "2026-06-12"},
+    )
     res = mt.expense_add_invoices(
-        claim["id"], ["24312000000000000021", "24312000000000000022", "24312000000000000023", "不存在的号"],
+        claim["id"], entry["entry_id"],
+        ["24312000000000000021", "24312000000000000022", "24312000000000000023", "不存在的号"],
         expense_type="travel",
     )
     assert res["total_amount"] == "200.00"
@@ -340,4 +398,7 @@ def test_mcp_expense_tools_full_flow(db, users):
     assert approved["status"] == "approved"
 
     listed = mt.expense_list(status="approved")
-    assert any(c["claim_no"] == claim["claim_no"] and c["item_count"] == 2 for c in listed)
+    row = next(c for c in listed if c["claim_no"] == claim["claim_no"])
+    assert row["item_count"] == 2
+    assert row["entries"][0]["title"] == "上海→北京 高铁"  # 事项级摘要（Agent 可汇报）
+    assert row["entries"][0]["amount"] == "200.00"

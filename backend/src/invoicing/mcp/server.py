@@ -69,10 +69,16 @@ def build_server() -> MCPServer:
     def expense_create(title: str, remark: str | None = None) -> dict:
         return mcp_tools.expense_create(title, remark)
 
-    @server.tool(description="按发票号码批量加入报销单（自动校验一票一报/已验真/未拦截/归属范围），返回逐条结果。")
-    def expense_add_invoices(claim_id: int, invoice_numbers: list[str],
+    @server.tool(description="新建报销事项（费用明细行）：travel 差旅（需城市+起止日期）/ procurement 采购 / entertainment 招待（需对象+人数）/ office / other。凭证挂到事项下。")
+    def expense_add_entry(claim_id: int, entry_type: str, title: str,
+                          occurred_on: str | None = None, scene_fields: dict | None = None,
+                          note: str | None = None) -> dict:
+        return mcp_tools.expense_add_entry(claim_id, entry_type, title, occurred_on, scene_fields, note)
+
+    @server.tool(description="按发票号码批量加入报销单的某个事项（自动校验一票一报/已验真/未拦截/归属范围），返回逐条结果。")
+    def expense_add_invoices(claim_id: int, entry_id: int, invoice_numbers: list[str],
                              expense_type: str = "other", note: str | None = None) -> dict:
-        return mcp_tools.expense_add_invoices(claim_id, invoice_numbers, expense_type, note)
+        return mcp_tools.expense_add_invoices(claim_id, entry_id, invoice_numbers, expense_type, note)
 
     @server.tool(description="提交报销单进入审批（需已有明细）。")
     def expense_submit(claim_id: int) -> dict:

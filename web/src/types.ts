@@ -261,10 +261,44 @@ export interface ExpenseItemOut {
   active: boolean;
 }
 
+export interface EntryOut {
+  id: number;
+  claim_id: number;
+  entry_type: string;
+  title: string;
+  occurred_on: string | null;
+  scene_fields: Record<string, string> | null;
+  amount: string;
+  note: string | null;
+}
+
 export interface ClaimDetailOut {
   claim: ClaimOut;
+  entries: Array<EntryOut & { items: ExpenseItemOut[] }>;
   items: ExpenseItemOut[];
 }
+
+/** 事项类型 → 场景字段定义（动态表单 + 回显标签） */
+export const SCENE_FIELDS: Record<string, Array<{ key: string; label: string; required?: boolean }>> = {
+  travel: [
+    { key: "from_city", label: "出发城市", required: true },
+    { key: "to_city", label: "到达城市", required: true },
+    { key: "start_date", label: "行程开始", required: true },
+    { key: "end_date", label: "行程结束", required: true },
+  ],
+  procurement: [
+    { key: "supplier", label: "供应商" },
+    { key: "contract_no", label: "合同号" },
+    { key: "order_no", label: "订单号" },
+    { key: "acceptance_no", label: "验收单号" },
+  ],
+  entertainment: [
+    { key: "guests", label: "招待对象", required: true },
+    { key: "headcount", label: "招待人数", required: true },
+  ],
+  office: [],
+  other: [],
+};
 
 export interface EligibleInvoiceOut {
   id: number;

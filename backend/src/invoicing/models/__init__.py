@@ -10,7 +10,14 @@ from invoicing.models.enums import (
     Role,
     VerifyStatus,
 )
-from invoicing.models.expense import ExpenseClaim, ExpenseClaimStatus, ExpenseItem, VoucherType
+from invoicing.models.expense import (
+    EntryType,
+    ExpenseClaim,
+    ExpenseClaimStatus,
+    ExpenseEntry,
+    ExpenseItem,
+    VoucherType,
+)
 from invoicing.models.invoice import Invoice
 from invoicing.models.mailbox import Mailbox
 from invoicing.models.receipt import BankReceipt, ReceiptUpload
@@ -22,7 +29,9 @@ __all__ = [
     "BankAccount",
     "BankReceipt",
     "CompanyInfo",
+    "EntryType",
     "ExpenseClaim",
+    "ExpenseEntry",
     "ExpenseClaimStatus",
     "ExpenseItem",
     "VoucherType",

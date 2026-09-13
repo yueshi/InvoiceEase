@@ -281,8 +281,31 @@ def expense_create(title: str, remark: str | None = None) -> dict:
         return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status, "title": claim.title}
 
 
-def expense_add_invoices(claim_id: int, invoice_numbers: list[str], expense_type: str = "other",
-                         note: str | None = None) -> dict:
+def expense_add_entry(claim_id: int, entry_type: str, title: str,
+                      occurred_on: str | None = None, scene_fields: dict | None = None,
+                      note: str | None = None) -> dict:
+    """新建报销事项（费用明细行）：凭证挂到事项下；按类型校验场景要素。
+
+    entry_type: travel（差旅，需城市+起止日期）/ procurement（采购，建议合同号订单号）/
+    entertainment（招待，需对象+人数）/ office / other。
+    """
+    from datetime import date as _date
+
+    from invoicing.workflow import expenses as svc
+
+    occurred = _date.fromisoformat(occurred_on) if occurred_on else None
+    with SessionLocal() as db:
+        entry = svc.create_entry(
+            db, _mcp_real_user(db), claim_id, entry_type, title, occurred, scene_fields, note
+        )
+        return {
+            "entry_id": entry.id, "claim_id": entry.claim_id, "entry_type": entry.entry_type,
+            "title": entry.title, "amount": _money(entry.amount),
+        }
+
+
+def expense_add_invoices(claim_id: int, entry_id: int, invoice_numbers: list[str],
+                         expense_type: str = "other", note: str | None = None) -> dict:
     """按发票号码批量加入报销单（自动校验：一票一报/已验真/未拦截/归属范围）。
 
     返回逐条结果（success/error），互不影响——便于 Agent 一次性处理多张票。
@@ -299,7 +322,7 @@ def expense_add_invoices(claim_id: int, invoice_numbers: list[str], expense_type
                 results.append({"invoice_number": number, "success": False, "error": "发票不存在"})
                 continue
             try:
-                item = svc.add_invoice(db, user, claim_id, inv.id, expense_type, note)
+                item = svc.add_invoice(db, user, claim_id, inv.id, entry_id, expense_type, note)
                 results.append({
                     "invoice_number": number, "success": True,
                     "amount": _money(item.amount), "item_id": item.id,
@@ -308,7 +331,7 @@ def expense_add_invoices(claim_id: int, invoice_numbers: list[str], expense_type
                 results.append({"invoice_number": number, "success": False, "error": str(e)})
         claim = svc._get_claim(db, claim_id)
         return {
-            "claim_id": claim.id, "claim_no": claim.claim_no,
+            "claim_id": claim.id, "claim_no": claim.claim_no, "entry_id": entry_id,
             "total_amount": _money(claim.total_amount), "results": results,
         }
 
@@ -334,6 +357,11 @@ def expense_list(status: str | None = None) -> list[dict]:
                 "id": c.id, "claim_no": c.claim_no, "title": c.title, "status": c.status,
                 "applicant_id": c.applicant_id, "total_amount": _money(c.total_amount),
                 "item_count": svc.item_count(db, c.id),
+                "entries": [
+                    {"entry_id": e.id, "entry_type": e.entry_type, "title": e.title,
+                     "amount": _money(e.amount), "item_count": svc.item_count_of_entry(db, e.id)}
+                    for e in svc.list_entries(db, c.id)
+                ],
                 "submitted_at": str(c.submitted_at) if c.submitted_at else None,
                 "rejected_reason": c.rejected_reason,
             }

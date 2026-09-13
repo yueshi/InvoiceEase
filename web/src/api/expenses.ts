@@ -1,6 +1,6 @@
 // 报销 API（P0：建单/明细/提交/审批/撤回 + 可选发票池）
 import { api } from "./client";
-import type { ClaimDetailOut, ClaimOut, EligibleInvoiceOut, ExpenseItemOut } from "../types";
+import type { ClaimDetailOut, ClaimOut, EligibleInvoiceOut, EntryOut, ExpenseItemOut } from "../types";
 
 export async function listClaims(status?: string): Promise<ClaimOut[]> {
   const { data } = await api.get<ClaimOut[]>("/expenses", { params: { status } });
@@ -22,10 +22,22 @@ export async function eligibleInvoices(): Promise<EligibleInvoiceOut[]> {
   return data;
 }
 
+export async function createEntry(
+  claimId: number,
+  body: { entry_type: string; title: string; occurred_on?: string | null; scene_fields?: Record<string, string> | null; note?: string },
+): Promise<EntryOut> {
+  const { data } = await api.post<EntryOut>(`/expenses/${claimId}/entries`, body);
+  return data;
+}
+
+export async function removeEntry(claimId: number, entryId: number): Promise<void> {
+  await api.delete(`/expenses/${claimId}/entries/${entryId}`);
+}
+
 export async function addInvoiceToClaim(
-  claimId: number, invoiceId: number, expenseType = "other", note?: string,
+  claimId: number, entryId: number, invoiceId: number, expenseType = "other", note?: string,
 ): Promise<ExpenseItemOut> {
-  const { data } = await api.post<ExpenseItemOut>(`/expenses/${claimId}/invoices`, {
+  const { data } = await api.post<ExpenseItemOut>(`/expenses/${claimId}/entries/${entryId}/invoices`, {
     invoice_id: invoiceId, expense_type: expenseType, note,
   });
   return data;
@@ -33,12 +45,15 @@ export async function addInvoiceToClaim(
 
 export async function addVoucherToClaim(
   claimId: number,
+  entryId: number,
   body: {
     voucher_type: string; amount: string; expense_type?: string; note?: string;
     payee_name?: string | null; payee_id_no?: string | null;
   },
 ): Promise<ExpenseItemOut> {
-  const { data } = await api.post<ExpenseItemOut>(`/expenses/${claimId}/vouchers`, body);
+  const { data } = await api.post<ExpenseItemOut>(
+    `/expenses/${claimId}/entries/${entryId}/vouchers`, body,
+  );
   return data;
 }
 

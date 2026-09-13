@@ -6,12 +6,14 @@
 - 状态机：draft → pending_approval → approved / rejected（单级财务审批）+ withdrawn
 - 无票支出：明细可用银行回单（voucher_type=bank_receipt/tax_receipt）或人工凭证类型
 """
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 
 from sqlalchemy import (
+    JSON,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -45,6 +47,16 @@ class VoucherType(str, Enum):
     OVERSEAS = "overseas"  # 境外票据
 
 
+class EntryType(str, Enum):
+    """事项类型（沿用费用类型五类；场景扩展字段按类型校验）。"""
+
+    TRAVEL = "travel"  # 差旅：城市/起止日期
+    PROCUREMENT = "procurement"  # 采购：供应商/合同号/订单号/验收单号（三单匹配要素）
+    ENTERTAINMENT = "entertainment"  # 招待：招待对象/人数
+    OFFICE = "office"
+    OTHER = "other"
+
+
 class ExpenseClaim(Base):
     __tablename__ = "expense_claims"
 
@@ -72,6 +84,35 @@ class ExpenseClaim(Base):
     )
 
 
+class ExpenseEntry(Base):
+    """报销事项（费用明细行）：一条费用事项，下挂凭证（发票/回单/人工凭证）。
+
+    调研依据（design/2026-09-13-报销事项级设计.md）：实务要求明细逐项写清
+    「发生日期、费用类型、事项说明、票据号」；差旅还要行程（城市/起止），
+    采购要三单要素（合同/订单/验收），招待要对象与人数。
+    """
+
+    __tablename__ = "expense_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    claim_id: Mapped[int] = mapped_column(
+        ForeignKey("expense_claims.id", ondelete="CASCADE"), nullable=False
+    )
+    entry_type: Mapped[str] = mapped_column(String(32), nullable=False, default=EntryType.OTHER)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)  # 事项说明（如「北京出差机票」）
+    occurred_on: Mapped[date | None] = mapped_column(Date, nullable=True)  # 费用发生日期
+    # 场景扩展字段（按 entry_type 校验）：travel{from_city,to_city,start_date,end_date} /
+    # procurement{supplier,contract_no,order_no,acceptance_no} / entertainment{guests,headcount}
+    scene_fields: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # 事项金额 = 其凭证合计（自动重算，不接受手工修改）
+    amount: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
+    note: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), default=utcnow, nullable=False
+    )
+
+
 class ExpenseItem(Base):
     __tablename__ = "expense_items"
     __table_args__ = (
@@ -95,6 +136,10 @@ class ExpenseItem(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     claim_id: Mapped[int] = mapped_column(
         ForeignKey("expense_claims.id", ondelete="CASCADE"), nullable=False
+    )
+    # 所属事项（P0.5）：凭证必须挂到某个事项下；历史数据迁移时自动归组
+    entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("expense_entries.id", ondelete="CASCADE"), nullable=True
     )
     invoice_id: Mapped[int | None] = mapped_column(
         ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True
