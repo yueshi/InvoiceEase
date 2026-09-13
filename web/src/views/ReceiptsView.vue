@@ -14,6 +14,7 @@ import {
   uploadReceipt,
 } from "../api/receipts";
 import type { ReceiptOut } from "../types";
+import ReceiptDetailDrawer from "../components/ReceiptDetailDrawer.vue";
 
 // a-month-picker / a-date-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()）
 const periodType = ref<"month" | "quarter" | "year">("month");
@@ -27,12 +28,6 @@ const loading = ref(false);
 const displayRows = computed(() =>
   reviewOnly.value ? rows.value.filter((r) => r.needs_review) : rows.value,
 );
-const REVIEW_ISSUE_LABELS: Record<string, string> = {
-  no_counterparty: "无对方户名（本司账户行）",
-  account_like_party: "户名疑为账户持有人",
-  no_trade_date: "缺交易日期",
-};
-
 /** 季度标签 YYYY-QN（手算避免依赖 dayjs quarterOfYear 插件格式符） */
 function quarterLabel(d: Dayjs): string {
   return `${d.year()}-Q${Math.floor(d.month() / 3) + 1}`;
@@ -44,6 +39,7 @@ function periodParam(): { month?: string; quarter?: string; year?: string } {
   return { year: year.value.format("YYYY") };
 }
 
+// 质量问题不占列（细节收进详情抽屉），状态列的「待核对」标签 + 只看待核对筛选足够暴露
 const columns = [
   { title: "交易日期", dataIndex: "trade_date", key: "trade_date" },
   { title: "对方户名", dataIndex: "counterparty_name", key: "counterparty_name" },
@@ -52,9 +48,17 @@ const columns = [
   { title: "摘要", dataIndex: "abstract", key: "abstract" },
   { title: "发票配对", dataIndex: "paired_invoice_id", key: "paired_invoice_id" },
   { title: "状态", dataIndex: "status", key: "status" },
-  { title: "质量问题", key: "quality" },
   { title: "操作", key: "action" },
 ];
+
+// 详情抽屉
+const detailOpen = ref(false);
+const detailRecord = ref<ReceiptOut | null>(null);
+
+function onDetail(r: ReceiptOut) {
+  detailRecord.value = r;
+  detailOpen.value = true;
+}
 
 async function load() {
   loading.value = true;
@@ -215,23 +219,24 @@ onMounted(load);
             <a-tag color="red" style="margin-left: 4px">待核对</a-tag>
           </a-tooltip>
         </template>
-        <template v-if="column.key === 'quality'">
-          <span v-if="!record.needs_review">—</span>
-          <span v-else style="color: #cf1322">
-            {{ (record.quality_issues || []).map((i: string) => REVIEW_ISSUE_LABELS[i] || i).join('；') }}
-          </span>
-        </template>
         <template v-if="column.key === 'action'">
           <a-space>
-            <a-button size="small" @click="onAutoPair(record)">自动配对</a-button>
+            <a-button size="small" @click="onDetail(record)">详情</a-button>
             <a-button size="small" type="primary" ghost @click="onLocate(record)">
               定位{{ record.page_no ? ` P${record.page_no}` : "" }}
             </a-button>
-            <a-button size="small" @click="onViewFile(record)">原件</a-button>
+            <a-button size="small" @click="onAutoPair(record)">自动配对</a-button>
           </a-space>
         </template>
       </template>
     </a-table>
+    <ReceiptDetailDrawer
+      v-model:open="detailOpen"
+      :receipt="detailRecord"
+      @view-file="onViewFile"
+      @view-page="onViewFileAtPage"
+      @locate="onLocate"
+    />
     <a-modal
       v-model:open="locateOpen"
       :title="`原件定位${locateRecord?.page_no ? `（第 ${locateRecord.page_no} 页）` : ''}`"
