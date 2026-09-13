@@ -15,6 +15,7 @@ import {
 } from "../api/receipts";
 import type { ReceiptOut } from "../types";
 import ReceiptDetailDrawer from "../components/ReceiptDetailDrawer.vue";
+import ReceiptLocatePanel from "../components/ReceiptLocatePanel.vue";
 
 // a-month-picker / a-date-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()）
 const periodType = ref<"month" | "quarter" | "year">("month");
@@ -112,18 +113,6 @@ async function onViewFileAtPage(r: ReceiptOut) {
   }
 }
 
-/** 高亮框 CSS（PDF 坐标原点在左下，需换算为 CSS top） */
-function highlightStyle(r: ReceiptOut | null) {
-  const bbox = r?.anchor?.bbox;
-  if (!bbox) return null;
-  const [x0, y0, x1, y1] = bbox;
-  return {
-    left: `${x0 * 100}%`,
-    top: `${(1 - y1) * 100}%`,
-    width: `${(x1 - x0) * 100}%`,
-    height: `${(y1 - y0) * 100}%`,
-  };
-}
 
 async function onBeforeUpload(file: File) {
   try {
@@ -244,14 +233,11 @@ onMounted(load);
       :footer="null"
     >
       <a-spin :spinning="locateLoading">
-        <div v-if="locateImageUrl" style="position: relative; max-height: 70vh; overflow: auto">
-          <img :src="locateImageUrl" style="width: 100%; display: block" />
-          <div
-            v-if="highlightStyle(locateRecord)"
-            class="receipt-anchor-highlight"
-            :style="highlightStyle(locateRecord)!"
-          ></div>
-        </div>
+        <ReceiptLocatePanel
+          v-if="locateImageUrl"
+          :image-url="locateImageUrl"
+          :bbox="locateRecord?.anchor?.bbox ?? null"
+        />
         <a-alert
           v-if="locateRecord && !locateRecord.anchor?.bbox"
           type="info"
@@ -268,15 +254,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-/* 原件定位锚点高亮（浅色主题：半透明黄底 + 描边，不遮挡文字） */
-.receipt-anchor-highlight {
-  position: absolute;
-  background: rgba(250, 219, 20, 0.35);
-  border: 2px solid #d4b106;
-  border-radius: 4px;
-  pointer-events: none;
-  box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.06);
-}
 
 /* 待核对行高亮（浅色主题下淡红底） */
 :deep(.receipt-review-row) > td {
