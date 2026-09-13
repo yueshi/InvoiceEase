@@ -1,13 +1,13 @@
-"""一次性回填回单原件定位（page_no/anchor）。
+"""回填/重算回单原件定位（page_no/anchor）。
 
-背景：R1.2 之前入库的回单没有页码/锚点（列表「定位」按钮无 P 页码）。
-本脚本按 file_url 分组重解析原件，只更新定位列（page_no/anchor），
+背景：无锚点（R1.2 之前入库）或锚点算法版本落后（如 v1 的中点切带存在偏移，
+已由 v2 结构边界取代）时，按 file_url 分组重解析原件，只更新定位列，
 不动业务字段；匹配用「金额+交易日期」，异常时退化为顺序匹配（数量一致才启用）。
 
 用法（在 backend 目录）：
     uv run python scripts/backfill_receipt_anchors.py [--dry-run]
 
-幂等：只处理 page_no IS NULL 的行；可重复执行。
+幂等：处理 page_no IS NULL 或 anchor 版本 < 当前版本的行；可重复执行。
 """
 import argparse
 import sys
@@ -23,6 +23,13 @@ from invoicing.parse.receipt import (  # noqa: E402
     self_name_set,
 )
 from invoicing.storage import get_storage  # noqa: E402
+
+
+def sa_cast_version(anchor_col):
+    """anchor JSON 里的算法版本（整数）；SQLite/PG 通用表达式。"""
+    from sqlalchemy import Integer, cast, func
+
+    return cast(func.json_extract(anchor_col, "$.v"), Integer)
 
 
 def _match(targets: list[BankReceipt], parsed: list[dict]) -> list[tuple[BankReceipt, dict]]:
@@ -50,11 +57,23 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="只打印计划，不写库")
     args = ap.parse_args()
 
+    from sqlalchemy import or_
+
+    from invoicing.parse.receipt import ANCHOR_VERSION
+
     storage = get_storage()
     with SessionLocal() as db:
         targets = (
             db.query(BankReceipt)
-            .filter(BankReceipt.page_no.is_(None), BankReceipt.file_type == "PDF")
+            .filter(
+                BankReceipt.file_type == "PDF",
+                or_(
+                    BankReceipt.page_no.is_(None),
+                    BankReceipt.anchor.is_(None),
+                    # 版本落后（JSON 提取兼容 SQLite/PG）需重算
+                    sa_cast_version(BankReceipt.anchor) < ANCHOR_VERSION,
+                ),
+            )
             .order_by(BankReceipt.file_url, BankReceipt.id)
             .all()
         )

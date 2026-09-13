@@ -584,6 +584,64 @@ def test_assign_anchor_bands_prefers_locator():
     assert rows[1]["anchor"]["bbox"] is None       # 两串都未命中 → 降级
 
 
+def test_assign_anchor_bands_uses_structural_boundaries():
+    """结构边界优先：同页回单按「回单头 → 免责声明行」切带（锚点所在行位置不固定，
+    中点切带会偏移——真实数据复核发现的缺陷）。"""
+    from invoicing.parse.receipt import assign_anchor_bands
+
+    class StructuralLocator:
+        available = True
+        # 页 1 三张回单：头 804/523/242，块尾免责声明 584/303/22（自上而下）
+        def find_all(self, page, token):
+            if token == "此回单以客户真实交易为依据":
+                return [583.7, 303.1, 22.4]
+            if token == "单位客户专用回单":
+                return [804.1, 523.5, 242.9]
+            return []
+        def locate(self, page, token):
+            return None
+        def page_height(self, page):
+            return 842.0
+
+    # 三张回单，锚点均在块内不同位置（仅用于 text，不参与切带）
+    rows = [
+        {"page": 1, "anchor_text": "A1", "amount": Decimal("1116.00")},
+        {"page": 1, "anchor_text": "A2", "amount": Decimal("46.50")},
+        {"page": 1, "anchor_text": "A3", "amount": Decimal("457.10")},
+    ]
+    assign_anchor_bands(rows, [None], locate=StructuralLocator())
+    b0, b1, b2 = (r["anchor"]["bbox"] for r in rows)
+    # 归一化：第一张 [584/842≈0.693, 812/842≈0.964]；第二张 [303, 527]；第三张 [22, 243]
+    assert 0.68 < b0[1] < 0.71 and b0[3] > 0.94          # #1 ≈ [0.69, 0.96]
+    assert 0.35 < b1[1] < 0.37 and 0.61 < b1[3] < 0.64   # #2 ≈ [0.36, 0.63]
+    assert b2[1] < 0.03 and 0.28 < b2[3] < 0.30          # #3 ≈ [0.03, 0.29]
+    # 无重叠且各覆盖自己区间
+    assert b0[1] > b1[3] > b1[1] > b2[3] > b2[1]
+
+
+def test_assign_anchor_bands_falls_back_when_structure_incomplete():
+    """结构锚点数量与回单数不一致（无法对齐）→ 回退锚点中点法。"""
+    from invoicing.parse.receipt import assign_anchor_bands
+
+    class PartialLocator:
+        available = True
+        def find_all(self, page, token):
+            return [500.0]  # 只有 1 个免责声明，但本页有 2 张回单
+        def locate(self, page, token):
+            return (600.0, 620.0) if token == "S1" else (200.0, 220.0)
+        def page_height(self, page):
+            return 800.0
+
+    rows = [
+        {"page": 1, "anchor_text": "S1", "amount": Decimal("1.00")},
+        {"page": 1, "anchor_text": "S2", "amount": Decimal("2.00")},
+    ]
+    assign_anchor_bands(rows, [None], locate=PartialLocator())
+    # 回退到中点法：以两张锚点 y(610/210) 的中点 410 为界
+    assert rows[0]["anchor"]["bbox"][1] > 0.5   # 上张
+    assert rows[1]["anchor"]["bbox"][3] < 0.55  # 下张
+
+
 def test_assign_anchor_bands_without_coordinates_degrades():
     """锚点串在坐标层找不到（本 PDF 48% 片段无坐标）→ bbox 为空但页码保留。"""
     from invoicing.parse.receipt import assign_anchor_bands

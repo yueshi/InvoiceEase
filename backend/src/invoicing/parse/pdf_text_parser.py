@@ -113,6 +113,31 @@ class PdfiumLocator:
         except Exception:
             return None
 
+    def find_all(self, page_no: int, token: str) -> list[float]:
+        """页内所有匹配的 y（首字符框底边），按 y 降序。
+
+        用于**结构边界**切分：免责声明行（块尾）/回单头每张回单各一次，
+        比"锚点行"位置固定得多。
+        """
+        if not self.available or not token:
+            return []
+        try:
+            text, tp, _w, _h = self._page(page_no)
+        except Exception:
+            return []
+        ys: list[float] = []
+        start = 0
+        while True:
+            i = text.find(token, start)
+            if i < 0:
+                break
+            try:
+                ys.append(float(tp.get_charbox(i)[1]))
+            except Exception:
+                pass
+            start = i + len(token)
+        return sorted(set(ys), reverse=True)
+
     def locate(self, page_no: int, token: str) -> tuple[float, float] | None:
         """在指定页搜索锚点串 → 命中字符的坐标框并集 (y0, y1)。"""
         if not self.available or not token:

@@ -213,6 +213,15 @@ def _find_anchor_y(spans: list[tuple[str, float, float]], token: str) -> float |
     return None
 
 
+# 锚点算法版本：v1 = 锚点行中点切带（存在偏移缺陷）；v2 = 结构边界切带
+ANCHOR_VERSION = 2
+
+# 结构边界 token（块尾免责声明行 / 块首回单头）——每张回单各一次，位置稳定
+_BLOCK_END_TOKEN = "此回单以客户真实交易为依据"
+_BLOCK_HEAD_TOKEN = "单位客户专用回单"
+_BAND_TOP_PAD = 8.0  # 回单头之上留白（页眉/编号行）
+
+
 def _anchor_candidates(fields: dict) -> list[str]:
     """定位候选串（按优先级）：流水号/税票号码 → 金额原文（带/不带千分位）。"""
     cands: list[str] = []
@@ -263,14 +272,36 @@ def assign_anchor_bands(
         h = float(info["h"]) if info else None
         if not h and locate is not None:
             h = locate.page_height(page)  # pypdf 无坐标时用 PDFium 页高归一化
-        located = sorted((r for r in group if r.get("_y") is not None), key=lambda r: r["_y"])
-        for i, r in enumerate(located):
-            y = r["_y"]
-            upper = (
-                (y + located[i + 1]["_y"]) / 2 if i + 1 < len(located) else (h if h else y + 100.0)
-            )
-            lower = (y + located[i - 1]["_y"]) / 2 if i > 0 else 0.0
-            r["anchor"] = {"bbox": _norm_band(lower, upper, h), "text": r.get("anchor_text"), "v": 1}
+
+        # ① 结构边界切带（首选）：回单头（块首）与免责声明行（块尾）每张各一次，
+        #    位置固定——锚点行位置随版式漂移，中点切带会偏移（真实数据复核缺陷）
+        structural = None
+        if locate is not None and hasattr(locate, "find_all") and h:
+            markers = locate.find_all(page, _BLOCK_END_TOKEN)
+            headers = locate.find_all(page, _BLOCK_HEAD_TOKEN)
+            if len(markers) == len(group) and len(headers) == len(group):
+                structural = [
+                    (min(headers[i] + _BAND_TOP_PAD, h), markers[i]) for i in range(len(group))
+                ]
+        if structural is not None:
+            for r, (upper, lower) in zip(group, structural):
+                r["anchor"] = {
+                    "bbox": _norm_band(lower, upper, h), "text": r.get("anchor_text"), "v": 2
+                }
+        else:
+            # ② 回退：锚点 y 中点切带（结构锚点数量不匹配时）
+            located = sorted((r for r in group if r.get("_y") is not None), key=lambda r: r["_y"])
+            for i, r in enumerate(located):
+                y = r["_y"]
+                upper = (
+                    (y + located[i + 1]["_y"]) / 2
+                    if i + 1 < len(located)
+                    else (h if h else y + 100.0)
+                )
+                lower = (y + located[i - 1]["_y"]) / 2 if i > 0 else 0.0
+                r["anchor"] = {
+                    "bbox": _norm_band(lower, upper, h), "text": r.get("anchor_text"), "v": 1
+                }
 
     for r in rows:
         r.pop("_y", None)
