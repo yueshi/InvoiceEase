@@ -22,6 +22,7 @@ import {
   CLAIM_STATUS_LABELS,
   EXPENSE_TYPE_LABELS,
   SCENE_FIELDS,
+  TRAVEL_SUBTYPES,
   VOUCHER_TYPE_LABELS,
   type ClaimOut,
   type ClaimDetailOut,
@@ -45,7 +46,14 @@ const entryOpen = ref(false);
 const entryForm = reactive({
   entry_type: "travel", title: "", occurred_on: "", scene: {} as Record<string, string>, note: "",
 });
-const sceneDefs = computed(() => SCENE_FIELDS[entryForm.entry_type] || []);
+// 差旅按子类（交通/住宿/市内交通/伙食补助/其他），其余类型用固定场景字段
+const travelSubtype = ref("transport");
+const sceneDefs = computed(() => {
+  if (entryForm.entry_type === "travel") {
+    return TRAVEL_SUBTYPES.find((t) => t.value === travelSubtype.value)?.fields || [];
+  }
+  return SCENE_FIELDS[entryForm.entry_type] || [];
+});
 const entryTypeOptions = [
   { value: "travel", label: "差旅" },
   { value: "procurement", label: "采购" },
@@ -58,6 +66,7 @@ const entryTypeOptions = [
 const targetEntryId = ref<number | null>(null);
 
 function openEntryForm() {
+  travelSubtype.value = "transport";
   entryForm.entry_type = "travel";
   entryForm.title = "";
   entryForm.occurred_on = "";
@@ -81,7 +90,9 @@ async function onCreateEntry() {
       entry_type: entryForm.entry_type,
       title: entryForm.title.trim(),
       occurred_on: entryForm.occurred_on,
-      scene_fields: entryForm.scene,
+      scene_fields: entryForm.entry_type === "travel"
+        ? { subtype: travelSubtype.value, ...entryForm.scene }
+        : entryForm.scene,
       note: entryForm.note || undefined,
     });
     message.success("事项已添加");
@@ -344,6 +355,9 @@ onMounted(load);
             <template #header>
               <a-space>
                 <a-tag color="blue">{{ EXPENSE_TYPE_LABELS[entry.entry_type] || entry.entry_type }}</a-tag>
+                <a-tag v-if="entry.scene_fields?.subtype" color="cyan">
+                  {{ TRAVEL_SUBTYPES.find((t) => t.value === entry.scene_fields?.subtype)?.label || entry.scene_fields.subtype }}
+                </a-tag>
                 <b>{{ entry.title }}</b>
                 <span style="color: #888">
                   {{ entry.occurred_on || "无日期" }} · {{ entry.amount }} 元 · {{ entry.items.length }} 张凭证
@@ -352,7 +366,9 @@ onMounted(load);
             </template>
             <template v-if="entry.scene_fields && Object.keys(entry.scene_fields).length">
               <p style="color: #666; margin-bottom: 8px">
-                <span v-for="f in SCENE_FIELDS[entry.entry_type] || []" :key="f.key" style="margin-right: 12px">
+                <span v-for="f in (entry.entry_type === 'travel'
+                  ? (TRAVEL_SUBTYPES.find((t) => t.value === entry.scene_fields?.subtype)?.fields || [])
+                  : (SCENE_FIELDS[entry.entry_type] || []))" :key="f.key" style="margin-right: 12px">
                   {{ f.label }}：{{ entry.scene_fields[f.key] || "—" }}
                 </span>
               </p>
@@ -417,6 +433,13 @@ onMounted(load);
         </a-form-item>
         <a-form-item label="费用发生日期">
           <a-date-picker v-model:value="entryForm.occurred_on" value-format="YYYY-MM-DD" style="width: 100%" />
+        </a-form-item>
+        <a-form-item v-if="entryForm.entry_type === 'travel'" label="差旅子类">
+          <a-select v-model:value="travelSubtype" @change="entryForm.scene = {}">
+            <a-select-option v-for="t in TRAVEL_SUBTYPES" :key="t.value" :value="t.value">
+              {{ t.label }}
+            </a-select-option>
+          </a-select>
         </a-form-item>
         <template v-for="f in sceneDefs" :key="f.key">
           <a-form-item :label="f.label + (f.required ? '（必填）' : '')">

@@ -158,19 +158,54 @@ def test_withdraw_only_own_draft_or_pending(db, users):
 
 
 def test_scene_required_fields_enforced(db, users):
-    """场景必填：差旅需城市+起止日期；招待需对象+人数（调研自实务口径）。"""
+    """场景必填：差旅按子类校验（交通/住宿/市内交通/补助）；招待需对象+人数。"""
     claim = svc.create_claim(db, users["emp"], title="场景校验")
-    with pytest.raises(ValueError, match="出发城市"):
+
+    # 差旅必须选子类
+    with pytest.raises(ValueError, match="子类"):
         svc.create_entry(db, users["emp"], claim.id, "travel", "北京出差", scene_fields={})
+
+    # 交通：方式 + 出发/到达城市 + 日期
+    with pytest.raises(ValueError, match="交通方式"):
+        svc.create_entry(
+            db, users["emp"], claim.id, "travel", "上海→北京 高铁",
+            scene_fields={"subtype": "transport", "from_city": "上海", "to_city": "北京"},
+        )
+    ok_transport = svc.create_entry(
+        db, users["emp"], claim.id, "travel", "上海→北京 高铁",
+        scene_fields={"subtype": "transport", "transport_mode": "高铁",
+                      "from_city": "上海", "to_city": "北京",
+                      "vehicle_no": "G10", "travel_date": "2026-06-10"},
+    )
+    assert ok_transport.id is not None
+
+    # 住宿：城市 + 入住/离店
+    with pytest.raises(ValueError, match="离店日期"):
+        svc.create_entry(
+            db, users["emp"], claim.id, "travel", "北京住宿",
+            scene_fields={"subtype": "accommodation", "city": "北京", "checkin": "2026-06-10"},
+        )
+    ok_stay = svc.create_entry(
+        db, users["emp"], claim.id, "travel", "北京住宿 3 晚",
+        scene_fields={"subtype": "accommodation", "city": "北京",
+                      "checkin": "2026-06-10", "checkout": "2026-06-13",
+                      "nights": "3", "rooms": "1"},
+    )
+    assert ok_stay.id is not None
+
+    # 市内交通：城市 + 日期；伙食补助：天数
+    svc.create_entry(db, users["emp"], claim.id, "travel", "北京打车",
+                     scene_fields={"subtype": "local_transport", "city": "北京",
+                                   "travel_date": "2026-06-11"})
+    with pytest.raises(ValueError, match="补助天数"):
+        svc.create_entry(db, users["emp"], claim.id, "travel", "伙食补助",
+                         scene_fields={"subtype": "allowance"})
+    svc.create_entry(db, users["emp"], claim.id, "travel", "伙食补助 4 天",
+                     scene_fields={"subtype": "allowance", "days": "4", "daily_standard": "100"})
+
+    # 招待仍需对象与人数
     with pytest.raises(ValueError, match="招待对象"):
         svc.create_entry(db, users["emp"], claim.id, "entertainment", "客户晚宴", scene_fields={})
-    # 齐全则通过
-    ok = svc.create_entry(
-        db, users["emp"], claim.id, "travel", "北京出差",
-        scene_fields={"from_city": "上海", "to_city": "北京",
-                      "start_date": "2026-06-10", "end_date": "2026-06-12"},
-    )
-    assert ok.id is not None
 
 
 def test_submit_requires_each_entry_has_items(db, users):
@@ -287,19 +322,27 @@ def test_expense_api_full_flow(client, db, users):
     # 建事项（差旅需城市+起止日期）→ 再挂票
     entry = client.post(
         f"/api/v1/expenses/{claim['id']}/entries", headers=emp,
-        json={"entry_type": "travel", "title": "机场往返打车", "occurred_on": "2026-06-12",
-              "scene_fields": {"from_city": "上海", "to_city": "北京",
-                               "start_date": "2026-06-10", "end_date": "2026-06-13"}},
+        json={"entry_type": "travel", "title": "北京机场往返打车", "occurred_on": "2026-06-12",
+              "scene_fields": {"subtype": "local_transport", "city": "北京",
+                               "travel_date": "2026-06-12"}},
     )
     assert entry.status_code == 200, entry.text
     entry_id = entry.json()["id"]
 
-    # 差旅事项缺城市 → 422（场景必填校验）
+    # 差旅子类选择错误/要素缺失 → 422（场景必填校验）
     bad_entry = client.post(
         f"/api/v1/expenses/{claim['id']}/entries", headers=emp,
-        json={"entry_type": "travel", "title": "缺城市", "scene_fields": {}},
+        json={"entry_type": "travel", "title": "缺子类", "scene_fields": {}},
     )
-    assert bad_entry.status_code == 422 and "出发城市" in bad_entry.json()["detail"]
+    assert bad_entry.status_code == 422 and "子类" in bad_entry.json()["detail"]
+
+    # 交通子类缺城市 → 422
+    bad_transport = client.post(
+        f"/api/v1/expenses/{claim['id']}/entries", headers=emp,
+        json={"entry_type": "travel", "title": "缺城市",
+              "scene_fields": {"subtype": "transport", "transport_mode": "高铁"}},
+    )
+    assert bad_transport.status_code == 422 and "出发城市" in bad_transport.json()["detail"]
 
     added = client.post(
         f"/api/v1/expenses/{claim['id']}/entries/{entry_id}/invoices", headers=emp,
@@ -377,8 +420,9 @@ def test_mcp_expense_tools_full_flow(db, users):
     claim = mt.expense_create("6 月差旅", remark="高铁+打车")
     entry = mt.expense_add_entry(
         claim["id"], "travel", "上海→北京 高铁", occurred_on="2026-06-10",
-        scene_fields={"from_city": "上海", "to_city": "北京",
-                      "start_date": "2026-06-10", "end_date": "2026-06-12"},
+        scene_fields={"subtype": "transport", "transport_mode": "高铁",
+                      "from_city": "上海", "to_city": "北京",
+                      "vehicle_no": "G10", "travel_date": "2026-06-10"},
     )
     res = mt.expense_add_invoices(
         claim["id"], entry["entry_id"],

@@ -137,12 +137,39 @@ def create_claim(db: Session, user: User, title: str, remark: str | None = None)
     return claim
 
 
+# 差旅事项子类（调研：行程明细表含「车船票；住宿天数」、补贴计算表）
+TRAVEL_SUBTYPES: dict[str, dict] = {
+    "transport": {
+        "label": "交通",
+        "required": ("transport_mode", "from_city", "to_city", "travel_date"),
+        "labels": {"transport_mode": "交通方式（飞机/火车/高铁/长途汽车/出租车/自驾）",
+                   "from_city": "出发城市", "to_city": "到达城市",
+                   "vehicle_no": "车次/航班号", "travel_date": "乘车/乘机日期"},
+    },
+    "accommodation": {
+        "label": "住宿",
+        "required": ("city", "checkin", "checkout"),
+        "labels": {"city": "住宿城市", "checkin": "入住日期", "checkout": "离店日期",
+                   "nights": "住宿晚数", "rooms": "房间数"},
+    },
+    "local_transport": {
+        "label": "市内交通",
+        "required": ("city", "travel_date"),
+        "labels": {"city": "所在城市", "travel_date": "发生日期"},
+    },
+    "allowance": {
+        "label": "伙食补助",
+        "required": ("days",),
+        "labels": {"days": "补助天数", "daily_standard": "日补助标准", "city": "所在地"},
+    },
+    "other": {"label": "其他差旅支出", "required": (), "labels": {}},
+}
+
 # 场景必填/建议要素（调研：差旅行程、采购三单、招待对象人数）
 _SCENE_REQUIRED: dict[str, dict] = {
-    EntryType.TRAVEL.value: {
-        "required": ("from_city", "to_city", "start_date", "end_date"),
-        "labels": {"from_city": "出发城市", "to_city": "到达城市",
-                   "start_date": "行程开始日期", "end_date": "行程结束日期"},
+    "travel": {  # 差旅由子类细化（见 validate_scene_fields）
+        "required": (),
+        "labels": {},
     },
     EntryType.ENTERTAINMENT.value: {
         "required": ("guests", "headcount"),
@@ -158,8 +185,22 @@ _SCENE_SUGGESTED: dict[str, dict] = {
 
 
 def validate_scene_fields(entry_type: str, scene_fields: dict | None) -> list[str]:
-    """场景要素校验：必填缺失 → 抛错；建议项缺失 → 返回提示（不阻断）。"""
+    """场景要素校验：必填缺失 → 抛错；建议项缺失 → 返回提示（不阻断）。
+
+    差旅（travel）按**子类**细化：交通（方式+出发到达城市+日期）/ 住宿（城市+入住离店）/
+    市内交通（城市+日期）/ 伙食补助（天数）/ 其它（说明即可）——调研自实务行程明细表。
+    """
     scene = scene_fields or {}
+    if entry_type == EntryType.TRAVEL.value:
+        subtype = str(scene.get("subtype") or "").strip()
+        if subtype not in TRAVEL_SUBTYPES:
+            options = "/".join(f"{k}（{v['label']}）" for k, v in TRAVEL_SUBTYPES.items())
+            raise ValueError(f"差旅事项需选择子类：{options}")
+        sub = TRAVEL_SUBTYPES[subtype]
+        missing = [sub["labels"][k] for k in sub["required"] if not str(scene.get(k) or "").strip()]
+        if missing:
+            raise ValueError(f"差旅-{sub['label']}事项缺少必填要素：{'、'.join(missing)}")
+        return []
     spec = _SCENE_REQUIRED.get(entry_type)
     if spec:
         missing = [spec["labels"][k] for k in spec["required"] if not str(scene.get(k) or "").strip()]

@@ -278,14 +278,52 @@ export interface ClaimDetailOut {
   items: ExpenseItemOut[];
 }
 
-/** 事项类型 → 场景字段定义（动态表单 + 回显标签） */
+/** 差旅子类（调研：行程明细含车船票/住宿天数；补贴计算表） */
+export const TRAVEL_SUBTYPES: Array<{
+  value: string;
+  label: string;
+  fields: Array<{ key: string; label: string; required?: boolean; placeholder?: string }>;
+}> = [
+  {
+    value: "transport", label: "交通",
+    fields: [
+      { key: "transport_mode", label: "交通方式（飞机/火车/高铁/长途汽车/出租车/自驾）", required: true },
+      { key: "from_city", label: "出发城市", required: true },
+      { key: "to_city", label: "到达城市", required: true },
+      { key: "vehicle_no", label: "车次/航班号" },
+      { key: "travel_date", label: "乘车/乘机日期", required: true, placeholder: "YYYY-MM-DD" },
+    ],
+  },
+  {
+    value: "accommodation", label: "住宿",
+    fields: [
+      { key: "city", label: "住宿城市", required: true },
+      { key: "checkin", label: "入住日期", required: true, placeholder: "YYYY-MM-DD" },
+      { key: "checkout", label: "离店日期", required: true, placeholder: "YYYY-MM-DD" },
+      { key: "nights", label: "住宿晚数" },
+      { key: "rooms", label: "房间数" },
+    ],
+  },
+  {
+    value: "local_transport", label: "市内交通",
+    fields: [
+      { key: "city", label: "所在城市", required: true },
+      { key: "travel_date", label: "发生日期", required: true, placeholder: "YYYY-MM-DD" },
+    ],
+  },
+  {
+    value: "allowance", label: "伙食补助",
+    fields: [
+      { key: "days", label: "补助天数", required: true },
+      { key: "daily_standard", label: "日补助标准" },
+      { key: "city", label: "所在地" },
+    ],
+  },
+  { value: "other", label: "其他差旅支出", fields: [] },
+];
+
+/** 非差旅事项的场景字段（差旅按子类，见 TRAVEL_SUBTYPES） */
 export const SCENE_FIELDS: Record<string, Array<{ key: string; label: string; required?: boolean }>> = {
-  travel: [
-    { key: "from_city", label: "出发城市", required: true },
-    { key: "to_city", label: "到达城市", required: true },
-    { key: "start_date", label: "行程开始", required: true },
-    { key: "end_date", label: "行程结束", required: true },
-  ],
   procurement: [
     { key: "supplier", label: "供应商" },
     { key: "contract_no", label: "合同号" },
@@ -299,6 +337,7 @@ export const SCENE_FIELDS: Record<string, Array<{ key: string; label: string; re
   office: [],
   other: [],
 };
+
 
 export interface EligibleInvoiceOut {
   id: number;
