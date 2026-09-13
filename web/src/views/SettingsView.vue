@@ -7,7 +7,7 @@ import { createCompanyInfo, deleteCompanyInfo, listCompanyInfos, updateCompanyIn
 import { createBankAccount, deleteBankAccount, listBankAccounts, updateBankAccount } from "../api/bankAccounts";
 import { createMailbox, listMailboxes, pollMailbox, testMailbox, updateMailbox } from "../api/mailboxes";
 import { createUser, listUsers, updateUser } from "../api/users";
-import { COMPANY_KIND_LABELS, ROLE_LABELS, type BankAccountCreate, type BankAccountOut, type CompanyInfoCreate, type CompanyInfoOut, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut } from "../types";
+import { BANK_LABELS, COMPANY_KIND_LABELS, ROLE_LABELS, type BankAccountCreate, type BankAccountOut, type CompanyInfoCreate, type CompanyInfoOut, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut } from "../types";
 
 const TAX_ID_RE = /^[0-9A-Z]{18}$/;
 
@@ -36,10 +36,13 @@ watch(() => companyForm.kind, (kind) => {
 const bankAccounts = ref<BankAccountOut[]>([]);
 const bankModalOpen = ref(false);
 const editingBankId = ref<number | null>(null);
-const bankForm = reactive({ account_no: "", account_name: "", bank_name: "", remark: "", is_default: false, enabled: true });
+const bankForm = reactive({ account_no: "", account_name: "", bank_name: "", bank_code: "", remark: "", is_default: false, enabled: true });
+// 银行下拉可选；留空则由后端按开户行自动识别
+const BANK_OPTIONS = Object.entries(BANK_LABELS).map(([value, label]) => ({ value, label }));
 const bankColumns = [
   { title: "账号", dataIndex: "account_no", key: "account_no" },
   { title: "户名", dataIndex: "account_name", key: "account_name" },
+  { title: "银行", key: "bank_code", width: 110 },   // 短名（识别/手选），便于一眼分辨
   { title: "开户行", dataIndex: "bank_name", key: "bank_name" },
   { title: "备注", dataIndex: "remark", key: "remark" },
   { title: "默认", dataIndex: "is_default", key: "is_default" },
@@ -53,6 +56,7 @@ function openBankModal(record: BankAccountOut | null) {
     account_no: record?.account_no ?? "",
     account_name: record?.account_name ?? "",
     bank_name: record?.bank_name ?? "",
+    bank_code: record?.bank_code ?? "",
     remark: record?.remark ?? "",
     is_default: record?.is_default ?? false,
     enabled: record?.enabled ?? true,
@@ -70,6 +74,7 @@ async function saveBankAccount() {
       account_no: bankForm.account_no.trim(),
       account_name: bankForm.account_name.trim() || null,
       bank_name: bankForm.bank_name.trim() || null,
+      bank_code: bankForm.bank_code || null, // 留空 → 后端按开户行自动识别
       remark: bankForm.remark.trim() || null,
       is_default: bankForm.is_default,
       enabled: bankForm.enabled,
@@ -316,7 +321,11 @@ const companyColumns = [
         <a-button type="primary" style="margin-bottom: 12px" @click="openBankModal(null)">新建账号</a-button>
         <a-table :columns="bankColumns" :data-source="bankAccounts" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'is_default'">{{ record.is_default ? '是' : '' }}</template>
+            <template v-if="column.key === 'bank_code'">
+              <a-tag v-if="record.bank_code">{{ BANK_LABELS[record.bank_code as string] || record.bank_code }}</a-tag>
+              <span v-else style="color: #bbb">未识别</span>
+            </template>
+            <template v-else-if="column.key === 'is_default'">{{ record.is_default ? '是' : '' }}</template>
             <template v-else-if="column.key === 'enabled'">
               <a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</a-tag>
             </template>
@@ -397,7 +406,12 @@ const companyColumns = [
           <a-input v-model:value="bankForm.account_name" placeholder="银行账户户名（可能与公司全名不同）" />
         </a-form-item>
         <a-form-item label="开户行">
-          <a-input v-model:value="bankForm.bank_name" placeholder="建行西安蓝湖树小区支行" />
+          <a-input v-model:value="bankForm.bank_name" placeholder="建行西安蓝湖树小区支行（留空银行则自动识别）" />
+        </a-form-item>
+        <a-form-item label="银行">
+          <a-select v-model:value="bankForm.bank_code" allow-clear placeholder="留空则按开户行自动识别">
+            <a-select-option v-for="o in BANK_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</a-select-option>
+          </a-select>
         </a-form-item>
         <a-form-item label="备注"><a-input v-model:value="bankForm.remark" /></a-form-item>
         <a-space>

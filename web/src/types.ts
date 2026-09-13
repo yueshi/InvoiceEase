@@ -184,6 +184,7 @@ export interface BankAccountOut {
   account_no: string;
   account_name: string | null;
   bank_name: string | null;
+  bank_code: string | null;
   remark: string | null;
   is_default: boolean;
   enabled: boolean;
@@ -194,6 +195,7 @@ export interface BankAccountCreate {
   account_no: string;
   account_name?: string | null;
   bank_name?: string | null;
+  bank_code?: string | null;
   remark?: string | null;
   is_default?: boolean;
   enabled?: boolean;

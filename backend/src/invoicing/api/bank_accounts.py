@@ -23,6 +23,7 @@ class BankAccountOut(BaseModel):
     account_no: str
     account_name: str | None
     bank_name: str | None
+    bank_code: str | None
     remark: str | None
     is_default: bool
     enabled: bool
@@ -34,6 +35,7 @@ class BankAccountCreate(BaseModel):
     account_no: str = Field(min_length=6, max_length=64)
     account_name: str | None = Field(default=None, max_length=256)
     bank_name: str | None = Field(default=None, max_length=128)
+    bank_code: str | None = Field(default=None, max_length=16)  # 留空则按开户行自动识别
     remark: str | None = Field(default=None, max_length=256)
     is_default: bool = False
     enabled: bool = True
@@ -43,6 +45,7 @@ class BankAccountUpdate(BaseModel):
     account_no: str | None = Field(default=None, min_length=6, max_length=64)
     account_name: str | None = Field(default=None, max_length=256)
     bank_name: str | None = Field(default=None, max_length=128)
+    bank_code: str | None = Field(default=None, max_length=16)
     remark: str | None = Field(default=None, max_length=256)
     is_default: bool | None = None
     enabled: bool | None = None
@@ -58,6 +61,13 @@ def _validate(account_no: str) -> str:
     if not _ACCOUNT_NO_RE.match(normalized):
         raise HTTPException(422, "账号须为 6-32 位数字")
     return normalized
+
+
+def _resolve_bank_code(bank_name: str | None) -> str | None:
+    """银行代码：按开户行文本自动识别（建行西安…→ccb）；识别不出为 None。"""
+    from invoicing.parse.bank_templates import detect_bank_code
+
+    return detect_bank_code(bank_name)
 
 
 def _clear_defaults(db: Session, keep_id: int | None = None) -> None:
@@ -85,6 +95,7 @@ def create_bank_account(
         account_no=account_no,
         account_name=(body.account_name or "").strip() or None,
         bank_name=(body.bank_name or "").strip() or None,
+        bank_code=body.bank_code or _resolve_bank_code(body.bank_name),
         remark=body.remark,
         is_default=body.is_default,
         enabled=body.enabled,
@@ -115,6 +126,8 @@ def update_bank_account(
         if dup:
             raise HTTPException(409, "该账号已存在")
         data["account_no"] = account_no
+    if "bank_name" in data and "bank_code" not in data:
+        data["bank_code"] = _resolve_bank_code(data["bank_name"])  # 改开户行则重识别
     if data.get("is_default"):
         _clear_defaults(db, keep_id=account_id)
     for field, value in data.items():

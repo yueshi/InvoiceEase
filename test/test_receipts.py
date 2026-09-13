@@ -860,6 +860,39 @@ def test_bank_account_crud_and_self_account_wiring(client, db):
     assert client.get("/api/v1/bank-accounts", headers=headers).json() == []
 
 
+def test_bank_account_bank_code_autodetect(client, db):
+    """银行代码：开户行文本自动识别（建行…→ccb）；显式指定时不被覆盖；识别不出为 None。"""
+    from invoicing.models import Role, User
+    from invoicing.security import hash_password
+
+    db.add(User(username="admin_bc", password_hash=hash_password("pass123"), role=Role.admin.value))
+    db.commit()
+    auth = client.post(
+        "/api/v1/auth/login", json={"username": "admin_bc", "password": "pass123"}
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {auth}"}
+
+    auto = client.post("/api/v1/bank-accounts", headers=headers, json={
+        "account_no": "61050174004100000779", "bank_name": "建行西安蓝湖树小区支行",
+    }).json()
+    assert auto["bank_code"] == "ccb"  # 自动识别
+
+    explicit = client.post("/api/v1/bank-accounts", headers=headers, json={
+        "account_no": "6225881293783592", "bank_name": "招商银行深圳分行", "bank_code": "cmb",
+    }).json()
+    assert explicit["bank_code"] == "cmb"
+
+    unknown = client.post("/api/v1/bank-accounts", headers=headers, json={
+        "account_no": "1234567890", "bank_name": "某村镇银行",
+    }).json()
+    assert unknown["bank_code"] is None
+
+    # 更新开户行时若未显式给 bank_code，重新识别
+    upd = client.put(f"/api/v1/bank-accounts/{unknown['id']}", headers=headers,
+                     json={"bank_name": "中国工商银行北京中关村支行"}).json()
+    assert upd["bank_code"] == "icbc"
+
+
 def test_bank_account_legacy_company_info_still_works(client, db):
     """兼容：company_infos.bank_account 旧数据仍参与本司账户判定（迁移前数据不失效）。"""
     from invoicing.models import CompanyInfo

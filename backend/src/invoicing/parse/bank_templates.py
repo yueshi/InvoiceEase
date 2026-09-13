@@ -66,7 +66,7 @@ CCB = BankTemplate(
 ICBC = BankTemplate(
     code="icbc",
     name="中国工商银行",
-    detect_keywords=("中国工商银行", "工商银行", "icbc"),
+    detect_keywords=("中国工商银行", "工商银行", "工行", "icbc"),
     block_head_markers=("电子回单", "业务回单"),
     block_end_markers=("回单以客户真实交易为依据", "回单仅供查询"),
     date_labels=("交易日期", "转账日期", "日期"),
@@ -79,7 +79,7 @@ ICBC = BankTemplate(
 ABC = BankTemplate(
     code="abc",
     name="中国农业银行",
-    detect_keywords=("中国农业银行", "农业银行", "abchina"),
+    detect_keywords=("中国农业银行", "农业银行", "农行", "abchina"),
     block_head_markers=("电子回单", "客户回单"),
     block_end_markers=("回单以客户真实交易为依据",),
 )
@@ -87,7 +87,7 @@ ABC = BankTemplate(
 CMB = BankTemplate(
     code="cmb",
     name="招商银行",
-    detect_keywords=("招商银行", "cmbchina"),
+    detect_keywords=("招商银行", "招行", "cmbchina"),
     block_head_markers=("电子回单", "回单凭证"),
     block_end_markers=("回单以客户真实交易为依据",),
 )
@@ -95,7 +95,7 @@ CMB = BankTemplate(
 BOC = BankTemplate(
     code="boc",
     name="中国银行",
-    detect_keywords=("中国银行", "bank of china", "boc.cn"),
+    detect_keywords=("中国银行", "中行", "bank of china", "boc.cn"),
     block_head_markers=("电子回单", "客户回单"),
     block_end_markers=("回单以客户真实交易为依据",),
 )
@@ -110,6 +110,12 @@ def detect_bank(text: str) -> BankTemplate | None:
         if any(k.lower() in flat for k in tpl.detect_keywords):
             return tpl
     return None
+
+
+def detect_bank_code(text: str | None) -> str | None:
+    """识别文本所属银行代码（账户开户行、回单文本通用）；未识别返回 None。"""
+    tpl = detect_bank(text or "")
+    return tpl.code if tpl else None
 
 
 def get_template(code: str | None) -> BankTemplate | None:

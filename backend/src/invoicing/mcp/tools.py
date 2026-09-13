@@ -270,6 +270,7 @@ def bank_account_save(
     account_no: str,
     account_name: str | None = None,
     bank_name: str | None = None,
+    bank_code: str | None = None,
     remark: str | None = None,
     is_default: bool = False,
     enabled: bool = True,
@@ -290,6 +291,12 @@ def bank_account_save(
             db.query(BankAccount).filter(BankAccount.is_default.is_(True)).update({"is_default": False})
         acc.account_name = (account_name or "").strip() or None
         acc.bank_name = (bank_name or "").strip() or None
+        if bank_code:
+            acc.bank_code = bank_code
+        elif acc.bank_code is None and acc.bank_name:
+            from invoicing.parse.bank_templates import detect_bank_code
+
+            acc.bank_code = detect_bank_code(acc.bank_name)
         acc.remark = remark
         acc.is_default = is_default
         acc.enabled = enabled

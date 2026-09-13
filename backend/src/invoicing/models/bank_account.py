@@ -19,7 +19,9 @@ class BankAccount(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     account_no: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     account_name: Mapped[str | None] = mapped_column(String(256), nullable=True)  # 户名（可能与公司名不同）
-    bank_name: Mapped[str | None] = mapped_column(String(128), nullable=True)  # 开户行
+    bank_name: Mapped[str | None] = mapped_column(String(128), nullable=True)  # 开户行（网点全称）
+    # 银行代码（ccb/icbc/abc/cmb/boc）：与回单银行识别同一套；可由开户行自动识别或手选
+    bank_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     remark: Mapped[str | None] = mapped_column(String(256), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
