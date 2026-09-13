@@ -57,7 +57,7 @@ async function onBeforeUpload(file: File) {
     message.success("已上传，系统自动解析中");
     await load();
   } catch (e) {
-    message.error(errorMessage(e));
+    errorMessage(e);
   }
   return false;
 }

@@ -38,6 +38,11 @@ export async function downloadFile(path: string, filename: string): Promise<void
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/**
+ * 统一错误提示：**自身弹出 error toast**，调用处直接 `errorMessage(e)` 即可。
+ * 不要再包一层 `message.error(errorMessage(e))`——本函数返回 void，
+ * 包一层会弹出空消息（历史 bug）。
+ */
 export function errorMessage(e: unknown, fallback = "请求失败"): void {
   const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
   message.error(detail || fallback);

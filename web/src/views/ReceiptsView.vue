@@ -72,7 +72,7 @@ async function onViewFile(r: ReceiptOut) {
     const url = await fetchReceiptFileUrl(r.id);
     window.open(url, "_blank");
   } catch (e) {
-    message.error(errorMessage(e, "原件打开失败"));
+    errorMessage(e, "原件打开失败");
   }
 }
 
@@ -89,10 +89,10 @@ async function onLocate(r: ReceiptOut) {
   locateLoading.value = true;
   try {
     locateImageUrl.value = await fetchReceiptPageUrl(r.id);
-  } catch (e) {
+  } catch {
     // 501（无渲染库）或其它错误 → 降级：直接打开原 PDF 对应页
     locateOpen.value = false;
-    message.warning(errorMessage(e, `页面渲染不可用，已改为打开原 PDF 第 ${r.page_no ?? 1} 页`));
+    message.warning(`页面渲染不可用，已改为打开原 PDF 第 ${r.page_no ?? 1} 页`);
     await onViewFileAtPage(r);
   } finally {
     locateLoading.value = false;
@@ -104,7 +104,7 @@ async function onViewFileAtPage(r: ReceiptOut) {
     const url = await fetchReceiptFileUrl(r.id);
     window.open(`${url}#page=${r.page_no ?? 1}&view=FitH`, "_blank");
   } catch (e) {
-    message.error(errorMessage(e, "原件打开失败"));
+    errorMessage(e, "原件打开失败");
   }
 }
 
@@ -147,7 +147,7 @@ async function onBeforeUpload(file: File) {
     };
     setTimeout(poll, 3000);
   } catch (e) {
-    message.error(errorMessage(e));
+    errorMessage(e);
   }
   return false;
 }
@@ -158,12 +158,12 @@ async function onAutoPair(r: ReceiptOut) {
     message.success(updated.paired_invoice_id ? `已配对发票 #${updated.paired_invoice_id}` : "未找到匹配发票");
     await load();
   } catch (e) {
-    message.error(errorMessage(e));
+    errorMessage(e);
   }
 }
 
 function onExport() {
-  exportReceipts(periodParam()).catch((e) => message.error(errorMessage(e)));
+  exportReceipts(periodParam()).catch((e) => errorMessage(e));
 }
 
 onMounted(load);
