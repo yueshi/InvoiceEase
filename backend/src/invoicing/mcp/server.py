@@ -27,10 +27,13 @@ def build_server() -> MCPServer:
         date_from: date | None = None,
         date_to: date | None = None,
         keyword: str | None = None,
+        expense_type: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> InvoiceListResponse:
-        return mcp_tools.list_invoices_mcp(status, date_from, date_to, keyword, page, page_size)
+        return mcp_tools.list_invoices_mcp(
+            status, date_from, date_to, keyword, expense_type, page, page_size
+        )
 
     @server.tool(description="查看单张发票完整信息（结构化字段+状态+验真结果）。")
     def invoice_detail(invoice_id: int) -> InvoiceOut:

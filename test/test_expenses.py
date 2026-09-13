@@ -446,3 +446,95 @@ def test_mcp_expense_tools_full_flow(db, users):
     assert row["item_count"] == 2
     assert row["entries"][0]["title"] == "上海→北京 高铁"  # 事项级摘要（Agent 可汇报）
     assert row["entries"][0]["amount"] == "200.00"
+
+
+# ---- 发票自动类型标签（规则优先，未命中留空 = 未归类）----------------------
+
+
+def test_rule_only_classify_returns_none_when_no_hit():
+    """规则通道只给确定命中；未命中返回 None（不臆测，不走 LLM）。"""
+    from invoicing.parse.classify import rule_suggest_expense_type
+
+    assert rule_suggest_expense_type("中国国家铁路集团有限公司", None) == "travel"
+    assert rule_suggest_expense_type("福建予君酒店管理有限公司", None) == "travel"
+    assert rule_suggest_expense_type("某某餐饮有限公司", None) == "entertainment"
+    assert rule_suggest_expense_type("办公用品商行", None) == "office"
+    assert rule_suggest_expense_type("某个没听过的科技有限公司", None) is None  # 未命中 → 留空
+
+
+def test_list_invoices_filter_by_expense_type(client, db, users):
+    """发票列表支持按费用类型筛选（含 unclassified=未归类）；财务账号可见全量。"""
+    emp = _login(client, "fin1")
+    _invoice(db, number="24312000000000000041", seller_name="铁路公司")  # 未归类
+    inv2 = _invoice(db, number="24312000000000000042", seller_name="某公司")
+    inv2.expense_type = "office"
+    db.commit()
+
+    office = client.get("/api/v1/invoices?expense_type=office&page=1&page_size=50", headers=emp).json()
+    assert {i["invoice_number"] for i in office["items"]} == {"24312000000000000042"}
+
+    unclassified = client.get(
+        "/api/v1/invoices?expense_type=unclassified&page=1&page_size=50", headers=emp
+    ).json()
+    nums = {i["invoice_number"] for i in unclassified["items"]}
+    assert "24312000000000000041" in nums and "24312000000000000042" not in nums
+
+
+# ---- 发票自动类型标签（六类，含福利费）------------------------------------
+
+
+def test_rule_only_classify_six_types():
+    """规则通道：团建/聚餐 → 福利费（优先于餐饮的招待）；未命中返回 None（留空）。"""
+    from invoicing.parse.classify import rule_suggest_expense_type
+
+    assert rule_suggest_expense_type("中国国家铁路集团有限公司", None) == "travel"
+    assert rule_suggest_expense_type("福建予君酒店管理有限公司", None) == "travel"
+    assert rule_suggest_expense_type("某某餐饮有限公司", None) == "entertainment"
+    assert rule_suggest_expense_type("某某团建拓展服务有限公司", None) == "welfare"
+    assert rule_suggest_expense_type("员工聚餐（xx餐厅）", None) == "welfare"  # 团建优先于餐饮
+    assert rule_suggest_expense_type("办公用品商行", None) == "office"
+    assert rule_suggest_expense_type("某不知名科技有限公司", None) is None
+
+
+def test_classify_llm_prompt_requires_json_and_parses(monkeypatch):
+    """回归：chat_json 走 response_format=json_object，提示词必须含 "json"，
+    且返回值需按 JSON 解析（此前缺 json 字样导致 LLM 归类静默失败 → other）。"""
+    from invoicing.parse import classify
+
+    captured = {}
+
+    class FakeEngine:
+        def chat_json(self, system_prompt, user_content):
+            captured["prompt"] = system_prompt
+            return '{"expense_type": "welfare"}'
+
+    monkeypatch.setattr(classify, "get_llm_engine", lambda: FakeEngine())
+    assert classify.suggest_expense_type("某某服务有限公司", None) == "welfare"
+    assert "json" in captured["prompt"].lower(), "提示词必须含 json 字样，否则 DeepSeek 400"
+
+
+def test_claim_item_accepts_welfare_type(db, users):
+    """报销明细支持福利费类型（团建/聚餐走福利费，区别于招待费口径）。"""
+    inv = _invoice(db, number="24312000000000000051", user_id=users["emp"].id)
+    claim, entry = _claim_with_entry(db, users["emp"], title="团建")
+    item = svc.add_invoice(db, users["emp"], claim.id, inv.id, entry.id, expense_type="welfare")
+    assert item.voucher_type == "invoice"
+    assert item.expense_type == "welfare"
+
+
+def test_list_invoices_filter_by_expense_type(client, db, users):
+    """发票列表支持按费用类型筛选（含 unclassified=未归类）；财务账号可见全量。"""
+    emp = _login(client, "fin1")
+    _invoice(db, number="24312000000000000041", seller_name="铁路公司")  # 未归类
+    inv2 = _invoice(db, number="24312000000000000042", seller_name="某公司")
+    inv2.expense_type = "office"
+    db.commit()
+
+    office = client.get("/api/v1/invoices?expense_type=office&page=1&page_size=50", headers=emp).json()
+    assert {i["invoice_number"] for i in office["items"]} == {"24312000000000000042"}
+
+    unclassified = client.get(
+        "/api/v1/invoices?expense_type=unclassified&page=1&page_size=50", headers=emp
+    ).json()
+    nums = {i["invoice_number"] for i in unclassified["items"]}
+    assert "24312000000000000041" in nums and "24312000000000000042" not in nums

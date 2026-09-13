@@ -53,6 +53,7 @@ class EntryType(str, Enum):
     TRAVEL = "travel"  # 差旅：城市/起止日期
     PROCUREMENT = "procurement"  # 采购：供应商/合同号/订单号/验收单号（三单匹配要素）
     ENTERTAINMENT = "entertainment"  # 招待：招待对象/人数
+    WELFARE = "welfare"  # 职工福利费（团建/聚餐/节日福利/体检；14% 限额口径）
     OFFICE = "office"
     OTHER = "other"
 

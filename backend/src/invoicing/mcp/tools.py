@@ -56,12 +56,15 @@ def list_invoices_mcp(
     date_from: date | None = None,
     date_to: date | None = None,
     keyword: str | None = None,
+    expense_type: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> InvoiceListResponse:
     with SessionLocal() as db:
+        # 关键字参数：避免签名扩展（如新增 expense_type）导致位置参数错位
         result = services.list_invoices(
-            db, _mcp_admin_user(), status, date_from, date_to, keyword, page, page_size
+            db, _mcp_admin_user(), status=status, date_from=date_from, date_to=date_to,
+            keyword=keyword, expense_type=expense_type, page=page, page_size=page_size,
         )
     # MCP 返回需 pydantic 模型（REST 由 response_model 转换，MCP 无此层）
     result.items = [InvoiceOut.model_validate(item, from_attributes=True) for item in result.items]

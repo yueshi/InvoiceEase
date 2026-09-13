@@ -28,7 +28,7 @@ def test_unknown_returns_other():
 
 
 def test_expense_types_order():
-    assert EXPENSE_TYPES == ("travel", "office", "entertainment", "procurement", "other")
+    assert EXPENSE_TYPES == ("travel", "office", "entertainment", "procurement", "welfare", "other")
 
 
 def test_llm_suggests_when_rule_misses(monkeypatch):

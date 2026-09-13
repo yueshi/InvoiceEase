@@ -33,10 +33,10 @@ from invoicing.models.fields import utcnow
 
 logger = logging.getLogger(__name__)
 
-EXPENSE_TYPES = ("travel", "office", "entertainment", "procurement", "other")
+EXPENSE_TYPES = ("travel", "office", "entertainment", "procurement", "welfare", "other")
 _ENTRY_TYPE_LABELS = {
     "travel": "差旅", "procurement": "采购", "entertainment": "招待",
-    "office": "办公", "other": "其他",
+    "office": "办公", "welfare": "福利费", "other": "其他",
 }
 _FINANCE_ROLES = ("finance_staff", "finance_manager", "admin")
 

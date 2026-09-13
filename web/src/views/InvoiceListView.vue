@@ -4,9 +4,9 @@ import { computed, onMounted, reactive, ref } from "vue";
 import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { downloadFile, errorMessage } from "../api/client";
-import { listInvoices, reVerify, reviewInvoice, uploadInvoice } from "../api/invoices";
+import { listInvoices, reVerify, reviewInvoice, updateInvoice, uploadInvoice } from "../api/invoices";
 import { useAuthStore } from "../stores/auth";
-import { INVOICE_STATUS_LABELS, VERIFY_STATUS_LABELS, type InvoiceListResponse, type InvoiceOut } from "../types";
+import { EXPENSE_TYPE_COLORS, EXPENSE_TYPE_LABELS, INVOICE_STATUS_LABELS, VERIFY_STATUS_LABELS, type InvoiceListResponse, type InvoiceOut } from "../types";
 import InvoiceDetailDrawer from "../components/InvoiceDetailDrawer.vue";
 import PreviewModal from "../components/PreviewModal.vue";
 
@@ -16,7 +16,11 @@ const loading = ref(false);
 // 周期过滤：全部 / 按月 / 按季度 / 按年 —— 单一锚点驱动，切换类型保持上下文
 // （历史缺陷：各选择器独立且默认"今天"，从「年 2026」切到「按季度」会跳回当前季，
 //  加上选择器不可清空，用户找不到非当前周期的发票；见 2026-09-13 排查）
-const filters = reactive({ status: undefined as string | undefined, keyword: "" });
+const filters = reactive({
+  status: undefined as string | undefined,
+  keyword: "",
+  expense_type: undefined as string | undefined, // unclassified = 未归类
+});
 const periodType = ref<"all" | "month" | "quarter" | "year">("month");
 const anchor = ref<Dayjs>(dayjs()); // 唯一时间锚点：类型切换按它换算，选择器改动回写它
 
@@ -122,6 +126,7 @@ async function load() {
     data.value = await listInvoices({
       status: filters.status,
       keyword: filters.keyword || undefined,
+      expense_type: filters.expense_type,
       ...periodRange(),
       page: data.value.page,
       page_size: data.value.page_size,
@@ -160,6 +165,23 @@ async function onReview(record: InvoiceOut, action: "approve" | "reject") {
   }
 }
 
+// 行内归类：点标签记录目标行 → 菜单选择类型（避免模板内联箭头/类型注解）
+const typeTarget = ref<InvoiceOut | null>(null);
+
+function onTypeMenuClick(info: { key: string }) {
+  if (typeTarget.value) onSetExpenseType(typeTarget.value, info.key);
+}
+
+async function onSetExpenseType(record: InvoiceOut, expenseType: string) {
+  try {
+    await updateInvoice(record.id, { expense_type: expenseType });
+    message.success(`已归类为「${EXPENSE_TYPE_LABELS[expenseType] || expenseType}」`);
+    load();
+  } catch (e) {
+    errorMessage(e, "归类失败");
+  }
+}
+
 async function onReVerify(record: InvoiceOut) {
   try {
     await reVerify(record.id);
@@ -177,6 +199,7 @@ const columns = [
   { title: "销售方", dataIndex: "seller_name", key: "seller_name" },
   { title: "开票日期", dataIndex: "issue_date", key: "issue_date" },
   { title: "价税合计", dataIndex: "total_amount", key: "total_amount" },
+  { title: "费用类型", key: "expense_type", width: 110 },
   { title: "状态", dataIndex: "status", key: "status" },
   { title: "验真", dataIndex: "verify_status", key: "verify_status" },
   { title: "操作", key: "actions" },
@@ -191,6 +214,10 @@ const columns = [
         <a-select-option v-for="(label, value) in INVOICE_STATUS_LABELS" :key="value" :value="value">{{ label }}</a-select-option>
       </a-select>
       <a-input v-model:value="filters.keyword" placeholder="发票号码/购销方" style="width: 220px" @press-enter="reloadFirst" />
+      <a-select v-model:value="filters.expense_type" placeholder="费用类型" allow-clear style="width: 140px" @change="reloadFirst">
+        <a-select-option v-for="(label, k) in EXPENSE_TYPE_LABELS" :key="k" :value="k">{{ label }}</a-select-option>
+        <a-select-option value="unclassified">未归类</a-select-option>
+      </a-select>
       <a-radio-group v-model:value="periodType" button-style="solid" @change="onPeriodTypeChange">
         <a-radio-button value="all">全部</a-radio-button>
         <a-radio-button value="month">按月</a-radio-button>
@@ -249,6 +276,22 @@ const columns = [
           <!-- 报销维度（与业务状态正交）：已报销 / 报销中 -->
           <a-tag v-if="record.reimbursement_status === 'claimed'" color="green" style="margin-left: 4px">已报销</a-tag>
           <a-tag v-else-if="record.reimbursement_status === 'pending'" color="gold" style="margin-left: 4px">报销中</a-tag>
+        </template>
+        <template v-else-if="column.key === 'expense_type'">
+          <a-dropdown :trigger="['click']">
+            <a-tag
+              :color="EXPENSE_TYPE_COLORS[record.expense_type as string] || 'default'"
+              style="cursor: pointer"
+              @click="typeTarget = record"
+            >
+              {{ record.expense_type ? (EXPENSE_TYPE_LABELS[record.expense_type] || record.expense_type) : "未归类" }}
+            </a-tag>
+            <template #overlay>
+              <a-menu @click="onTypeMenuClick">
+                <a-menu-item v-for="(label, k) in EXPENSE_TYPE_LABELS" :key="k">{{ label }}</a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
         </template>
         <template v-else-if="column.key === 'verify_status'">
           {{ VERIFY_STATUS_LABELS[record.verify_status] || record.verify_status }}

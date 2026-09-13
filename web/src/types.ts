@@ -226,7 +226,14 @@ export const VOUCHER_TYPE_LABELS: Record<string, string> = {
 };
 
 export const EXPENSE_TYPE_LABELS: Record<string, string> = {
-  travel: "差旅", office: "办公", entertainment: "招待", procurement: "采购", other: "其他",
+  travel: "差旅", office: "办公", entertainment: "招待客户",
+  procurement: "采购", welfare: "福利费", other: "其他",
+};
+
+/** 费用类型标签颜色（发票列表标签用） */
+export const EXPENSE_TYPE_COLORS: Record<string, string> = {
+  travel: "blue", office: "cyan", entertainment: "orange",
+  procurement: "purple", welfare: "gold", other: "default",
 };
 
 export interface ClaimOut {

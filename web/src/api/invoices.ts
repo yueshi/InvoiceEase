@@ -6,6 +6,8 @@ export interface ListParams {
   date_from?: string;
   date_to?: string;
   keyword?: string;
+  /** 费用类型筛选；unclassified = 未归类（规则未命中留空） */
+  expense_type?: string;
   page?: number;
   page_size?: number;
 }

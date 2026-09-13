@@ -112,6 +112,13 @@ def _parse_invoice(invoice_id: int) -> None:
             parsed_number = outcome.parsed.invoice_number
             _apply_parsed_fields(inv, outcome.parsed)
             _save_xml_original(storage, inv, outcome.xml_data)
+            # 自动类型标签（规则优先；未命中留空 = 列表显示「未归类」，不臆测）
+            if not inv.expense_type:
+                from invoicing.parse.classify import rule_suggest_expense_type
+
+                hit = rule_suggest_expense_type(inv.seller_name, inv.invoice_type)
+                if hit:
+                    inv.expense_type = hit
             if extra:
                 # BUYER_MISMATCH 从严：购买方与预设本司不匹配 → 待复核
                 inv.validation_errors = [{"code": e.code, "message": e.message} for e in extra]

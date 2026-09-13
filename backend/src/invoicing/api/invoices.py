@@ -31,12 +31,15 @@ def list_invoices(
     date_from: date | None = None,
     date_to: date | None = None,
     keyword: str | None = None,
+    expense_type: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return services.list_invoices(db, user, status, date_from, date_to, keyword, page, page_size)
+    return services.list_invoices(
+        db, user, status, date_from, date_to, keyword, expense_type, page, page_size
+    )
 
 
 @router.post("/upload", response_model=InvoiceOut)
