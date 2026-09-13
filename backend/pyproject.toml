@@ -29,12 +29,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 勿再加 cairocffi：OFD 矢量渲染已改用 Pillow（parse/ofd_render.py），
+# 无需系统 libcairo，装了只会白编译一个 cairo。
 ocr = [
     "paddleocr>=2.8,<3",
     "setuptools>=68",
     "paddlepaddle>=2.5,<3",
     "pymupdf>=1.28.2",
-    "cairocffi>=1.7.1",
 ]
 
 [dependency-groups]
