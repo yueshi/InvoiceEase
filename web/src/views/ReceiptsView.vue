@@ -13,7 +13,7 @@ import {
   listReceipts,
   uploadReceipt,
 } from "../api/receipts";
-import type { ReceiptOut } from "../types";
+import { BANK_LABELS, type ReceiptOut } from "../types";
 import ReceiptDetailDrawer from "../components/ReceiptDetailDrawer.vue";
 import ReceiptLocatePanel from "../components/ReceiptLocatePanel.vue";
 
@@ -43,6 +43,7 @@ function periodParam(): { month?: string; quarter?: string; year?: string } {
 // 质量问题不占列（细节收进详情抽屉），状态列的「待核对」标签 + 只看待核对筛选足够暴露
 const columns = [
   { title: "交易日期", dataIndex: "trade_date", key: "trade_date" },
+  { title: "银行", dataIndex: "bank_code", key: "bank_code", width: 90 },
   { title: "对方户名", dataIndex: "counterparty_name", key: "counterparty_name" },
   { title: "金额", dataIndex: "amount", key: "amount" },
   { title: "收付", dataIndex: "direction", key: "direction", width: 60 },
@@ -197,6 +198,9 @@ onMounted(load);
       :row-class-name="(r: ReceiptOut) => (r.needs_review ? 'receipt-review-row' : '')"
     >
       <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'bank_code'">
+          {{ record.bank_code ? (BANK_LABELS[record.bank_code] || record.bank_code) : "—" }}
+        </template>
         <template v-if="column.key === 'direction'">
           {{ { 收: '收', 付: '付' }[record.direction as '收' | '付'] || '—' }}
         </template>

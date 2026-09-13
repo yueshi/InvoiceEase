@@ -1,12 +1,13 @@
-<!-- 系统配置：邮箱配置 + 用户管理 + 常用税号/公司 三 tab -->
+<!-- 系统配置：邮箱配置 + 用户管理 + 常用税号/公司 + 常用银行账号 四 tab -->
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from "vue";
 import { Modal, message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
 import { createCompanyInfo, deleteCompanyInfo, listCompanyInfos, updateCompanyInfo } from "../api/companyInfos";
+import { createBankAccount, deleteBankAccount, listBankAccounts, updateBankAccount } from "../api/bankAccounts";
 import { createMailbox, listMailboxes, pollMailbox, testMailbox, updateMailbox } from "../api/mailboxes";
 import { createUser, listUsers, updateUser } from "../api/users";
-import { COMPANY_KIND_LABELS, ROLE_LABELS, type CompanyInfoCreate, type CompanyInfoOut, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut } from "../types";
+import { COMPANY_KIND_LABELS, ROLE_LABELS, type BankAccountCreate, type BankAccountOut, type CompanyInfoCreate, type CompanyInfoOut, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut } from "../types";
 
 const TAX_ID_RE = /^[0-9A-Z]{18}$/;
 
@@ -31,9 +32,70 @@ const companyForm = reactive({ name: "", tax_id: "", kind: "other", is_default: 
 watch(() => companyForm.kind, (kind) => {
   if (kind !== "self") companyForm.is_default = false;
 });
+// 常用企业银行账号（本司账户；回单「本司账户行」判定）
+const bankAccounts = ref<BankAccountOut[]>([]);
+const bankModalOpen = ref(false);
+const editingBankId = ref<number | null>(null);
+const bankForm = reactive({ account_no: "", account_name: "", bank_name: "", remark: "", is_default: false, enabled: true });
+const bankColumns = [
+  { title: "账号", dataIndex: "account_no", key: "account_no" },
+  { title: "户名", dataIndex: "account_name", key: "account_name" },
+  { title: "开户行", dataIndex: "bank_name", key: "bank_name" },
+  { title: "备注", dataIndex: "remark", key: "remark" },
+  { title: "默认", dataIndex: "is_default", key: "is_default" },
+  { title: "状态", dataIndex: "enabled", key: "enabled" },
+  { title: "操作", key: "actions" },
+];
+
+function openBankModal(record: BankAccountOut | null) {
+  editingBankId.value = record ? record.id : null;
+  Object.assign(bankForm, {
+    account_no: record?.account_no ?? "",
+    account_name: record?.account_name ?? "",
+    bank_name: record?.bank_name ?? "",
+    remark: record?.remark ?? "",
+    is_default: record?.is_default ?? false,
+    enabled: record?.enabled ?? true,
+  });
+  bankModalOpen.value = true;
+}
+
+async function saveBankAccount() {
+  if (!/^[0-9\s\-]{6,40}$/.test(bankForm.account_no.trim())) {
+    message.warning("账号须为 6-32 位数字（可含空格/连字符）");
+    return;
+  }
+  try {
+    const body: BankAccountCreate = {
+      account_no: bankForm.account_no.trim(),
+      account_name: bankForm.account_name.trim() || null,
+      bank_name: bankForm.bank_name.trim() || null,
+      remark: bankForm.remark.trim() || null,
+      is_default: bankForm.is_default,
+      enabled: bankForm.enabled,
+    };
+    if (editingBankId.value) await updateBankAccount(editingBankId.value, body);
+    else await createBankAccount(body);
+    message.success("已保存");
+    bankModalOpen.value = false;
+    loadAll();
+  } catch (e) {
+    errorMessage(e, "银行账号保存失败");
+  }
+}
+
+async function onDeleteBankAccount(record: BankAccountOut) {
+  try {
+    await deleteBankAccount(record.id);
+    message.success("已删除");
+    loadAll();
+  } catch (e) {
+    errorMessage(e, "删除失败");
+  }
+}
 
 async function loadAll() {
-  // 三项独立加载：任一失败不影响其余渲染，各自单独提示
+  // 各项独立加载：任一失败不影响其余渲染，各自单独提示
   try {
     mailboxes.value = await listMailboxes();
   } catch (e) {
@@ -48,6 +110,11 @@ async function loadAll() {
     companyInfos.value = await listCompanyInfos();
   } catch (e) {
     errorMessage(e, "公司配置加载失败");
+  }
+  try {
+    bankAccounts.value = await listBankAccounts();
+  } catch (e) {
+    errorMessage(e, "银行账号加载失败");
   }
 }
 onMounted(loadAll);
@@ -241,6 +308,27 @@ const companyColumns = [
           </template>
         </a-table>
       </a-tab-pane>
+      <a-tab-pane key="bank" tab="常用银行账号">
+        <p style="color: #888; margin-bottom: 12px">
+          本司银行账号：回单解析用它判定「本司账户行」（命中时对方户名留空并标记待核对）。
+          账号是可靠依据——户名可能与本司全名不一致；停用的账号不参与判定。
+        </p>
+        <a-button type="primary" style="margin-bottom: 12px" @click="openBankModal(null)">新建账号</a-button>
+        <a-table :columns="bankColumns" :data-source="bankAccounts" row-key="id" :pagination="false">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'is_default'">{{ record.is_default ? '是' : '' }}</template>
+            <template v-else-if="column.key === 'enabled'">
+              <a-tag :color="record.enabled ? 'green' : 'default'">{{ record.enabled ? '启用' : '停用' }}</a-tag>
+            </template>
+            <template v-else-if="column.key === 'actions'">
+              <a-space>
+                <a @click="openBankModal(record)">编辑</a>
+                <a @click="onDeleteBankAccount(record)">删除</a>
+              </a-space>
+            </template>
+          </template>
+        </a-table>
+      </a-tab-pane>
     </a-tabs>
 
     <a-modal v-model:open="mailboxModalOpen" :title="editingMailbox ? '编辑邮箱' : '新建邮箱'" @ok="saveMailbox">
@@ -294,6 +382,28 @@ const companyColumns = [
           <a-input v-model:value="companyForm.bank_account" placeholder="回单解析用：命中本司账户行时对方户名留空并待核对" />
         </a-form-item>
         <a-form-item label="备注"><a-input v-model:value="companyForm.remark" /></a-form-item>
+      </a-form>
+    </a-modal>
+    <a-modal
+      v-model:open="bankModalOpen"
+      :title="editingBankId ? '编辑银行账号' : '新建银行账号'"
+      @ok="saveBankAccount"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="账号（6-32 位数字）">
+          <a-input v-model:value="bankForm.account_no" placeholder="61050174004100000779" />
+        </a-form-item>
+        <a-form-item label="户名">
+          <a-input v-model:value="bankForm.account_name" placeholder="银行账户户名（可能与公司全名不同）" />
+        </a-form-item>
+        <a-form-item label="开户行">
+          <a-input v-model:value="bankForm.bank_name" placeholder="建行西安蓝湖树小区支行" />
+        </a-form-item>
+        <a-form-item label="备注"><a-input v-model:value="bankForm.remark" /></a-form-item>
+        <a-space>
+          <a-checkbox v-model:checked="bankForm.is_default">默认账户</a-checkbox>
+          <a-checkbox v-model:checked="bankForm.enabled">启用（参与本司账户行判定）</a-checkbox>
+        </a-space>
       </a-form>
     </a-modal>
   </div>

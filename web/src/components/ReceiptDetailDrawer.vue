@@ -1,7 +1,7 @@
 <!-- 回单详情抽屉：全字段 + 质量问题 + 原件操作（列表列精简，细节收进此处） -->
 <script setup lang="ts">
 import dayjs from "dayjs";
-import type { ReceiptOut } from "../types";
+import { BANK_LABELS, type ReceiptOut } from "../types";
 
 const props = defineProps<{ open: boolean; receipt: ReceiptOut | null }>();
 const emit = defineEmits<{ "update:open": [boolean]; viewFile: [ReceiptOut]; viewPage: [ReceiptOut]; locate: [ReceiptOut] }>();
@@ -29,6 +29,9 @@ function issueText(r: ReceiptOut | null): string {
   <a-drawer title="回单详情" :open="props.open" width="480" @close="emit('update:open', false)">
     <template v-if="props.receipt">
       <a-descriptions :column="1" bordered size="small">
+        <a-descriptions-item label="银行">
+          {{ props.receipt.bank_code ? (BANK_LABELS[props.receipt.bank_code] || props.receipt.bank_code) : "未识别" }}
+        </a-descriptions-item>
         <a-descriptions-item label="交易日期">
           {{ props.receipt.trade_date || "—" }}
         </a-descriptions-item>

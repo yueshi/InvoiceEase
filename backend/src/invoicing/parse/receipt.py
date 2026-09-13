@@ -10,26 +10,78 @@ from decimal import Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
 
-# 金额两组件：①金额关键词（禁止跨行——避免「…金额\n<产品编号>」表头误配）
-# ②￥ 货币符号锚定（兜「金额 （大写）人民币… （小写）￥1,600.00」这类关键词与
-# 数字间距超限的版式）。
-_AMOUNT_RE = re.compile(
-    r"(?:交易金额|付款金额|支付金额|金额)[^0-9\n]{0,4}([\d,]+(?:\.\d{1,2})?)"
-    r"|￥\s*([\d,]+(?:\.\d{1,2})?)"
-)
-# 建行等回单 PDF 文本层常乱序（如 `转账日期： 年 月 日2026 04 20`——占位符在值前、
-# 空格分隔），分隔符须可选、关键词与数字间距放宽到 12 个非数字字符。
-_DATE_RE = re.compile(
-    r"(?:转账日期|交易日期|付款日期|日期)\D{0,12}(\d{4})\s*[年/\-]?\s*(\d{1,2})\s*[月/\-]?\s*(\d{1,2})\s*日?"
-)
-# 户名关键词含税票回单版式（收款国库/征收机关=收款方；付款人全称是本司不能当对方）。
-# 关键词与冒号间允许 ≤12 字的标签尾巴（如「征收机关名称（委托方）：」），但仅在
-# 确有冒号时消耗——无冒号行（`对方户名 北京某某公司`）直接从关键词后取值。
-_PARTY_RE = re.compile(
-    r"(?:对方户名|收款方名称|对方名称|收款人全称|收款人户名|收款国库|征收机关|户名)"
-    r"(?:[^：:\n]{0,12}[：:])?\s*([^\n]+)"
-)
-_ABSTRACT_RE = re.compile(r"(?:摘要|用途|备注)\s*[:：]?\s*([^\n]+)")
+# 通用兜底标签（模板缺失时使用——历史上这些即事实标准；模板命中时以其标签为准）
+_GENERIC_LABELS = {
+    "amount": ("交易金额", "付款金额", "支付金额", "金额"),
+    "date": ("转账日期", "交易日期", "付款日期", "日期"),
+    "party": ("对方户名", "收款方名称", "对方名称", "收款人全称", "收款人户名",
+              "收款国库", "征收机关", "户名"),
+    "abstract": ("摘要", "用途", "备注"),
+}
+
+# 正则按标签集缓存（模板数量有限，避免每次解析重新编译）
+_RE_CACHE: dict[tuple, "re.Pattern[str]"] = {}
+
+
+def _amount_re(labels: tuple[str, ...]) -> "re.Pattern[str]":
+    """金额两组件：①金额关键词（禁止跨行——避免「…金额\n<产品编号>」表头误配）
+    ②￥ 货币符号锚定（兜「金额 （大写）人民币… （小写）￥1,600.00」版式）。"""
+    key = ("amount", labels)
+    if key not in _RE_CACHE:
+        alt = "|".join(labels)
+        _RE_CACHE[key] = re.compile(
+            rf"(?:{alt})[^0-9\n]{{0,4}}([\d,]+(?:\.\d{{1,2}})?)"
+            r"|￥\s*([\d,]+(?:\.\d{1,2})?)"
+        )
+    return _RE_CACHE[key]
+
+
+def _date_re(labels: tuple[str, ...]) -> "re.Pattern[str]":
+    """回单 PDF 文本层常乱序（`转账日期： 年 月 日2026 04 20`），分隔符须可选、
+    关键词与数字间距放宽到 12 个非数字字符。"""
+    key = ("date", labels)
+    if key not in _RE_CACHE:
+        alt = "|".join(labels)
+        _RE_CACHE[key] = re.compile(
+            rf"(?:{alt})\D{{0,12}}(\d{{4}})\s*[年/\-]?\s*(\d{{1,2}})\s*[月/\-]?\s*(\d{{1,2}})\s*日?"
+        )
+    return _RE_CACHE[key]
+
+
+def _party_re(labels: tuple[str, ...]) -> "re.Pattern[str]":
+    """户名标签（含票证版式：收款国库/征收机关=收款方，付款人全称是本司不能当对方）。
+    关键词与冒号间允许 ≤12 字标签尾巴（「征收机关名称（委托方）：」），仅在确有
+    冒号时消耗——无冒号行直接从关键词后取值。"""
+    key = ("party", labels)
+    if key not in _RE_CACHE:
+        alt = "|".join(labels)
+        _RE_CACHE[key] = re.compile(
+            rf"(?:{alt})(?:[^：:\n]{{0,12}}[：:])?\s*([^\n]+)"
+        )
+    return _RE_CACHE[key]
+
+
+def _abstract_re(labels: tuple[str, ...]) -> "re.Pattern[str]":
+    key = ("abstract", labels)
+    if key not in _RE_CACHE:
+        alt = "|".join(labels)
+        _RE_CACHE[key] = re.compile(rf"(?:{alt})\s*[:：]?\s*([^\n]+)")
+    return _RE_CACHE[key]
+
+
+def _labels(template, field: str) -> tuple[str, ...]:
+    """字段标签集：模板命中用模板的，缺失回落到通用集。"""
+    if template is not None:
+        tpl_labels = getattr(template, f"{field}_labels", ()) or ()
+        if tpl_labels:
+            return tuple(tpl_labels)
+    return _GENERIC_LABELS[field]
+
+
+def _party_self_labels(template) -> tuple[str, ...]:
+    """本方（账户持有人）标签：模板声明优先，通用集默认含付款人全称/户名。"""
+    tpl_labels = getattr(template, "party_self_labels", ()) or ()
+    return tuple(tpl_labels) if tpl_labels else ("付款人全称", "付款人户名", "账户名称")
 # CCB 打印版式：占位符「年 月 日」在前、数值在后且无日期关键词（如 `流水号：…年 月 日2026 05 12`）
 _DATE_YMD_RE = re.compile(r"年\s*月\s*日\D{0,8}(\d{4})\s+(\d{1,2})\s+(\d{1,2})")
 
@@ -77,16 +129,24 @@ def _clean_party(raw: str) -> str:
     return s
 
 
-def infer_direction(text: str) -> str | None:
-    """收付方向：收/付/None（不确定）。竖排文本先归一化再匹配关键词。"""
+def infer_direction(text: str, template=None) -> str | None:
+    """收付方向：收/付/None（不确定）。竖排文本先归一化再匹配关键词。
+
+    模板可声明本行方向规则（语义关键词 > 显式回单标签）；模板未声明时
+    回落通用规则（建行实测结论：语义优先于版式标签、表单类型不算方向）。
+    """
     flat = re.sub(r"\s+", "", text or "")
-    if any(k in flat for k in _DIRECTION_SEMANTIC_OUT):
+    semantic_out = (template.direction_out if template and template.direction_out else _DIRECTION_SEMANTIC_OUT)
+    semantic_in = (template.direction_in if template and template.direction_in else _DIRECTION_SEMANTIC_IN)
+    label_out = (template.direction_label_out if template and template.direction_label_out else _DIRECTION_LABEL_OUT)
+    label_in = (template.direction_label_in if template and template.direction_label_in else _DIRECTION_LABEL_IN)
+    if any(k in flat for k in semantic_out):
         return "付"
-    if any(k in flat for k in _DIRECTION_SEMANTIC_IN):
+    if any(k in flat for k in semantic_in):
         return "收"
-    if any(k in flat for k in _DIRECTION_LABEL_OUT):
+    if any(k in flat for k in label_out):
         return "付"
-    if any(k in flat for k in _DIRECTION_LABEL_IN):
+    if any(k in flat for k in label_in):
         return "收"
     return None
 
@@ -96,7 +156,9 @@ _PROJECT_HEADER_RE = re.compile(r"(?:项目名称|计息项目|收费项目)\s*[
 _DETAIL_ROW_RE = re.compile(r"\d{8}\s+\d{8}\s+[\d,]+\.\d{2}")
 
 
-def extract_abstract(text: str, amount: Decimal | None = None) -> str | None:
+def extract_abstract(
+    text: str, amount: Decimal | None = None, template=None, table_labels: tuple[str, ...] | None = None
+) -> str | None:
     """摘要提取（各版式语义摘要来源不同，多数没有「摘要」标签）：
 
     ① 显式标签（摘要/用途/备注）——通用回单；
@@ -105,7 +167,7 @@ def extract_abstract(text: str, amount: Decimal | None = None) -> str | None:
        （如医疗 449.10 + 大额 8.00 = 合计 457.10）取各行行首去重拼接；
     ③ 项目表头：`项目名称 … 金额` 之间（手续费明细表）。
     """
-    m = _ABSTRACT_RE.search(text)
+    m = _abstract_re(_labels(template, "abstract")).search(text)
     if m:
         v = m.group(1).strip(" ：:")
         if v:
@@ -137,9 +199,12 @@ def extract_abstract(text: str, amount: Decimal | None = None) -> str | None:
     return None
 
 
-def parse_receipt_text(text: str, self_accounts: set[str] | None = None) -> dict | None:
-    """规则通道：四字段 + 方向 + 质量标记（P0/P1/P2）。
+def parse_receipt_text(
+    text: str, self_accounts: set[str] | None = None, template=None
+) -> dict | None:
+    """规则通道（模板驱动）：四字段 + 方向 + 质量标记。
 
+    template：银行模板（未给则用通用兜底标签集与通用方向规则）。
     关键字段（金额+对方户名）缺一 → None（不产半成品），除非命中本司账户行
     （手续费/利息等银行内部交易，本就没有对方户名——此时对方留空并记
     no_counterparty，仍产出该笔以便入账）。
@@ -147,7 +212,7 @@ def parse_receipt_text(text: str, self_accounts: set[str] | None = None) -> dict
     self_accounts：本司银行账号集合（账号判定比名称可靠）。
     """
     amount = None
-    m = _AMOUNT_RE.search(text)
+    m = _amount_re(_labels(template, "amount")).search(text)
     if m:
         try:
             amount = Decimal((m.group(1) or m.group(2)).replace(",", ""))
@@ -157,11 +222,25 @@ def parse_receipt_text(text: str, self_accounts: set[str] | None = None) -> dict
         return None
 
     issues: list[str] = []
-    p = _PARTY_RE.search(text)
-    party = _clean_party(p.group(1)) if p else None
-    party_line = p.group(1) if p else ""
+    p = _party_re(_labels(template, "party")).search(text)
+    if p is None:
+        # 只命中本方标签（付款人户名/付款人全称…）→ 该行是账户持有人（本司），无对方户名
+        sp = _party_re(_party_self_labels(template)).search(text)
+        if sp is not None:
+            party_line = sp.group(1)
+            party = None
+            issues.append("no_counterparty")
+            hits_self_label = True
+        else:
+            party_line, party, hits_self_label = "", None, False
+    else:
+        party = _clean_party(p.group(1))
+        party_line = p.group(1)
+        hits_self_label = False
     # 本司账户行判定：户名行内出现本司账号 → 该行是账户持有人（本司），不是对方
-    hits_self = bool(self_accounts) and any(acc and acc in party_line for acc in self_accounts)
+    hits_self = hits_self_label or (
+        bool(self_accounts) and any(acc and acc in party_line for acc in self_accounts)
+    )
     if hits_self:
         party = None
         issues.append("no_counterparty")
@@ -172,18 +251,18 @@ def parse_receipt_text(text: str, self_accounts: set[str] | None = None) -> dict
         return None  # 无户名且非本司账户行 → 无法产出
 
     trade_date = None
-    d = _DATE_RE.search(text) or _DATE_YMD_RE.search(text)
+    d = _date_re(_labels(template, "date")).search(text) or _DATE_YMD_RE.search(text)
     if d:
         trade_date = _parse_date_parts(d.group(1), d.group(2), d.group(3))
     if trade_date is None:
         issues.append("no_trade_date")
-    abstract = extract_abstract(text, amount)
+    abstract = extract_abstract(text, amount, template=template)
     return {
         "amount": amount,
         "counterparty_name": party,
         "trade_date": trade_date,
         "abstract": abstract,
-        "direction": infer_direction(text),
+        "direction": infer_direction(text, template=template),
         "quality_issues": issues,
     }
 
@@ -199,11 +278,25 @@ RECEIPT_PROMPT = (
 _BLOCK_SPLIT_RE = re.compile(r"此回单以客户真实交易为依据")
 
 
-def split_receipt_blocks(text: str) -> list[str]:
-    """按块尾免责声明行切分文本；无标记的单文档文本整体一块（兼容单张回单）。"""
+def split_receipt_blocks(
+    text: str,
+    head_markers: tuple[str, ...] | None = None,
+    end_markers: tuple[str, ...] | None = None,
+) -> list[str]:
+    """按块尾标记切分（多银行多值）；无标记的单文档文本整体一块（兼容单张回单）。
+
+    head_markers 目前仅用于调用方语义（如版式判断），分块以 end_markers 为主——
+    各行回单都以「块尾声明行」结束，最稳定。
+    """
     if not text or not text.strip():
         return []
-    chunks = [c for c in _BLOCK_SPLIT_RE.split(text) if c.strip()]
+    if end_markers is None:
+        from invoicing.parse.bank_templates import block_markers
+
+        _, end_markers = block_markers(None)  # 通用兜底（多银行常见块尾措辞）
+    markers = tuple(end_markers)
+    pattern = re.compile("|".join(re.escape(m) for m in markers)) if markers else _BLOCK_SPLIT_RE
+    chunks = [c for c in pattern.split(text) if c.strip()]
     return chunks if chunks else [text]
 
 
@@ -471,10 +564,18 @@ def parse_receipts_bytes(
 
     self_accounts：本司银行账号集合；self_names：本司名称集合（LLM 过滤用）。
     """
+    pages = _receipt_pages_from_bytes(data, kind)
+    # 银行识别（全文本；命中模板 → 该行标签表与方向规则，未命中 → 通用兜底）
+    from invoicing.parse.bank_templates import block_markers, detect_bank
+
+    full_text = "\n".join(pages)
+    template = detect_bank(full_text)
+    _, end_markers = block_markers(template)
+
     results = []
-    for page_no, page_text in enumerate(_receipt_pages_from_bytes(data, kind), start=1):
-        for chunk in split_receipt_blocks(page_text):
-            fields = parse_receipt_text(chunk, self_accounts=self_accounts)
+    for page_no, page_text in enumerate(pages, start=1):
+        for chunk in split_receipt_blocks(page_text, end_markers=end_markers):
+            fields = parse_receipt_text(chunk, self_accounts=self_accounts, template=template)
             if fields is None:
                 # 规则无产出（无金额）→ 整块交 LLM 试一次
                 fields = _llm_fill_fields(chunk, {}, self_names=self_names)
@@ -487,6 +588,8 @@ def parse_receipts_bytes(
             ):
                 continue  # 既无对方也非本司账户行 → 不可入账
             fields["page"] = page_no
+            if template is not None:
+                fields["bank_code"] = template.code
             token = anchor_token(chunk, amount=fields.get("amount"), exclude=self_accounts or set())
             if token:
                 fields["anchor_text"] = token
@@ -546,25 +649,43 @@ def suggest_pair(db, receipt_id: int) -> int | None:
 
 
 def self_account_set(db) -> set[str]:
-    """本司银行账号集合（company_infos kind=self 的 bank_account，非空）。"""
-    from invoicing.models import CompanyInfo
+    """本司银行账号集合：bank_accounts（启用）∪ company_infos.kind=self 的旧列（兼容）。
 
-    return {
-        c.bank_account.strip()
+    账号是判定本司账户行的可靠依据（公司名可能对不上回单户名）。
+    """
+    from invoicing.models import BankAccount, CompanyInfo
+
+    accounts = {
+        re.sub(r"[\s\-]", "", a.account_no)
+        for a in db.query(BankAccount).filter(BankAccount.enabled.is_(True)).all()
+        if a.account_no
+    }
+    accounts |= {
+        re.sub(r"[\s\-]", "", c.bank_account)
         for c in db.query(CompanyInfo).filter(CompanyInfo.kind == "self").all()
         if c.bank_account and c.bank_account.strip()
     }
+    return {a for a in accounts if a}
 
 
 def self_name_set(db) -> set[str]:
-    """本司名称集合（归一化后，company_infos kind=self）。"""
-    from invoicing.models import CompanyInfo
+    """本司名称集合（归一化）：company_infos kind=self ∪ bank_accounts.account_name。
 
-    return {
+    银行账户户名可能是简称，与公司全名不同——两者都纳入名称集合。
+    """
+    from invoicing.models import BankAccount, CompanyInfo
+
+    names = {
         n
         for c in db.query(CompanyInfo).filter(CompanyInfo.kind == "self").all()
         if (n := normalize_party(c.name or ""))
     }
+    names |= {
+        n
+        for a in db.query(BankAccount).filter(BankAccount.account_name.isnot(None)).all()
+        if (n := normalize_party(a.account_name or ""))
+    }
+    return names
 
 
 def _self_party_names(db) -> set[str]:

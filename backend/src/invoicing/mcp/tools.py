@@ -247,6 +247,81 @@ def company_info_save(
         return CompanyInfoOut.model_validate(info, from_attributes=True)
 
 
+def bank_account_list() -> list[dict]:
+    """常用企业银行账号列表（本司账户，回单「本司账户行」判定用）。"""
+    from invoicing.models import BankAccount
+
+    with SessionLocal() as db:
+        return [
+            {
+                "id": a.id,
+                "account_no": a.account_no,
+                "account_name": a.account_name,
+                "bank_name": a.bank_name,
+                "remark": a.remark,
+                "is_default": a.is_default,
+                "enabled": a.enabled,
+            }
+            for a in db.query(BankAccount).order_by(BankAccount.id).all()
+        ]
+
+
+def bank_account_save(
+    account_no: str,
+    account_name: str | None = None,
+    bank_name: str | None = None,
+    remark: str | None = None,
+    is_default: bool = False,
+    enabled: bool = True,
+) -> dict:
+    """新增/更新本司银行账号（同账号更新）；账号规范化去空格连字符，须 6-32 位数字。"""
+    from invoicing.models import BankAccount
+
+    normalized = re.sub(r"[\s\-]", "", account_no or "")
+    if not re.fullmatch(r"[0-9]{6,32}", normalized):
+        raise ValueError("账号须为 6-32 位数字")
+    with SessionLocal() as db:
+        acc = db.query(BankAccount).filter(BankAccount.account_no == normalized).first()
+        created = acc is None
+        if acc is None:
+            acc = BankAccount(account_no=normalized)
+            db.add(acc)
+        if is_default:
+            db.query(BankAccount).filter(BankAccount.is_default.is_(True)).update({"is_default": False})
+        acc.account_name = (account_name or "").strip() or None
+        acc.bank_name = (bank_name or "").strip() or None
+        acc.remark = remark
+        acc.is_default = is_default
+        acc.enabled = enabled
+        write_audit(
+            db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
+            detail={"entity": "bank_account", "account_no": normalized, "created": created},
+        )
+        db.commit()
+        return {
+            "id": acc.id, "account_no": acc.account_no, "account_name": acc.account_name,
+            "bank_name": acc.bank_name, "remark": acc.remark,
+            "is_default": acc.is_default, "enabled": acc.enabled,
+        }
+
+
+def bank_account_delete(id: int) -> dict:
+    """删除本司银行账号；不存在抛 ValueError。"""
+    from invoicing.models import BankAccount
+
+    with SessionLocal() as db:
+        acc = db.get(BankAccount, id)
+        if acc is None:
+            raise ValueError(f"账号不存在: {id}")
+        db.delete(acc)
+        write_audit(
+            db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
+            detail={"entity": "bank_account", "id": id, "deleted": True},
+        )
+        db.commit()
+        return {"ok": True}
+
+
 def company_info_delete(id: int) -> dict:
     """删除常用公司；不存在抛 ValueError。"""
     with SessionLocal() as db:
@@ -489,6 +564,7 @@ def receipt_list(month: str) -> list[dict]:
                 "direction": r.direction,
                 "needs_review": r.needs_review,
                 "quality_issues": r.quality_issues,
+                "bank_code": r.bank_code,
                 "page_no": r.page_no,
                 "paired_invoice_id": r.paired_invoice_id,
                 "status": r.status,

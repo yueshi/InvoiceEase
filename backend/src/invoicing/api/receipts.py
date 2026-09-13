@@ -30,6 +30,7 @@ def _receipt_out(r: BankReceipt) -> dict:
         "direction": r.direction,
         "needs_review": r.needs_review,
         "quality_issues": r.quality_issues,
+        "bank_code": r.bank_code,
         "page_no": r.page_no,
         "anchor": r.anchor,
         "paired_invoice_id": r.paired_invoice_id,

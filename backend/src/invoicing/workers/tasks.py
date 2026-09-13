@@ -347,6 +347,7 @@ def _parse_receipt_upload(upload_id: int) -> None:
                 direction=fields.get("direction"),
                 quality_issues=issues or None,
                 needs_review=bool(issues),
+                bank_code=fields.get("bank_code"),
                 page_no=fields.get("page"),
                 anchor=fields.get("anchor"),
                 status="pending",

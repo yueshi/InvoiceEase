@@ -99,6 +99,7 @@ export interface ReceiptOut {
   direction: string | null;
   needs_review: boolean;
   quality_issues: string[] | null;
+  bank_code: string | null;
   page_no: number | null;
   anchor: { bbox: [number, number, number, number] | null; text: string | null; v: number } | null;
   paired_invoice_id: number | null;
@@ -168,6 +169,32 @@ export interface CompanyInfoCreate {
   bank_account?: string | null;
 }
 export type CompanyInfoUpdate = Partial<CompanyInfoCreate>;
+/** 常用企业银行账号（本司账户；回单「本司账户行」判定） */
+export interface BankAccountOut {
+  id: number;
+  account_no: string;
+  account_name: string | null;
+  bank_name: string | null;
+  remark: string | null;
+  is_default: boolean;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface BankAccountCreate {
+  account_no: string;
+  account_name?: string | null;
+  bank_name?: string | null;
+  remark?: string | null;
+  is_default?: boolean;
+  enabled?: boolean;
+}
+export type BankAccountUpdate = Partial<BankAccountCreate>;
+
+export const BANK_LABELS: Record<string, string> = {
+  ccb: "建设银行", icbc: "工商银行", abc: "农业银行", cmb: "招商银行", boc: "中国银行",
+};
+
 export const COMPANY_KIND_LABELS: Record<string, string> = {
   self: "本司", supplier: "供应商", other: "其他",
 };

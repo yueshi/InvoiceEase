@@ -65,6 +65,27 @@ def build_server() -> MCPServer:
     ) -> CompanyInfoOut:
         return mcp_tools.company_info_save(name, tax_id, kind, is_default, remark)
 
+    @server.tool(description="常用企业银行账号列表（本司账户；回单解析判定「本司账户行」用——账号命中时对方户名留空并待核对）。")
+    def bank_account_list() -> list[dict]:
+        return mcp_tools.bank_account_list()
+
+    @server.tool(description="保存本司银行账号（同账号更新；账号 6-32 位数字，自动去空格/连字符；is_default 设默认清其他默认）。")
+    def bank_account_save(
+        account_no: str,
+        account_name: str | None = None,
+        bank_name: str | None = None,
+        remark: str | None = None,
+        is_default: bool = False,
+        enabled: bool = True,
+    ) -> dict:
+        return mcp_tools.bank_account_save(
+            account_no, account_name, bank_name, remark, is_default, enabled
+        )
+
+    @server.tool(description="删除本司银行账号。")
+    def bank_account_delete(id: int) -> dict:
+        return mcp_tools.bank_account_delete(id)
+
     @server.tool(description="删除常用税号及公司信息。")
     def company_info_delete(id: int) -> dict:
         return mcp_tools.company_info_delete(id)

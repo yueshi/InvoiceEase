@@ -75,6 +75,7 @@ def main() -> None:
                 or_(
                     BankReceipt.page_no.is_(None),
                     BankReceipt.anchor.is_(None),
+                    BankReceipt.bank_code.is_(None),  # 多银行 P0：银行识别补齐
                     # 版本落后（JSON 提取兼容 SQLite/PG）需重算
                     sa_cast_version(BankReceipt.anchor) < ANCHOR_VERSION,
                 ),
@@ -109,6 +110,8 @@ def main() -> None:
                 if not args.dry_run:
                     row.page_no = p.get("page")
                     row.anchor = p.get("anchor")
+                    if not row.bank_code and p.get("bank_code"):
+                        row.bank_code = p["bank_code"]  # 多银行 P0：银行识别补齐
                     if args.fill_abstracts and not row.abstract and p.get("abstract"):
                         row.abstract = p["abstract"]
                 updated += 1

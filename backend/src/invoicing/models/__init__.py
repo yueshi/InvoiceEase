@@ -1,4 +1,5 @@
 from invoicing.models.audit import AuditLog
+from invoicing.models.bank_account import BankAccount
 from invoicing.models.company_info import CompanyInfo
 from invoicing.models.enums import (
     AuditAction,
@@ -17,6 +18,7 @@ from invoicing.models.user import User
 __all__ = [
     "AuditLog",
     "AuditAction",
+    "BankAccount",
     "BankReceipt",
     "CompanyInfo",
     "CompanyKind",

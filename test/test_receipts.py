@@ -814,6 +814,63 @@ def test_receipts_csv_year(client, db, monkeypatch, tmp_path):
     assert "2026" in resp.headers["content-disposition"]
 
 
+def test_bank_account_crud_and_self_account_wiring(client, db):
+    """常用企业银行账号：CRUD + 解析接线（self_account_set 取启用账号）。"""
+    from invoicing.models import Role, User
+    from invoicing.parse.receipt import self_account_set, self_name_set
+    from invoicing.security import hash_password
+
+    db.add(User(username="admin_ba2", password_hash=hash_password("pass123"), role=Role.admin.value))
+    db.commit()
+    auth = client.post(
+        "/api/v1/auth/login", json={"username": "admin_ba2", "password": "pass123"}
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {auth}"}
+
+    # 创建
+    resp = client.post("/api/v1/bank-accounts", headers=headers, json={
+        "account_no": "61050174004100000779",
+        "account_name": "西安启智合创科技有限公司",
+        "bank_name": "建行西安蓝湖树小区支行",
+        "remark": "基本户",
+    })
+    assert resp.status_code == 200, resp.text
+    acc = resp.json()
+    assert acc["account_no"] == "61050174004100000779"
+
+    # 唯一性
+    dup = client.post("/api/v1/bank-accounts", headers=headers, json={
+        "account_no": "61050174004100000779", "account_name": "重复",
+    })
+    assert dup.status_code == 409
+
+    # 解析接线：启用的账号进入本司账号集合；户名进入本司名称集合
+    assert "61050174004100000779" in self_account_set(db)
+    assert any("西安启智" in n for n in self_name_set(db))
+
+    # 停用后不参与判定
+    client.put(f"/api/v1/bank-accounts/{acc['id']}", headers=headers, json={"enabled": False})
+    assert "61050174004100000779" not in self_account_set(db)
+
+    # 更新与删除
+    upd = client.put(f"/api/v1/bank-accounts/{acc['id']}", headers=headers,
+                     json={"enabled": True, "remark": "改为一般户"})
+    assert upd.json()["remark"] == "改为一般户"
+    assert client.delete(f"/api/v1/bank-accounts/{acc['id']}", headers=headers).status_code == 200
+    assert client.get("/api/v1/bank-accounts", headers=headers).json() == []
+
+
+def test_bank_account_legacy_company_info_still_works(client, db):
+    """兼容：company_infos.bank_account 旧数据仍参与本司账户判定（迁移前数据不失效）。"""
+    from invoicing.models import CompanyInfo
+    from invoicing.parse.receipt import self_account_set
+
+    db.add(CompanyInfo(name="旧公司", tax_id="91310101MAELA36R99", kind="self",
+                       bank_account="6225881293783592"))
+    db.commit()
+    assert "6225881293783592" in self_account_set(db)
+
+
 def test_parse_receipt_missing_fields_returns_none():
     """关键字段缺失 → None（不产半成品，LLM 兜底由调用方处理）。"""
     assert parse_receipt_text("没有金额和户名的文本") is None

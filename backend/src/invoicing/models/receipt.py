@@ -28,6 +28,8 @@ class BankReceipt(Base):
 
     # 收付方向（P2）：收/付/内部（银行内部交易如手续费/利息）；凭证借贷方向依此
     direction: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # 银行识别（多银行 P0）：ccb/icbc/abc/cmb/boc；未识别为 None
+    bank_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # 原件定位（R1.2）：页码 + 锚点（归一化 bbox/锚点串/算法版本）
     page_no: Mapped[int | None] = mapped_column(nullable=True)
     anchor: Mapped[dict | None] = mapped_column(JSON, nullable=True)
