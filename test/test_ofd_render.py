@@ -45,9 +45,13 @@ def test_render_produces_png_with_pixels():
     assert len(png) > 1000  # 非空白页
 
 
-def test_render_missing_cairocffi_returns_none(monkeypatch):
+def test_render_works_without_cairocffi(monkeypatch):
+    """回归：渲染后端已改为 Pillow——无 cairocffi（离线/CI 常见）也必须能渲染。
+
+    历史：cairocffi 缺失时静默返回 None，导致 OFD 预览 422、2 个测试长期失败。"""
     monkeypatch.setitem(sys.modules, "cairocffi", None)
-    assert render_ofd_page_to_png(_build_ofd()) is None
+    png = render_ofd_page_to_png(_build_ofd())
+    assert png is not None and png[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_render_bad_zip_returns_none():
