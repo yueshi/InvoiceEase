@@ -55,6 +55,11 @@ def _match(targets: list[BankReceipt], parsed: list[dict]) -> list[tuple[BankRec
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="只打印计划，不写库")
+    ap.add_argument(
+        "--fill-abstracts",
+        action="store_true",
+        help="同时补充空的「摘要」（规则通道此前未覆盖缴款书/手续费/利息版式）",
+    )
     args = ap.parse_args()
 
     from sqlalchemy import or_
@@ -104,6 +109,8 @@ def main() -> None:
                 if not args.dry_run:
                     row.page_no = p.get("page")
                     row.anchor = p.get("anchor")
+                    if args.fill_abstracts and not row.abstract and p.get("abstract"):
+                        row.abstract = p["abstract"]
                 updated += 1
         if args.dry_run:
             print(f"[dry-run] 计划回填 {updated} 条")

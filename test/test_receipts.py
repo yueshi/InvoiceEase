@@ -154,6 +154,48 @@ def test_upload_receipt_multi_block_creates_rows(client, db, monkeypatch, tmp_pa
     assert up.file_hash  # 防重哈希已落库
 
 
+def test_abstract_from_tax_detail_line():
+    """缴款书摘要：明细行（含本张金额）的行首文本 = 险种名（该版式无摘要标签）。"""
+    parsed = parse_receipt_text(CCB_TAX_CHUNK)
+    assert parsed is not None
+    assert parsed["abstract"] == "企业职工基本养老保险费"
+
+
+def test_abstract_from_fee_header_and_interest_detail():
+    """手续费：`项目名称 … 金额` 之间；利息：含金额明细行行首（活期利息）。"""
+    fee = parse_receipt_text(CCB_FEE_CHUNK, self_accounts={"61050174004100000779"})
+    assert fee is not None
+    assert fee["abstract"] == "工本费/转账汇款手续费/手续费"
+
+    interest = parse_receipt_text(CCB_INTEREST_CHUNK, self_accounts={"61050174004100000779"})
+    assert interest is not None
+    assert interest["abstract"] == "活期利息"
+
+
+def test_abstract_when_amount_split_across_detail_rows():
+    """医疗险等：合计金额被拆到多条明细行（449.10 + 8.00）→ 取各行行首拼接。"""
+    from decimal import Decimal as _D
+
+    from invoicing.parse.receipt import extract_abstract
+
+    text = (
+        "小写（合计）金额：￥457.10 缴款书交易流水号： 20260420113139864000009584192838\n"
+        "  税（费）种名称 所属时期 实缴金额\n"
+        "基本医疗保险费                                 20260401 20260430     449.10\n"
+        "基本医疗保险费                                 20260401 20260430       8.00\n"
+    )
+    assert extract_abstract(text, _D("457.10")) == "基本医疗保险费"
+
+
+def test_abstract_label_still_wins():
+    """显式标签（摘要/用途/备注）优先级最高，不被明细行规则覆盖。"""
+    parsed = parse_receipt_text(
+        "交易日期 2026-08-05\n对方户名 北京某某科技有限公司\n交易金额 1,000.00\n摘要 货款\n"
+    )
+    assert parsed is not None
+    assert parsed["abstract"] == "货款"
+
+
 def test_parse_receipt_fee_table_header_not_amount():
     """手续费明细表：『…手续费 金额』表头跨行是产品编号，真金额在 ￥ 锚点——
     不得把表头后的编号当成金额。"""

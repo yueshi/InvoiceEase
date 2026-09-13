@@ -91,6 +91,52 @@ def infer_direction(text: str) -> str | None:
     return None
 
 
+_PROJECT_HEADER_RE = re.compile(r"(?:项目名称|计息项目|收费项目)\s*[:：]?\s*([^\s\d][^\n]*?)\s*(?:金额|利息|$)")
+# 明细行模式：文字 + 所属时期起止（两段 8 位日期）+ 金额（缴款书表体）
+_DETAIL_ROW_RE = re.compile(r"\d{8}\s+\d{8}\s+[\d,]+\.\d{2}")
+
+
+def extract_abstract(text: str, amount: Decimal | None = None) -> str | None:
+    """摘要提取（各版式语义摘要来源不同，多数没有「摘要」标签）：
+
+    ① 显式标签（摘要/用途/备注）——通用回单；
+    ② 明细行：含本张金额的行，行首非数字文本（险种名、利息项目）；
+    ②b 明细行模式（文字+所属时期两段日期+金额）：金额被拆到多行时
+       （如医疗 449.10 + 大额 8.00 = 合计 457.10）取各行行首去重拼接；
+    ③ 项目表头：`项目名称 … 金额` 之间（手续费明细表）。
+    """
+    m = _ABSTRACT_RE.search(text)
+    if m:
+        v = m.group(1).strip(" ：:")
+        if v:
+            return v[:64]
+    if amount is not None:
+        variants = (f"{amount:,.2f}", f"{amount:.2f}")
+        for line in (text or "").splitlines():
+            if not any(v in line for v in variants):
+                continue
+            head = re.split(r"[\d￥¥]|[\s　]{2,}", line.strip())[0].strip(" ：:")
+            # 行首须为文字且非表头/金额说明（如「小写（合计）金额」「大写金额」）
+            if len(head) >= 2 and not re.search(r"金额|合计|大写|小写|税（费）种|所属时期", head):
+                return head[:64]
+    # ②b 金额拆分到多条明细行时按行模式兜底（去重保持顺序）
+    heads: list[str] = []
+    for line in (text or "").splitlines():
+        if not _DETAIL_ROW_RE.search(line):
+            continue
+        head = re.split(r"\d{8}", line.strip())[0].strip(" ：:")
+        if len(head) >= 2 and head not in heads and not re.search(r"所属时期|税（费）种", head):
+            heads.append(head)
+    if heads:
+        return "/".join(heads)[:64]
+    m = _PROJECT_HEADER_RE.search(text or "")
+    if m:
+        v = m.group(1).strip(" ：:")
+        if v:
+            return v[:64]
+    return None
+
+
 def parse_receipt_text(text: str, self_accounts: set[str] | None = None) -> dict | None:
     """规则通道：四字段 + 方向 + 质量标记（P0/P1/P2）。
 
@@ -131,8 +177,7 @@ def parse_receipt_text(text: str, self_accounts: set[str] | None = None) -> dict
         trade_date = _parse_date_parts(d.group(1), d.group(2), d.group(3))
     if trade_date is None:
         issues.append("no_trade_date")
-    a = _ABSTRACT_RE.search(text)
-    abstract = a.group(1).strip() if a else None
+    abstract = extract_abstract(text, amount)
     return {
         "amount": amount,
         "counterparty_name": party,
