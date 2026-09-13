@@ -15,6 +15,7 @@ _FINANCE = ("finance_staff", "finance_manager", "admin")
 
 _MONTH_PATTERN = r"^\d{4}-\d{2}$"
 _QUARTER_PATTERN = r"^\d{4}-Q[1-4]$"
+_YEAR_PATTERN = r"^\d{4}$"
 
 
 def _receipt_out(r: BankReceipt) -> dict:
@@ -106,14 +107,15 @@ def list_receipt_uploads(
 def list_receipts(
     month: str | None = Query(None, pattern=_MONTH_PATTERN),
     quarter: str | None = Query(None, pattern=_QUARTER_PATTERN),
+    year: str | None = Query(None, pattern=_YEAR_PATTERN),
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    """回单列表：month=YYYY-MM 或 quarter=YYYY-QN（恰给其一）。"""
+    """回单列表：month=YYYY-MM / quarter=YYYY-QN / year=YYYY（恰给其一）。"""
     from invoicing.reports import receipts_in_period
 
     try:
-        rows = receipts_in_period(db, month=month, quarter=quarter)
+        rows = receipts_in_period(db, month=month, quarter=quarter, year=year)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     return [_receipt_out(r) for r in rows]
@@ -123,14 +125,15 @@ def list_receipts(
 def unmatched_receipts(
     month: str | None = Query(None, pattern=_MONTH_PATTERN),
     quarter: str | None = Query(None, pattern=_QUARTER_PATTERN),
+    year: str | None = Query(None, pattern=_YEAR_PATTERN),
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    """无票费用提示（R2）：未配对回单清单（month 或 quarter）。"""
+    """无票费用提示（R2）：未配对回单清单（年/季/月）。"""
     from invoicing.reports import receipts_in_period
 
     try:
-        rows = receipts_in_period(db, month=month, quarter=quarter)
+        rows = receipts_in_period(db, month=month, quarter=quarter, year=year)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     return [_receipt_out(r) for r in rows if r.paired_invoice_id is None]
@@ -251,15 +254,16 @@ def auto_pair_receipt(
 def export_receipts(
     month: str | None = Query(None, pattern=_MONTH_PATTERN),
     quarter: str | None = Query(None, pattern=_QUARTER_PATTERN),
+    year: str | None = Query(None, pattern=_YEAR_PATTERN),
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    """凭证草稿 CSV（金蝶/用友通用列；month 或 quarter）。"""
+    """凭证草稿 CSV（金蝶/用友通用列；年/季/月）。"""
     try:
-        data = receipts_to_csv(db, month=month, quarter=quarter)
+        data = receipts_to_csv(db, month=month, quarter=quarter, year=year)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
-    period = quarter or month
+    period = quarter or month or year
     return Response(
         content=data,
         media_type="text/csv; charset=utf-8",

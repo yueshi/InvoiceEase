@@ -670,6 +670,50 @@ def test_pdfium_locator_rejects_embedded_match(tmp_path):
     assert loc._find_bounded("流水号：9912026032199", "20260321") == -1  # 嵌在长数字内 → 拒绝
 
 
+def test_list_receipts_year_filter(client, db):
+    """按年过滤：year=2026 覆盖全年；与 month/quarter 三选一互斥。"""
+    from datetime import date as _date
+
+    auth = _seed_login(client, db)
+    rows = [
+        BankReceipt(file_url="a.pdf", file_type="PDF", trade_date=_date(2026, 1, 5),
+                    counterparty_name="A", amount=Decimal("10.00"), status="unmatched"),
+        BankReceipt(file_url="b.pdf", file_type="PDF", trade_date=_date(2026, 12, 20),
+                    counterparty_name="B", amount=Decimal("20.00"), status="unmatched"),
+        BankReceipt(file_url="c.pdf", file_type="PDF", trade_date=_date(2025, 6, 1),
+                    counterparty_name="C", amount=Decimal("30.00"), status="unmatched"),
+    ]
+    for r in rows:
+        db.add(r)
+    db.commit()
+
+    y2026 = client.get("/api/v1/receipts?year=2026", headers=auth)
+    assert y2026.status_code == 200
+    assert {r["counterparty_name"] for r in y2026.json()} == {"A", "B"}
+
+    y2025 = client.get("/api/v1/receipts?year=2025", headers=auth)
+    assert {r["counterparty_name"] for r in y2025.json()} == {"C"}
+
+    # 三个周期参数互斥：同给两个 → 422
+    both = client.get("/api/v1/receipts?year=2026&quarter=2026-Q1", headers=auth)
+    assert both.status_code == 422
+    assert client.get("/api/v1/receipts?year=26", headers=auth).status_code == 422
+
+
+def test_receipts_csv_year(client, db, monkeypatch, tmp_path):
+    """凭证草稿 CSV 支持按年导出（文件名带到年）。"""
+    from datetime import date as _date
+
+    auth = _seed_login(client, db)
+    db.add(BankReceipt(file_url="r.pdf", file_type="PDF", trade_date=_date(2026, 3, 3),
+                       counterparty_name="某某公司", amount=Decimal("66.00"), status="unmatched"))
+    db.commit()
+    resp = client.get("/api/v1/receipts/export?year=2026", headers=auth)
+    assert resp.status_code == 200
+    assert "66.00" in resp.content.decode("utf-8-sig")
+    assert "2026" in resp.headers["content-disposition"]
+
+
 def test_parse_receipt_missing_fields_returns_none():
     """关键字段缺失 → None（不产半成品，LLM 兜底由调用方处理）。"""
     assert parse_receipt_text("没有金额和户名的文本") is None

@@ -42,11 +42,28 @@ def _quarter_bounds(quarter: str) -> tuple[date, date]:
     return start, end
 
 
-def period_bounds(month: str | None = None, quarter: str | None = None) -> tuple[date, date]:
-    """周期边界解析：month 与 quarter 恰给其一（互斥），否则 ValueError。"""
-    if bool(month) == bool(quarter):
-        raise ValueError("month 与 quarter 必须且只能提供一个")
-    return _quarter_bounds(quarter) if quarter else _month_bounds(month)
+def _year_bounds(year: str) -> tuple[date, date]:
+    """年度边界：`YYYY` → [1/1, 次年 1/1)。"""
+    import re as _re
+
+    if not _re.match(r"^\d{4}$", year or ""):
+        raise ValueError(f"非法年份: {year}（格式 YYYY）")
+    y = int(year)
+    return date(y, 1, 1), date(y + 1, 1, 1)
+
+
+def period_bounds(
+    month: str | None = None, quarter: str | None = None, year: str | None = None
+) -> tuple[date, date]:
+    """周期边界解析：month / quarter / year 恰给其一（互斥），否则 ValueError。"""
+    given = [p for p in (month, quarter, year) if p]
+    if len(given) != 1:
+        raise ValueError("month、quarter、year 必须且只能提供一个")
+    if quarter:
+        return _quarter_bounds(quarter)
+    if year:
+        return _year_bounds(year)
+    return _month_bounds(month)
 
 
 def receipts_in_range(db: Session, start: date, end: date) -> list:
@@ -82,9 +99,11 @@ def receipts_in_month(db: Session, month: str) -> list:
     return receipts_in_range(db, *_month_bounds(month))
 
 
-def receipts_in_period(db: Session, month: str | None = None, quarter: str | None = None) -> list:
-    """按月或按季度取回单（month/quarter 恰给其一）。"""
-    return receipts_in_range(db, *period_bounds(month, quarter))
+def receipts_in_period(
+    db: Session, month: str | None = None, quarter: str | None = None, year: str | None = None
+) -> list:
+    """按年/季/月取回单（三者恰给其一）。"""
+    return receipts_in_range(db, *period_bounds(month, quarter, year))
 
 
 def _month_rows(db: Session, month: str, tenant_id: str) -> list[Invoice]:
@@ -208,7 +227,9 @@ def monthly_health(db: Session, month: str) -> str:
     ])
 
 
-def receipts_to_csv(db: Session, month: str | None = None, quarter: str | None = None) -> bytes:
+def receipts_to_csv(
+    db: Session, month: str | None = None, quarter: str | None = None, year: str | None = None
+) -> bytes:
     """银行回单凭证草稿 CSV（P3/R1）：金蝶/用友凭证导入通用列。
 
     借方=费用类（摘要），贷方=银行存款；已配对行附发票号。
@@ -218,7 +239,7 @@ def receipts_to_csv(db: Session, month: str | None = None, quarter: str | None =
 
     from invoicing.models import BankReceipt
 
-    rows = receipts_in_period(db, month=month, quarter=quarter)
+    rows = receipts_in_period(db, month=month, quarter=quarter, year=year)
     buf = _io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["日期", "摘要", "对方户名", "金额", "借方", "贷方", "发票号"])

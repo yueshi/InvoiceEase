@@ -16,9 +16,10 @@ import {
 import type { ReceiptOut } from "../types";
 
 // a-month-picker / a-date-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()）
-const periodType = ref<"month" | "quarter">("month");
+const periodType = ref<"month" | "quarter" | "year">("month");
 const month = ref<Dayjs>(dayjs());
 const quarter = ref<Dayjs>(dayjs());
+const year = ref<Dayjs>(dayjs());
 const unmatchedOnly = ref(false);
 const reviewOnly = ref(false); // 只看待核对（质量标记：空户名/账号残留/本司账户行等）
 const rows = ref<ReceiptOut[]>([]);
@@ -37,10 +38,10 @@ function quarterLabel(d: Dayjs): string {
   return `${d.year()}-Q${Math.floor(d.month() / 3) + 1}`;
 }
 
-function periodParam(): { month?: string; quarter?: string } {
-  return periodType.value === "month"
-    ? { month: month.value.format("YYYY-MM") }
-    : { quarter: quarterLabel(quarter.value) };
+function periodParam(): { month?: string; quarter?: string; year?: string } {
+  if (periodType.value === "month") return { month: month.value.format("YYYY-MM") };
+  if (periodType.value === "quarter") return { quarter: quarterLabel(quarter.value) };
+  return { year: year.value.format("YYYY") };
 }
 
 const columns = [
@@ -175,9 +176,17 @@ onMounted(load);
       <a-radio-group v-model:value="periodType" button-style="solid" @change="load">
         <a-radio-button value="month">按月</a-radio-button>
         <a-radio-button value="quarter">按季度</a-radio-button>
+        <a-radio-button value="year">按年</a-radio-button>
       </a-radio-group>
       <a-month-picker v-if="periodType === 'month'" v-model:value="month" :allow-clear="false" @change="load" />
-      <a-date-picker v-else v-model:value="quarter" picker="quarter" :allow-clear="false" @change="load" />
+      <a-date-picker
+        v-else-if="periodType === 'quarter'"
+        v-model:value="quarter"
+        picker="quarter"
+        :allow-clear="false"
+        @change="load"
+      />
+      <a-date-picker v-else v-model:value="year" picker="year" :allow-clear="false" @change="load" />
       <a-checkbox v-model:checked="unmatchedOnly" @change="load">只看无票支出</a-checkbox>
       <a-checkbox v-model:checked="reviewOnly">只看待核对</a-checkbox>
       <a-button @click="load">刷新</a-button>

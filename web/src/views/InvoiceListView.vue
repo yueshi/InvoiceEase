@@ -1,7 +1,7 @@
 <!-- 发票列表：筛选 / 分页 / 详情 / 复核 / 重验 -->
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
-import type { Dayjs } from "dayjs";
+import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { downloadFile, errorMessage } from "../api/client";
 import { listInvoices, reVerify, reviewInvoice, uploadInvoice } from "../api/invoices";
@@ -13,7 +13,33 @@ import PreviewModal from "../components/PreviewModal.vue";
 const auth = useAuthStore();
 const data = ref<InvoiceListResponse>({ items: [], total: 0, page: 1, page_size: 20 });
 const loading = ref(false);
-const filters = reactive({ status: undefined as string | undefined, keyword: "", dateRange: undefined as [Dayjs, Dayjs] | undefined });
+// 周期过滤对齐银行回单页：按月/按季度/按年 三态切换（换算为 date_from/date_to 传给后端）
+const filters = reactive({ status: undefined as string | undefined, keyword: "" });
+const periodType = ref<"month" | "quarter" | "year">("month");
+const month = ref<Dayjs>(dayjs());
+const quarter = ref<Dayjs>(dayjs());
+const year = ref<Dayjs>(dayjs());
+
+function periodRange(): { date_from?: string; date_to?: string } {
+  if (periodType.value === "month") {
+    return {
+      date_from: month.value.startOf("month").format("YYYY-MM-DD"),
+      date_to: month.value.endOf("month").format("YYYY-MM-DD"),
+    };
+  }
+  if (periodType.value === "quarter") {
+    const startMonth = Math.floor(quarter.value.month() / 3) * 3;
+    const start = quarter.value.month(startMonth);
+    return {
+      date_from: start.startOf("month").format("YYYY-MM-DD"),
+      date_to: start.add(2, "month").endOf("month").format("YYYY-MM-DD"),
+    };
+  }
+  return {
+    date_from: year.value.startOf("year").format("YYYY-MM-DD"),
+    date_to: year.value.endOf("year").format("YYYY-MM-DD"),
+  };
+}
 const drawerOpen = ref(false);
 const current = ref<InvoiceOut | null>(null);
 const previewOpen = ref(false);
@@ -49,8 +75,7 @@ async function load() {
     data.value = await listInvoices({
       status: filters.status,
       keyword: filters.keyword || undefined,
-      date_from: filters.dateRange?.[0]?.format("YYYY-MM-DD"),
-      date_to: filters.dateRange?.[1]?.format("YYYY-MM-DD"),
+      ...periodRange(),
       page: data.value.page,
       page_size: data.value.page_size,
     });
@@ -118,7 +143,20 @@ const columns = [
         <a-select-option v-for="(label, value) in INVOICE_STATUS_LABELS" :key="value" :value="value">{{ label }}</a-select-option>
       </a-select>
       <a-input v-model:value="filters.keyword" placeholder="发票号码/购销方" style="width: 220px" @press-enter="reloadFirst" />
-      <a-range-picker v-model:value="filters.dateRange" @change="reloadFirst" />
+      <a-radio-group v-model:value="periodType" button-style="solid" @change="reloadFirst">
+        <a-radio-button value="month">按月</a-radio-button>
+        <a-radio-button value="quarter">按季度</a-radio-button>
+        <a-radio-button value="year">按年</a-radio-button>
+      </a-radio-group>
+      <a-month-picker v-if="periodType === 'month'" v-model:value="month" :allow-clear="false" @change="reloadFirst" />
+      <a-date-picker
+        v-else-if="periodType === 'quarter'"
+        v-model:value="quarter"
+        picker="quarter"
+        :allow-clear="false"
+        @change="reloadFirst"
+      />
+      <a-date-picker v-else v-model:value="year" picker="year" :allow-clear="false" @change="reloadFirst" />
       <a-button type="primary" @click="reloadFirst">查询</a-button>
       <a-button @click="exportMonthly">导出本月台账</a-button>
       <a-upload :before-upload="onBeforeUpload" :show-upload-list="false" accept=".pdf,.ofd,.xml">
