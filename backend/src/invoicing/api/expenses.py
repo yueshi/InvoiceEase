@@ -313,6 +313,15 @@ def remove_item(item_id: int, db: Session = Depends(get_db), user: User = Depend
     return {"ok": True}
 
 
+@router.delete("/{claim_id}")
+def delete_claim(claim_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """删除报销单（审计快照 + 释放发票占用）。"""
+    try:
+        return svc.delete_claim(db, user, claim_id)
+    except ValueError as e:
+        raise HTTPException(403 if "无权" in str(e) else 404, str(e)) from None
+
+
 @router.post("/{claim_id}/submit", response_model=ClaimOut)
 def submit_claim(claim_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     try:

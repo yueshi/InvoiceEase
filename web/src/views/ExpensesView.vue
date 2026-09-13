@@ -8,6 +8,7 @@ import {
   approveClaim,
   createClaim,
   createEntry,
+  deleteClaim,
   eligibleInvoices,
   getClaim,
   listClaims,
@@ -228,6 +229,18 @@ async function onSubmit() {
   }
 }
 
+async function onDelete(claim: ClaimOut) {
+  if (!window.confirm(`确认删除报销单 ${claim.claim_no}？其发票占用将释放（可重新报销）。`)) return;
+  try {
+    await deleteClaim(claim.id);
+    message.success("已删除，发票占用已释放");
+    if (detailOpen.value && detail.value?.claim.id === claim.id) detailOpen.value = false;
+    await load();
+  } catch (e) {
+    errorMessage(e, "删除失败");
+  }
+}
+
 async function onWithdraw(claim: ClaimOut) {
   try {
     await withdrawClaim(claim.id);
@@ -303,6 +316,11 @@ onMounted(load);
               v-if="(record.status === 'draft' || record.status === 'pending_approval') && record.applicant_id === auth.user?.id"
               @click="onWithdraw(record)"
             >撤回</a>
+            <a
+              v-if="canFinance() || (record.status === 'draft' || record.status === 'withdrawn')"
+              style="color: #cf1322"
+              @click="onDelete(record)"
+            >删除</a>
           </a-space>
         </template>
       </template>

@@ -76,6 +76,10 @@ export async function rejectClaim(id: number, reason: string): Promise<ClaimOut>
   return data;
 }
 
+export async function deleteClaim(id: number): Promise<void> {
+  await api.delete(`/expenses/${id}`);
+}
+
 export async function withdrawClaim(id: number): Promise<ClaimOut> {
   const { data } = await api.post<ClaimOut>(`/expenses/${id}/withdraw`);
   return data;

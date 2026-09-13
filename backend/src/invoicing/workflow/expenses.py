@@ -604,8 +604,46 @@ def withdraw_claim(db: Session, user: User, claim_id: int) -> ExpenseClaim:
     return claim
 
 
+_CLAIM_SNAPSHOT_COLS = (
+    "id", "claim_no", "applicant_id", "title", "total_amount", "status",
+    "approver_id", "submitted_at", "decided_at", "remark", "created_at",
+)
+
+
+def delete_claim(db: Session, user: User, claim_id: int) -> dict:
+    """删除报销单（审计全字段快照 + 释放发票占用）。
+
+    已通过的单据被删除时**必须释放发票**（reimbursement_status 回到 none），
+    否则那些发票会永久卡在「已报销」而无法重新报销。
+    权限：本人可删自己的单；财务/管理员可删任意单。
+    """
+    claim = _get_claim(db, claim_id)
+    if claim.applicant_id != user.id and not _is_finance(user):
+        raise ValueError("无权删除他人的报销单")
+
+    snapshot = {col: str(getattr(claim, col)) for col in _CLAIM_SNAPSHOT_COLS}
+    items = db.query(ExpenseItem).filter(ExpenseItem.claim_id == claim.id).all()
+    snapshot["item_count"] = str(len(items))
+    _release_items(db, claim)  # 明细失效 + 发票回到 none
+    for item in items:
+        db.delete(item)
+    for entry in db.query(ExpenseEntry).filter(ExpenseEntry.claim_id == claim.id).all():
+        db.delete(entry)
+    write_audit(
+        db, action="EXPENSE_DELETE", user_id=user.id, channel="web",
+        detail={"claim_no": claim.claim_no, "snapshot": snapshot},
+    )
+    db.delete(claim)
+    db.commit()
+    return {"ok": True}
+
+
 def _release_items(db: Session, claim: ExpenseClaim) -> None:
-    """驳回/撤回：明细失效并释放发票占用（一票一报约束即时解除）。"""
+    """驳回/撤回/删除：明细失效并释放发票占用（一票一报约束即时解除）。
+
+    须同时释放 pending（审批中占用）与 **claimed（已通过）**——删除已通过的单据
+    时若不释放 claimed，那些发票会永久卡在「已报销」无法重新报销。
+    """
     items = db.query(ExpenseItem).filter(
         ExpenseItem.claim_id == claim.id, ExpenseItem.active.is_(True)
     ).all()
@@ -613,7 +651,7 @@ def _release_items(db: Session, claim: ExpenseClaim) -> None:
         item.active = False
         if item.invoice_id:
             inv = db.get(Invoice, item.invoice_id)
-            if inv is not None and inv.reimbursement_status == "pending":
+            if inv is not None and inv.reimbursement_status in ("pending", "claimed"):
                 inv.reimbursement_status = "none"
 
 

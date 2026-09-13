@@ -538,3 +538,35 @@ def test_list_invoices_filter_by_expense_type(client, db, users):
     ).json()
     nums = {i["invoice_number"] for i in unclassified["items"]}
     assert "24312000000000000041" in nums and "24312000000000000042" not in nums
+
+
+def test_delete_claim_releases_invoices_and_audits(db, users):
+    """删除报销单：释放发票占用（回到 none）+ 审计快照留痕；越权被拒。"""
+    from invoicing.models import AuditLog
+
+    inv = _invoice(db, number="24312000000000000061", user_id=users["emp"].id)
+    claim, entry = _claim_with_entry(db, users["emp"], title="待删除")
+    svc.add_invoice(db, users["emp"], claim.id, inv.id, entry.id, expense_type="travel")
+    svc.submit_claim(db, users["emp"], claim.id)
+    svc.approve_claim(db, users["fin"], claim.id)
+    db.refresh(inv)
+    assert inv.reimbursement_status == "claimed"
+
+    # 他人不可删
+    with pytest.raises(ValueError, match="无权"):
+        svc.delete_claim(db, users["other"], claim.id)
+
+    svc.delete_claim(db, users["emp"], claim.id)
+    from invoicing.models import ExpenseClaim as _C
+
+    assert db.get(_C, claim.id) is None
+    db.refresh(inv)
+    assert inv.reimbursement_status == "none"  # 释放，可重新报销
+    log = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == "EXPENSE_DELETE")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert log is not None and log.detail.get("claim_no") == claim.claim_no
+    assert log.detail.get("snapshot", {}).get("total_amount")
