@@ -800,6 +800,26 @@ def test_list_receipts_year_filter(client, db):
     assert client.get("/api/v1/receipts?year=26", headers=auth).status_code == 422
 
 
+def test_list_receipts_all_periods(client, db):
+    """「全部」周期：不带 month/quarter/year → 返回全部回单（按入库时间倒序）。"""
+    from datetime import date as _date
+
+    auth = _seed_login(client, db)
+    for d, name in ((_date(2025, 3, 1), "旧"), (_date(2026, 6, 30), "新")):
+        db.add(BankReceipt(file_url="r.pdf", file_type="PDF", trade_date=d,
+                           counterparty_name=name, amount=Decimal("1.00"), status="unmatched"))
+    db.commit()
+
+    resp = client.get("/api/v1/receipts", headers=auth)
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert {r["counterparty_name"] for r in rows} == {"旧", "新"}
+
+    # 仍然互斥：多给周期 → 422
+    both = client.get("/api/v1/receipts?year=2026&month=2026-06", headers=auth)
+    assert both.status_code == 422
+
+
 def test_receipts_csv_year(client, db, monkeypatch, tmp_path):
     """凭证草稿 CSV 支持按年导出（文件名带到年）。"""
     from datetime import date as _date

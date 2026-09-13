@@ -54,11 +54,16 @@ def _year_bounds(year: str) -> tuple[date, date]:
 
 def period_bounds(
     month: str | None = None, quarter: str | None = None, year: str | None = None
-) -> tuple[date, date]:
-    """周期边界解析：month / quarter / year 恰给其一（互斥），否则 ValueError。"""
+) -> tuple[date, date] | None:
+    """周期边界解析：month / quarter / year 最多给一个（互斥）。
+
+    都不给 → None（表示「全部时间」，不做日期过滤）；多给 → ValueError。
+    """
     given = [p for p in (month, quarter, year) if p]
-    if len(given) != 1:
-        raise ValueError("month、quarter、year 必须且只能提供一个")
+    if not given:
+        return None
+    if len(given) > 1:
+        raise ValueError("month、quarter、year 只能提供一个（不传则为全部时间）")
     if quarter:
         return _quarter_bounds(quarter)
     if year:
@@ -102,8 +107,17 @@ def receipts_in_month(db: Session, month: str) -> list:
 def receipts_in_period(
     db: Session, month: str | None = None, quarter: str | None = None, year: str | None = None
 ) -> list:
-    """按年/季/月取回单（三者恰给其一）。"""
-    return receipts_in_range(db, *period_bounds(month, quarter, year))
+    """按年/季/月取回单；三者都不给 = 全部（按入库时间倒序）。"""
+    from invoicing.models import BankReceipt
+
+    bounds = period_bounds(month, quarter, year)
+    if bounds is None:
+        return (
+            db.query(BankReceipt)
+            .order_by(BankReceipt.created_at.desc(), BankReceipt.id.desc())
+            .all()
+        )
+    return receipts_in_range(db, *bounds)
 
 
 def _month_rows(db: Session, month: str, tenant_id: str) -> list[Invoice]:

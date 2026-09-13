@@ -1,7 +1,7 @@
 import { api, downloadFile, fetchBlobUrl } from "./client";
 import type { ReceiptOut, ReceiptUploadOut } from "../types";
 
-/** 查询周期：按年（YYYY）/ 按季度（YYYY-QN）/ 按月（YYYY-MM），恰给其一 */
+/** 查询周期：按年（YYYY）/ 按季度（YYYY-QN）/ 按月（YYYY-MM）；都不给 = 全部时间 */
 export interface ReceiptPeriod {
   month?: string;
   quarter?: string;
@@ -43,11 +43,13 @@ export async function autoPairReceipt(receiptId: number): Promise<ReceiptOut> {
 }
 
 export async function exportReceipts(period: ReceiptPeriod): Promise<void> {
-  const key = period.quarter ?? period.month ?? period.year ?? "";
+  const key = period.quarter ?? period.month ?? period.year ?? "all";
   const query = period.quarter
     ? `quarter=${period.quarter}`
     : period.year
       ? `year=${period.year}`
-      : `month=${period.month}`;
-  await downloadFile(`/receipts/export?${query}`, `receipts-${key}.csv`);
+      : period.month
+        ? `month=${period.month}`
+        : "";
+  await downloadFile(`/receipts/export${query ? `?${query}` : ""}`, `receipts-${key}.csv`);
 }

@@ -18,7 +18,7 @@ import ReceiptDetailDrawer from "../components/ReceiptDetailDrawer.vue";
 import ReceiptLocatePanel from "../components/ReceiptLocatePanel.vue";
 
 // a-month-picker / a-date-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()）
-const periodType = ref<"month" | "quarter" | "year">("month");
+const periodType = ref<"all" | "month" | "quarter" | "year">("month");
 const month = ref<Dayjs>(dayjs());
 const quarter = ref<Dayjs>(dayjs());
 const year = ref<Dayjs>(dayjs());
@@ -35,6 +35,7 @@ function quarterLabel(d: Dayjs): string {
 }
 
 function periodParam(): { month?: string; quarter?: string; year?: string } {
+  if (periodType.value === "all") return {}; // 全部时间（后端不做日期过滤）
   if (periodType.value === "month") return { month: month.value.format("YYYY-MM") };
   if (periodType.value === "quarter") return { quarter: quarterLabel(quarter.value) };
   return { year: year.value.format("YYYY") };
@@ -168,6 +169,7 @@ onMounted(load);
     <h3>银行回单</h3>
     <a-space style="margin-bottom: 16px" wrap>
       <a-radio-group v-model:value="periodType" button-style="solid" @change="load">
+        <a-radio-button value="all">全部</a-radio-button>
         <a-radio-button value="month">按月</a-radio-button>
         <a-radio-button value="quarter">按季度</a-radio-button>
         <a-radio-button value="year">按年</a-radio-button>

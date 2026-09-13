@@ -112,7 +112,7 @@ def list_receipts(
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    """回单列表：month=YYYY-MM / quarter=YYYY-QN / year=YYYY（恰给其一）。"""
+    """回单列表：month=YYYY-MM / quarter=YYYY-QN / year=YYYY；都不传 = 全部时间。"""
     from invoicing.reports import receipts_in_period
 
     try:
@@ -130,7 +130,7 @@ def unmatched_receipts(
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    """无票费用提示（R2）：未配对回单清单（年/季/月）。"""
+    """无票费用提示（R2）：未配对回单清单（年/季/月；都不传 = 全部时间）。"""
     from invoicing.reports import receipts_in_period
 
     try:
@@ -259,12 +259,12 @@ def export_receipts(
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    """凭证草稿 CSV（金蝶/用友通用列；年/季/月）。"""
+    """凭证草稿 CSV（金蝶/用友通用列；年/季/月；都不传 = 全部）。"""
     try:
         data = receipts_to_csv(db, month=month, quarter=quarter, year=year)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
-    period = quarter or month or year
+    period = quarter or month or year or "all"
     return Response(
         content=data,
         media_type="text/csv; charset=utf-8",
