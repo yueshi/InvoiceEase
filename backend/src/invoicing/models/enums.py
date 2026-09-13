@@ -61,6 +61,7 @@ class AuditAction(str, Enum):
     VERIFY = "VERIFY"
     REVIEW = "REVIEW"
     LOGIN = "LOGIN"
+    LOGIN_FAILED = "LOGIN_FAILED"  # 身份事件：失败登录（撞库/爆破检测依据）
     LOGOUT = "LOGOUT"
     REJECT_REPLY = "REJECT_REPLY"
     CONFIG_CHANGE = "CONFIG_CHANGE"

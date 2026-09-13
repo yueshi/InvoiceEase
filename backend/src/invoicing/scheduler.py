@@ -116,6 +116,36 @@ def _monthly_health_report() -> None:
 register_task("monthly_health", _monthly_health_report, trigger="cron", day=1, hour=9)
 
 
+def _purge_expired_login_audits(db, retention_days: int | None = None) -> int:
+    """清理过期的登录成功审计行（失败行与业务操作长期保留），返回删除条数。"""
+    from datetime import datetime, timedelta, timezone
+
+    from invoicing.models import AuditLog
+
+    days = retention_days if retention_days is not None else settings.audit_login_retention_days
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    q = db.query(AuditLog).filter(AuditLog.action == "LOGIN", AuditLog.created_at < cutoff)
+    count = q.count()
+    if count:
+        q.delete(synchronize_session=False)
+        db.commit()
+    return count
+
+
+def _scheduled_audit_retention() -> None:
+    with SessionLocal() as db:
+        try:
+            removed = _purge_expired_login_audits(db)
+            if removed:
+                logger.info("审计保留期清理：删除 %s 条历史登录行", removed)
+        except Exception:
+            logger.exception("审计保留期清理失败")
+
+
+# 每日 03:17（避开整点与业务高峰；登录成功行按 audit_login_retention_days 清理）
+register_task("audit_retention", _scheduled_audit_retention, trigger="cron", hour=3, minute=17)
+
+
 def setup_scheduler(app: FastAPI) -> None:
     if not settings.scheduler_enabled:
         return

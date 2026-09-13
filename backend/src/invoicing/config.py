@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     workbuddy_inbox_dir: str = ""  # WorkBuddy 附件目录信任边界；为空表示不限制，生产建议配置
     fernet_key: str = "change-me-32bytes-base64-key!!!"  # 生产环境必须覆盖
     admin_username: str = "admin"
+    # 审计保留期：登录成功行按天清理（失败登录与业务操作长期保留）
+    audit_login_retention_days: int = 90
     admin_password: str = "admin123"
     mock_verify_rules: str = '{"fail_prefixes": ["0000"], "error_prefixes": ["0001"]}'
     # LLM 引擎（OpenAI 兼容协议；未启用时解析链路降级为现状行为）

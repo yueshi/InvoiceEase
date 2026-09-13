@@ -11,10 +11,14 @@ from invoicing.security import require_role
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
 
 
+_IDENTITY_ACTIONS = ("LOGIN", "LOGIN_FAILED", "LOGOUT")
+
+
 @router.get("", response_model=AuditListResponse)
 def list_audit_logs(
     user_id: int | None = None,
     action: str | None = None,
+    category: str = "business",
     invoice_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -27,10 +31,16 @@ def list_audit_logs(
     if user_id:
         q = q.filter(AuditLog.user_id == user_id)
     if action:
+        # 显式 action 优先（历史回溯不受分类限制）
         q = q.filter(AuditLog.action == action)
+    elif category == "security":
+        # 安全审计：仅身份事件（登录成败/登出）
+        q = q.filter(AuditLog.action.in_(_IDENTITY_ACTIONS))
+    elif category == "all":
+        pass
     else:
-        # 历史 LOGIN 行默认隐藏（登录已不再记录；显式 action=LOGIN 仍可回溯）
-        q = q.filter(AuditLog.action != "LOGIN")
+        # 业务审计（默认）：排除身份事件，避免稀释日常查阅
+        q = q.filter(~AuditLog.action.in_(_IDENTITY_ACTIONS))
     if invoice_id:
         q = q.filter(AuditLog.invoice_id == invoice_id)
     if date_from:

@@ -1,20 +1,54 @@
 <!-- 审计日志：筛选 / 分页 / 详情 JSON -->
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import type { Dayjs } from "dayjs";
 import { errorMessage } from "../api/client";
 import { listAuditLogs } from "../api/audit";
-import type { AuditListResponse } from "../types";
+import dayjs from "dayjs";
+import type { AuditListResponse, AuditOut } from "../types";
 
 const data = ref<AuditListResponse>({ items: [], total: 0, page: 1, page_size: 20 });
 const loading = ref(false);
+// 视图分类：业务审计（默认，排除身份事件）/ 安全审计（登录成败/登出，等保要求）
+const category = ref<"business" | "security">("business");
+// 详情弹窗：原始 JSON 直接内联会撑爆表格（删除快照等很长）→ 列表只显示摘要
+const detailOpen = ref(false);
+const detailRecord = ref<AuditOut | null>(null);
+
+const SUMMARY_MAX = 48;
+
+/** 详情摘要：键=值 拼接并限长——列表只做"提示"，完整内容进弹窗（原始 JSON 会撑爆表格） */
+function detailSummary(detail: Record<string, unknown> | null): string {
+  if (!detail) return "—";
+  const text = Object.entries(detail)
+    .map(([k, v]) => `${k}=${v !== null && typeof v === "object" ? "…" : String(v)}`)
+    .join(" · ");
+  return text.length > SUMMARY_MAX ? text.slice(0, SUMMARY_MAX) + "…" : text;
+}
+
+function openDetail(record: AuditOut) {
+  detailRecord.value = record;
+  detailOpen.value = true;
+}
 const filters = reactive({ action: undefined as string | undefined, dateRange: undefined as [Dayjs, Dayjs] | undefined });
+// 安全审计默认只看失败：成功登录量大、日常无异常含义，需要时一键看全部
+const failuresOnly = ref(true);
+
+const BUSINESS_ACTIONS = ["FETCH", "PARSE", "VERIFY", "REVIEW", "REJECT_REPLY", "CONFIG_CHANGE", "REVERIFY", "INGEST", "INVOICE_UPDATE", "INVOICE_DELETE", "UNBLOCK"];
+const SECURITY_ACTIONS = ["LOGIN", "LOGIN_FAILED", "LOGOUT"];
+
+function onCategoryChange() {
+  filters.action = undefined; // 分类切换后清掉上一个分类的操作类型
+  failuresOnly.value = category.value === "security"; // 安全视图默认只看失败
+  reloadFirst();
+}
 
 async function load() {
   loading.value = true;
   try {
     data.value = await listAuditLogs({
-      action: filters.action,
+      category: category.value,
+      action: filters.action || (category.value === "security" && failuresOnly.value ? "LOGIN_FAILED" : undefined),
       date_from: filters.dateRange?.[0]?.format("YYYY-MM-DD"),
       date_to: filters.dateRange?.[1]?.format("YYYY-MM-DDT23:59:59"),
       page: data.value.page,
@@ -33,34 +67,111 @@ function reloadFirst() {
 }
 onMounted(load);
 
-const columns = [
-  { title: "时间", dataIndex: "created_at", key: "created_at" },
-  { title: "操作", dataIndex: "action", key: "action" },
-  { title: "用户", dataIndex: "user_id", key: "user_id" },
-  { title: "发票", dataIndex: "invoice_id", key: "invoice_id" },
-  { title: "通道", dataIndex: "channel", key: "channel" },
-  { title: "详情", dataIndex: "detail", key: "detail" },
+// 列宽约束：无 width 的列会被表格拉伸吃掉空间（曾致「结果」横跨 400+px、时间列被挤换行）
+const BASE_COLUMNS = [
+  { title: "时间", dataIndex: "created_at", key: "created_at", width: 190 },
+  { title: "操作", dataIndex: "action", key: "action", width: 150 },
+  { title: "用户", dataIndex: "user_id", key: "user_id", width: 70 },
+  { title: "发票", dataIndex: "invoice_id", key: "invoice_id", width: 70 },
+  { title: "通道", dataIndex: "channel", key: "channel", width: 80 },
+  { title: "详情", key: "detail", width: 260 },
 ];
+
+// 「结果」只在安全审计视图有意义（登录成功/失败）；业务视图恒为「—」，不占列
+const columns = computed(() => {
+  if (category.value !== "security") return BASE_COLUMNS;
+  return [
+    BASE_COLUMNS[0],
+    BASE_COLUMNS[1],
+    { title: "结果", key: "result", width: 70 },
+    ...BASE_COLUMNS.slice(2),
+  ];
+});
 </script>
 
 <template>
   <div>
     <h3>审计日志</h3>
+    <a-tabs v-model:active-key="category" @change="onCategoryChange">
+      <a-tab-pane key="business" tab="业务审计" />
+      <a-tab-pane key="security" tab="安全审计" />
+    </a-tabs>
+    <p style="color: #888; margin-bottom: 12px">
+      {{ category === "business"
+        ? "业务操作留痕（收信/解析/验真/复核/配置变更等）；身份事件在「安全审计」标签页。"
+        : "身份事件（登录成功/失败/登出）——失败登录是撞库与爆破检测依据，长期保留。" }}
+    </p>
     <a-space style="margin-bottom: 16px" wrap>
       <a-select v-model:value="filters.action" placeholder="操作类型" allow-clear style="width: 180px" @change="reloadFirst">
-        <a-select-option v-for="a in ['FETCH','PARSE','VERIFY','REVIEW','LOGOUT','REJECT_REPLY','CONFIG_CHANGE','REVERIFY','INGEST','INVOICE_UPDATE','INVOICE_DELETE','UNBLOCK']" :key="a" :value="a">{{ a }}</a-select-option>
+        <a-select-option v-for="a in (category === 'security' ? SECURITY_ACTIONS : BUSINESS_ACTIONS)" :key="a" :value="a">{{ a }}</a-select-option>
       </a-select>
+      <a-checkbox v-if="category === 'security'" v-model:checked="failuresOnly" @change="reloadFirst">
+        仅看失败登录
+      </a-checkbox>
       <a-range-picker v-model:value="filters.dateRange" @change="reloadFirst" />
       <a-button type="primary" @click="load">查询</a-button>
     </a-space>
-    <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
+    <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id" :scroll="{ x: 960 }"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size }"
       @change="(p: any) => { data.page = p.current; data.page_size = p.pageSize; load(); }">
       <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'created_at'">
+          {{ dayjs(record.created_at).format("YYYY-MM-DD HH:mm:ss") }}
+        </template>
+        <template v-else-if="column.key === 'result'">
+          <a-tag v-if="record.action === 'LOGIN_FAILED'" color="red">失败</a-tag>
+          <a-tag v-else-if="record.action === 'LOGIN'" color="green">成功</a-tag>
+          <span v-else>—</span>
+        </template>
         <template v-if="column.key === 'detail'">
-          <span style="font-size: 12px; color: #888">{{ record.detail ? JSON.stringify(record.detail) : "—" }}</span>
+          <div class="audit-detail-cell">
+            <span class="audit-detail-text" :title="detailSummary(record.detail)">{{ detailSummary(record.detail) }}</span>
+            <a v-if="record.detail" @click="openDetail(record)">查看</a>
+          </div>
         </template>
       </template>
     </a-table>
+    <a-modal v-model:open="detailOpen" title="审计详情" width="720px" :footer="null">
+      <a-descriptions :column="1" size="small" bordered style="margin-bottom: 12px">
+        <a-descriptions-item label="时间">{{ detailRecord?.created_at }}</a-descriptions-item>
+        <a-descriptions-item label="操作">{{ detailRecord?.action }}</a-descriptions-item>
+        <a-descriptions-item label="用户 / 通道">
+          {{ detailRecord?.user_id ?? "—" }} / {{ detailRecord?.channel }}
+        </a-descriptions-item>
+        <a-descriptions-item v-if="detailRecord?.ip_address" label="IP">
+          {{ detailRecord.ip_address }}
+        </a-descriptions-item>
+      </a-descriptions>
+      <pre style="max-height: 55vh; overflow: auto; background: #fafafa; border-radius: 4px; padding: 12px; font-size: 12px; line-height: 1.6">{{ JSON.stringify(detailRecord?.detail ?? {}, null, 2) }}</pre>
+    </a-modal>
   </div>
 </template>
+
+<style scoped>
+/* 详情列：硬截断 + 查看入口（flex 容器内 antd Typography 的 ellipsis 测量不可靠，
+   直接用 CSS 截断，长 JSON 不再撑开表格） */
+.audit-detail-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.audit-detail-cell > a {
+  flex: 0 0 auto; /* 不参与收缩，避免「查看」被挤成两行 */
+  white-space: nowrap;
+}
+.audit-detail-cell > a {
+  flex: 0 0 auto; /* 不参与收缩，避免「查看」被挤成两行 */
+  white-space: nowrap;
+}
+.audit-detail-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>

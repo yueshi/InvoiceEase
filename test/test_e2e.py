@@ -99,8 +99,7 @@ def test_full_pipeline_xml_invoice(db, client):
     from invoicing.models import AuditLog
 
     actions = {log.action for log in db.query(AuditLog).all()}
-    assert {"FETCH", "PARSE", "VERIFY"} <= actions
-    assert "LOGIN" not in actions  # 登录不写审计（2026-09-13 调整）
+    assert {"FETCH", "PARSE", "VERIFY", "LOGIN"} <= actions  # 身份事件审计（等保要求）
 
 
 def test_dedup_index_multi_tenant_coexistence(db):
