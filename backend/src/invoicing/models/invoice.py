@@ -83,6 +83,15 @@ class Invoice(Base):
     duplicate_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True
     )
+    # 发票方向（销项开票在外部系统执行，此处导入已开票用于与收款回单对账）
+    # input 进项（收到供应商的票）/ output 销项（我方开给客户的票）
+    invoice_direction: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="input", server_default="input"
+    )
+    # 红字票关联的原蓝票（数电红字票面含原发票号码 → 自动关联；否则人工补关联）
+    original_invoice_id: Mapped[int | None] = mapped_column(
+        ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True
+    )
     # 报销维度（与业务状态机正交）：none 未报销 / pending 报销中 / claimed 已报销
     reimbursement_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="none", server_default="none"

@@ -4,7 +4,18 @@ import { computed, onMounted, reactive, ref } from "vue";
 import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
 import { downloadFile, errorMessage } from "../api/client";
-import { listInvoices, reVerify, reviewInvoice, updateInvoice, uploadInvoice } from "../api/invoices";
+import {
+  importSalesInvoices,
+  importSalesList,
+  linkOriginalInvoice,
+  listInvoices,
+  listUnlinkedRed,
+  reVerify,
+  reviewInvoice,
+  updateInvoice,
+  uploadInvoice,
+  type UnlinkedRedInvoice,
+} from "../api/invoices";
 import { useAuthStore } from "../stores/auth";
 import { EXPENSE_TYPE_COLORS, EXPENSE_TYPE_LABELS, INVOICE_STATUS_LABELS, VERIFY_STATUS_LABELS, type InvoiceListResponse, type InvoiceOut } from "../types";
 import InvoiceDetailDrawer from "../components/InvoiceDetailDrawer.vue";
@@ -20,6 +31,7 @@ const filters = reactive({
   status: undefined as string | undefined,
   keyword: "",
   expense_type: undefined as string | undefined, // unclassified = 未归类
+  invoice_direction: undefined as string | undefined, // input 进项 / output 销项
 });
 const periodType = ref<"all" | "month" | "quarter" | "year">("month");
 const anchor = ref<Dayjs>(dayjs()); // 唯一时间锚点：类型切换按它换算，选择器改动回写它
@@ -84,6 +96,64 @@ async function onBeforeUpload(file: File) {
   return false;
 }
 
+// ---- 已开票导入（销项）与红票关联 ----
+
+const unlinkedRed = ref<UnlinkedRedInvoice[]>([]);
+
+async function loadUnlinkedRed() {
+  if (!["finance_staff", "finance_manager", "admin"].includes(auth.role ?? "")) return;
+  try {
+    unlinkedRed.value = await listUnlinkedRed();
+  } catch {
+    // 非财务角色或接口不可用时静默（不打断主列表）
+  }
+}
+
+async function onBeforeImportSales(file: File) {
+  try {
+    const { results } = await importSalesInvoices([file]);
+    const r = results[0] as { status: string; invoice_number?: string; error?: string };
+    if (r.status === "imported") message.success(`已导入销项票 ${r.invoice_number}`);
+    else if (r.status === "skipped") message.warning(`已存在，跳过：${r.invoice_number || ""}`);
+    else message.error(r.error || "导入失败");
+    await load();
+    await loadUnlinkedRed();
+  } catch (e) {
+    errorMessage(e, "导入失败");
+  }
+  return false;
+}
+
+async function onBeforeImportSalesList(file: File) {
+  try {
+    const r = await importSalesList(file);
+    message.success(`清单导入：成功 ${r.imported}、跳过 ${r.skipped}、错误 ${r.errors}`);
+    await load();
+    await loadUnlinkedRed();
+  } catch (e) {
+    errorMessage(e, "清单导入失败");
+  }
+  return false;
+}
+
+async function onLinkRed(r: UnlinkedRedInvoice) {
+  const input = window.prompt(`红票 #${r.id} 关联的原蓝票 ID（可在发票列表按号码查到 ID 列）`);
+  if (!input) return;
+  const originalId = Number(input);
+  if (!Number.isFinite(originalId)) {
+    message.warning("请输入数字 ID");
+    return;
+  }
+  try {
+    await linkOriginalInvoice(r.id, originalId);
+    message.success("已关联原蓝票");
+    await loadUnlinkedRed();
+    await load();
+  } catch (e) {
+    errorMessage(e, "关联失败");
+  }
+}
+
 function showPreview(record: InvoiceOut) {
   previewTarget.value = record;
   previewOpen.value = true;
@@ -127,6 +197,7 @@ async function load() {
       status: filters.status,
       keyword: filters.keyword || undefined,
       expense_type: filters.expense_type,
+      invoice_direction: filters.invoice_direction,
       ...periodRange(),
       page: data.value.page,
       page_size: data.value.page_size,
@@ -192,10 +263,14 @@ async function onReVerify(record: InvoiceOut) {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+  loadUnlinkedRed();
+});
 
 const columns = [
   { title: "发票号码", dataIndex: "invoice_number", key: "invoice_number" },
+  { title: "方向", key: "invoice_direction", width: 80 },
   { title: "销售方", dataIndex: "seller_name", key: "seller_name" },
   { title: "开票日期", dataIndex: "issue_date", key: "issue_date" },
   { title: "价税合计", dataIndex: "total_amount", key: "total_amount" },
@@ -214,6 +289,10 @@ const columns = [
         <a-select-option v-for="(label, value) in INVOICE_STATUS_LABELS" :key="value" :value="value">{{ label }}</a-select-option>
       </a-select>
       <a-input v-model:value="filters.keyword" placeholder="发票号码/购销方" style="width: 220px" @press-enter="reloadFirst" />
+      <a-select v-model:value="filters.invoice_direction" placeholder="方向" allow-clear style="width: 110px" @change="reloadFirst">
+        <a-select-option value="input">进项</a-select-option>
+        <a-select-option value="output">销项</a-select-option>
+      </a-select>
       <a-select v-model:value="filters.expense_type" placeholder="费用类型" allow-clear style="width: 140px" @change="reloadFirst">
         <a-select-option v-for="(label, k) in EXPENSE_TYPE_LABELS" :key="k" :value="k">{{ label }}</a-select-option>
         <a-select-option value="unclassified">未归类</a-select-option>
@@ -249,7 +328,27 @@ const columns = [
       <a-upload :before-upload="onBeforeUpload" :show-upload-list="false" accept=".pdf,.ofd,.xml">
         <a-button>上传发票</a-button>
       </a-upload>
+      <a-upload :before-upload="onBeforeImportSales" :show-upload-list="false" accept=".xml,.ofd,.pdf" multiple>
+        <a-button>导入已开票</a-button>
+      </a-upload>
+      <a-upload :before-upload="onBeforeImportSalesList" :show-upload-list="false" accept=".csv,.xlsx,.xlsm">
+        <a-button>导入开票清单</a-button>
+      </a-upload>
     </a-space>
+    <a-alert
+      v-if="unlinkedRed.length"
+      type="warning"
+      show-icon
+      style="margin-bottom: 12px"
+      :message="`有 ${unlinkedRed.length} 张红字票未关联原蓝票（销项退款对账需要）`"
+    >
+      <template #description>
+        <span v-for="r in unlinkedRed.slice(0, 5)" :key="r.id" style="margin-right: 12px">
+          #{{ r.id }} {{ r.invoice_number || "无号码" }} {{ r.total_amount || "" }}
+          <a @click="onLinkRed(r)">关联原蓝票</a>
+        </span>
+      </template>
+    </a-alert>
     <a-alert
       v-if="!loading && data.total === 0 && outsidePeriodCount > 0"
       type="info"
@@ -276,6 +375,16 @@ const columns = [
           <!-- 报销维度（与业务状态正交）：已报销 / 报销中 -->
           <a-tag v-if="record.reimbursement_status === 'claimed'" color="green" style="margin-left: 4px">已报销</a-tag>
           <a-tag v-else-if="record.reimbursement_status === 'pending'" color="gold" style="margin-left: 4px">报销中</a-tag>
+        </template>
+        <template v-else-if="column.key === 'invoice_direction'">
+          <a-tag :color="record.invoice_direction === 'output' ? 'geekblue' : 'green'">
+            {{ record.invoice_direction === "output" ? "销项" : "进项" }}
+          </a-tag>
+          <a-tooltip v-if="record.red_flag" :title="record.original_invoice_id ? `已关联原蓝票 #${record.original_invoice_id}` : '红字票未关联原蓝票'">
+            <a-tag :color="record.original_invoice_id ? 'red' : 'volcano'" style="margin-left: 4px">
+              红字{{ record.original_invoice_id ? "" : "?" }}
+            </a-tag>
+          </a-tooltip>
         </template>
         <template v-else-if="column.key === 'expense_type'">
           <a-dropdown :trigger="['click']">

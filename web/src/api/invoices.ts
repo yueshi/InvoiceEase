@@ -8,6 +8,8 @@ export interface ListParams {
   keyword?: string;
   /** 费用类型筛选；unclassified = 未归类（规则未命中留空） */
   expense_type?: string;
+  /** 方向筛选：input 进项 / output 销项 */
+  invoice_direction?: string;
   page?: number;
   page_size?: number;
 }
@@ -38,6 +40,39 @@ export async function updateInvoice(
 ): Promise<InvoiceOut> {
   const { data } = await api.put<InvoiceOut>(`/invoices/${id}`, payload);
   return data;
+}
+
+/** 导入已开票（销项，文件解析）：XML/OFD/PDF，红票自动关联原蓝票 */
+export async function importSalesInvoices(files: File[]): Promise<{ results: Array<Record<string, unknown>> }> {
+  const form = new FormData();
+  files.forEach((f) => form.append("files", f));
+  const { data } = await api.post<{ results: Array<Record<string, unknown>> }>("/invoices/import-sales", form);
+  return data;
+}
+
+/** 导入已开票（清单批量）：CSV/Excel（含「原发票号码」列则自动关联红票） */
+export async function importSalesList(file: File): Promise<{ imported: number; skipped: number; errors: number }> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post<{ imported: number; skipped: number; errors: number }>(
+    "/invoices/import-sales-list", form,
+  );
+  return data;
+}
+
+/** 未关联原蓝票的红字票（财务待处理） */
+export interface UnlinkedRedInvoice {
+  id: number; invoice_number: string | null; buyer_name: string | null;
+  total_amount: string | null; issue_date: string | null;
+}
+export async function listUnlinkedRed(): Promise<UnlinkedRedInvoice[]> {
+  const { data } = await api.get<UnlinkedRedInvoice[]>("/invoices/red-unlinked");
+  return data;
+}
+
+/** 人工补关联红票 → 原蓝票 */
+export async function linkOriginalInvoice(redId: number, originalId: number): Promise<void> {
+  await api.post(`/invoices/${redId}/link-original`, null, { params: { original_invoice_id: originalId } });
 }
 
 export async function uploadInvoice(file: File): Promise<InvoiceOut> {

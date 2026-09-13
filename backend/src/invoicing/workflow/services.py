@@ -28,12 +28,15 @@ def list_invoices(
     date_to=None,
     keyword: str | None = None,
     expense_type: str | None = None,
+    invoice_direction: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> InvoiceListResponse:
     q = _scope_query(db, current_user)
     if status:
         q = q.filter(Invoice.status == status)
+    if invoice_direction:
+        q = q.filter(Invoice.invoice_direction == invoice_direction)
     if expense_type:
         # unclassified = 未归类（规则未命中的留空发票）
         if expense_type == "unclassified":

@@ -629,10 +629,14 @@ def parse_receipt_bytes(data: bytes, kind: str) -> dict:
 
 
 def suggest_pair(db, receipt_id: int) -> int | None:
-    """配对建议（D5）：金额相等 + 户名规范化后互相包含；返回 invoice_id 或 None。
+    """配对建议（D5 + 销项扩展）：金额相等 + 户名规范化后互相包含。
 
-    P2：无对方户名（本司账户行内部交易）不参与配对；候选销方命中本司名称集合
-    时也排除（防本司自开票误配）。
+    **方向感知**（销项开票在外部执行，导入后与收款回单对账）：
+    - 回单为**收**（进账）→ 候选为**销项蓝票**，匹配字段是**购买方（客户）**
+    - 回单为**付**（出账）→ 候选为**进项票**（现有逻辑），匹配字段是**销售方**
+    - 回单为**付**且候选为**销项红票** → 退款场景，匹配购买方
+
+    仍排除：本司账户行（无对方户名）、对方名命中本司名称的候选（防自开票误配）。
     """
     from invoicing.models import BankReceipt, Invoice
 
@@ -645,19 +649,30 @@ def suggest_pair(db, receipt_id: int) -> int | None:
     self_names = _self_party_names(db)
     if any(sn and (sn in party or party in sn) for sn in self_names):
         return None
+
+    def _hit(name: str | None) -> bool:
+        norm = normalize_party(name or "")
+        if not norm:
+            return False
+        if any(sn and (sn in norm or norm in sn) for sn in self_names):
+            return False
+        return party in norm or norm in party
+
+    incoming = r.direction == "收"
     candidates = (
-        db.query(Invoice)
-        .filter(Invoice.total_amount == r.amount, Invoice.seller_name.isnot(None))
-        .all()
+        db.query(Invoice).filter(Invoice.total_amount == r.amount).all()
     )
     for inv in candidates:
-        norm_seller = normalize_party(inv.seller_name or "")
-        if not norm_seller:
-            continue
-        if any(sn and (sn in norm_seller or norm_seller in sn) for sn in self_names):
-            continue  # 销方是本司 → 不配对
-        if party in norm_seller or norm_seller in party:
-            return inv.id
+        if incoming:
+            # 收款回单 ↔ 销项票（蓝票或红票退款前的对应收款）；匹配客户名
+            if inv.invoice_direction == "output" and _hit(inv.buyer_name):
+                return inv.id
+        else:
+            # 付款回单 ↔ 进项票；退款场景 ↔ 销项红票
+            if inv.invoice_direction == "input" and _hit(inv.seller_name):
+                return inv.id
+            if inv.invoice_direction == "output" and inv.red_flag and _hit(inv.buyer_name):
+                return inv.id
     return None
 
 

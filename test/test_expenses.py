@@ -38,6 +38,7 @@ def _invoice(db, number="24312000000012345678", **kw):
         issue_date=kw.get("issue_date", date(2026, 6, 1)),
         user_id=kw.get("user_id"),
         seller_name=kw.get("seller_name", "某某公司"),
+        buyer_name=kw.get("buyer_name"),
     )
     db.add(inv)
     db.commit()
@@ -639,3 +640,95 @@ def test_create_claim_api_with_type(client, db, users):
     bad = client.post("/api/v1/expenses", headers=emp,
                       json={"title": "X", "claim_type": "nope"})
     assert bad.status_code == 422
+
+
+# ---- 销项发票导入（外部开票）+ 红字处理 + 与回单关联 ----------------------
+
+
+def test_import_sales_invoice_file_and_red_link(db, users, tmp_path):
+    """导入已开票（文件）：解析入库为销项；红票自动关联原蓝票（票面原发票号）。"""
+    from invoicing.workflow import sales as sales_svc
+
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Invoice><SellerName>西安启智合创科技有限公司</SellerName>
+<BuyerName>某某客户有限公司</BuyerName><InvoiceNumber>26617000000309516999</InvoiceNumber>
+<IssueDate>2026-07-01</IssueDate><TotalAmount>1000.00</TotalAmount></Invoice>"""
+    p = tmp_path / "blue.xml"
+    p.write_bytes(xml.encode())
+
+    blue = sales_svc.import_sales_files(db, users["fin"], [("blue.xml", xml.encode())])
+    assert blue[0]["status"] == "imported"
+    inv = db.query(Invoice).filter(Invoice.invoice_number == "26617000000309516999").one()
+    assert inv.invoice_direction == "output"
+
+    # 红字票：票面含原发票号码 → 自动关联
+    red_xml = xml.replace("26617000000309516999", "26617000000309517000").replace(
+        "<TotalAmount>1000.00</TotalAmount>",
+        "<TotalAmount>-300.00</TotalAmount><OriginalInvoiceNumber>26617000000309516999</OriginalInvoiceNumber>",
+    ).replace("<Invoice>", "<Invoice><InvoiceType>红字发票</InvoiceType>")
+    red = sales_svc.import_sales_files(db, users["fin"], [("red.xml", red_xml.encode())])
+    assert red[0]["status"] == "imported"
+    red_inv = db.query(Invoice).filter(Invoice.invoice_number == "26617000000309517000").one()
+    assert red_inv.red_flag is True
+    assert red_inv.original_invoice_id == inv.id  # 自动关联原蓝票
+
+
+def test_import_sales_list_csv(db, users):
+    """导入已开票（清单批量）：CSV 逐行入库；重复号码跳过；红票按原发票号关联。"""
+    from invoicing.workflow import sales as sales_svc
+
+    csv_data = (
+        "发票号码,开票日期,购买方名称,购买方税号,金额,税额,价税合计,发票类型,原发票号码\n"
+        "26617000000309518001,2026-07-02,客户甲有限公司,91310000AAAAAAAAAA,100.00,13.00,113.00,数电票,\n"
+        "26617000000309518002,2026-07-03,客户乙有限公司,91310000BBBBBBBBBB,-50.00,-6.50,-56.50,红字数电票,26617000000309518001\n"
+    ).encode()
+    result = sales_svc.import_sales_list(db, users["fin"], csv_data, filename="sales.csv")
+    assert result["imported"] == 2
+    red = db.query(Invoice).filter(Invoice.invoice_number == "26617000000309518002").one()
+    blue = db.query(Invoice).filter(Invoice.invoice_number == "26617000000309518001").one()
+    assert red.invoice_direction == "output" and red.red_flag is True
+    assert red.original_invoice_id == blue.id
+
+    # 幂等：同清单再导入 → 全部跳过
+    again = sales_svc.import_sales_list(db, users["fin"], csv_data, filename="sales.csv")
+    assert again["imported"] == 0 and again["skipped"] == 2
+
+
+def test_link_red_invoice_manually(db, users):
+    """人工补关联：未自动关联的红票可手动指定原蓝票；非红票/方向不符拒绝。"""
+    from invoicing.workflow import sales as sales_svc
+
+    blue = _invoice(db, number="24312000000000000071", seller_name="本司")
+    red = _invoice(db, number="24312000000000000072", seller_name="本司")
+    red.red_flag = True
+    db.commit()
+
+    svc = sales_svc
+    svc.link_red_invoice(db, users["fin"], red.id, blue.id)
+    db.refresh(red)
+    assert red.original_invoice_id == blue.id
+
+    normal = _invoice(db, number="24312000000000000073")
+    with pytest.raises(ValueError, match="红字"):
+        svc.link_red_invoice(db, users["fin"], normal.id, blue.id)
+
+
+def test_pair_direction_aware(db, users):
+    """配方向感知：收款回单 ↔ 销项票（匹配购买方）；付款回单 ↔ 进项票（匹配销售方）。"""
+    from datetime import date as _date
+
+    from invoicing.parse.receipt import suggest_pair
+
+    # 销项票：本司开给客户甲公司
+    sales_inv = _invoice(db, number="24312000000000000081", seller_name="西安启智合创科技有限公司",
+                         buyer_name="客户甲有限公司", total_amount=Decimal("500.00"))
+    sales_inv.invoice_direction = "output"
+    db.commit()
+
+    # 收款回单（付方=客户甲）→ 应与销项票配对
+    incoming = BankReceipt(file_url="in.pdf", file_type="PDF", counterparty_name="客户甲有限公司",
+                           amount=Decimal("500.00"), trade_date=_date(2026, 7, 5), status="unmatched",
+                           direction="收")
+    db.add(incoming)
+    db.commit()
+    assert suggest_pair(db, incoming.id) == sales_inv.id

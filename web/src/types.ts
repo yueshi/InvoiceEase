@@ -59,6 +59,8 @@ export interface InvoiceOut {
   ai_review_confidence: number | null;
   ai_reviewed_at: string | null;
   red_flag: boolean;  // 红字发票标记（M9 第一步：识别+标记，不自动对冲）
+  invoice_direction?: "input" | "output";  // 进项（收到）/ 销项（我方开出，外部系统执行后导入）
+  original_invoice_id?: number | null;     // 红票关联的原蓝票
   xml_url: string | null;  // 合规存档：含数字签名的 XML 原件地址
   review_note: string | null;
   reviewed_by: number | null;

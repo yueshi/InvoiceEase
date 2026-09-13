@@ -32,13 +32,16 @@ def list_invoices(
     date_to: date | None = None,
     keyword: str | None = None,
     expense_type: str | None = None,
+    invoice_direction: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     return services.list_invoices(
-        db, user, status, date_from, date_to, keyword, expense_type, page, page_size
+        db, user, status=status, date_from=date_from, date_to=date_to, keyword=keyword,
+        expense_type=expense_type, invoice_direction=invoice_direction,
+        page=page, page_size=page_size,
     )
 
 
@@ -51,6 +54,67 @@ def upload_invoice(
     """员工交票上传（M3）：仅 PDF/OFD/XML 原件，图片 422 引导走邮箱；user_id 归属上传者。"""
     data = file.file.read()
     return services.upload_invoice(db, user, file.filename or "invoice", data)
+
+
+@router.post("/import-sales")
+def import_sales_invoices(
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("finance_staff", "finance_manager", "admin")),
+):
+    """导入已开票（销项，文件解析）：XML/OFD/PDF，逐文件返回 imported/skipped/error。
+
+    销项开票在外部系统执行，此处只导入已开票用于与收款回单对账；红票自动关联原蓝票。
+    """
+    from invoicing.workflow import sales as sales_svc
+
+    payload = [(f.filename or "sales.xml", f.file.read()) for f in files]
+    return {"results": sales_svc.import_sales_files(db, user, payload)}
+
+
+@router.post("/import-sales-list")
+def import_sales_list(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("finance_staff", "finance_manager", "admin")),
+):
+    """导入已开票（清单批量）：开票系统导出的 CSV/Excel（含"原发票号码"列则自动关联红票）。"""
+    from invoicing.workflow import sales as sales_svc
+
+    return sales_svc.import_sales_list(db, user, file.file.read(), file.filename or "sales.csv")
+
+
+@router.get("/red-unlinked")
+def unlinked_red_invoices(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("finance_staff", "finance_manager", "admin")),
+):
+    """未关联原蓝票的红字票（财务待处理）。"""
+    from invoicing.workflow import sales as sales_svc
+
+    return [
+        {"id": i.id, "invoice_number": i.invoice_number, "buyer_name": i.buyer_name,
+         "total_amount": str(i.total_amount) if i.total_amount is not None else None,
+         "issue_date": str(i.issue_date) if i.issue_date else None}
+        for i in sales_svc.unlinked_red_invoices(db, user)
+    ]
+
+
+@router.post("/{invoice_id}/link-original")
+def link_original_invoice(
+    invoice_id: int,
+    original_invoice_id: int = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("finance_staff", "finance_manager", "admin")),
+):
+    """人工补关联：把红字票挂到原蓝票。"""
+    from invoicing.workflow import sales as sales_svc
+
+    try:
+        inv = sales_svc.link_red_invoice(db, user, invoice_id, original_invoice_id)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    return {"ok": True, "invoice_id": inv.id, "original_invoice_id": inv.original_invoice_id}
 
 
 @router.get("/{invoice_id}", response_model=InvoiceOut)

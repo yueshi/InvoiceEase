@@ -629,6 +629,55 @@ def invoice_ai_review(invoice_id: int) -> InvoiceOut:
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
+def sales_invoice_import(file_path: str) -> dict:
+    """导入已开票（销项，文件解析）：XML/OFD/PDF → 入库为销项票，红票自动关联原蓝票。"""
+    from pathlib import Path
+
+    from invoicing.mcp.extract import _read_file
+    from invoicing.workflow import sales as sales_svc
+
+    path = Path(file_path)
+    data = _read_file(file_path)
+    with SessionLocal() as db:
+        results = sales_svc.import_sales_files(db, _mcp_real_user(db), [(path.name, data)])
+        return results[0]
+
+
+def sales_invoice_import_list(file_path: str) -> dict:
+    """导入已开票（清单批量）：开票系统导出的 CSV/Excel；含"原发票号码"列则自动关联红票。"""
+    from pathlib import Path
+
+    from invoicing.mcp.extract import _read_file
+    from invoicing.workflow import sales as sales_svc
+
+    path = Path(file_path)
+    data = _read_file(file_path)
+    with SessionLocal() as db:
+        return sales_svc.import_sales_list(db, _mcp_real_user(db), data, path.name)
+
+
+def red_invoice_list() -> list[dict]:
+    """未关联原蓝票的红字票（销项退款场景待人工补关联）。"""
+    from invoicing.workflow import sales as sales_svc
+
+    with SessionLocal() as db:
+        return [
+            {"id": i.id, "invoice_number": i.invoice_number, "buyer_name": i.buyer_name,
+             "total_amount": _money(i.total_amount),
+             "issue_date": str(i.issue_date) if i.issue_date else None}
+            for i in sales_svc.unlinked_red_invoices(db)
+        ]
+
+
+def red_invoice_link(red_invoice_id: int, original_invoice_id: int) -> dict:
+    """人工补关联：把红字票挂到原蓝票。"""
+    from invoicing.workflow import sales as sales_svc
+
+    with SessionLocal() as db:
+        inv = sales_svc.link_red_invoice(db, _mcp_real_user(db), red_invoice_id, original_invoice_id)
+        return {"ok": True, "invoice_id": inv.id, "original_invoice_id": inv.original_invoice_id}
+
+
 def invoice_report(month: str) -> str:
     """月度成本报表摘要（供数字员工汇报）：总额/张数/类型分布/部门分布。"""
     from invoicing.reports import monthly_cost

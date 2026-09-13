@@ -171,6 +171,22 @@ def build_server() -> MCPServer:
     def invoice_report(month: str) -> str:
         return mcp_tools.invoice_report(month)
 
+    @server.tool(description="导入已开票（销项发票，外部开票系统执行）：XML/OFD/PDF 文件解析入库，用于与收款回单对账；红字票自动关联原蓝票。")
+    def sales_invoice_import(file_path: str) -> dict:
+        return mcp_tools.sales_invoice_import(file_path)
+
+    @server.tool(description="导入已开票（清单批量）：开票系统导出的 CSV/Excel；含「原发票号码」列时红票自动关联蓝票。")
+    def sales_invoice_import_list(file_path: str) -> dict:
+        return mcp_tools.sales_invoice_import_list(file_path)
+
+    @server.tool(description="未关联原蓝票的红字票清单（销项退款待人工补关联）。")
+    def red_invoice_list() -> list[dict]:
+        return mcp_tools.red_invoice_list()
+
+    @server.tool(description="人工补关联红字票与原蓝票（自动关联失败时使用）。")
+    def red_invoice_link(red_invoice_id: int, original_invoice_id: int) -> dict:
+        return mcp_tools.red_invoice_link(red_invoice_id, original_invoice_id)
+
     @server.tool(description="银行回单入库（PDF/图片，异步批次模式）：立即返回批次号，后台解析（规则+LLM，一份 PDF 可含多张回单）+ 自动配对发票建议。稍后用 receipt_upload_status 轮询进度；完成后 receipt_list 查看。同一文件重复提交会被拒绝。")
     def receipt_ingest(file_path: str) -> dict:
         return mcp_tools.receipt_ingest(file_path)
