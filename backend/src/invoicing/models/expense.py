@@ -66,6 +66,10 @@ class ExpenseClaim(Base):
     claim_no: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
     applicant_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(256), nullable=False)
+    # 单据类型（六类之一）：新建时选择，决定默认事项类型与报表归类
+    claim_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=EntryType.OTHER, server_default="other"
+    )
     total_amount: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
     status: Mapped[str] = mapped_column(
         String(24), nullable=False, default=ExpenseClaimStatus.DRAFT

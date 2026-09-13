@@ -241,6 +241,7 @@ export interface ClaimOut {
   claim_no: string;
   applicant_id: number;
   title: string;
+  claim_type: string;
   total_amount: string;
   status: ClaimStatus;
   approver_id: number | null;

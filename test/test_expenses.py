@@ -459,6 +459,12 @@ def test_rule_only_classify_returns_none_when_no_hit():
     assert rule_suggest_expense_type("福建予君酒店管理有限公司", None) == "travel"
     assert rule_suggest_expense_type("某某餐饮有限公司", None) == "entertainment"
     assert rule_suggest_expense_type("办公用品商行", None) == "office"
+    # 办公类扩展关键词（耗材/快递/软件/会务/物业杂费）
+    for seller in ("XX耗材经营部", "顺丰速运有限公司", "某某软件科技有限公司",
+                   "XX会务服务有限公司", "XX物业服务中心", "某某办公设备有限公司"):
+        assert rule_suggest_expense_type(seller, None) == "office", seller
+    # 办公饮用水 → 福利费（受益对象是本企业员工，与团建同口径）
+    assert rule_suggest_expense_type("某某桶装水配送中心", None) == "welfare"
     assert rule_suggest_expense_type("某个没听过的科技有限公司", None) is None  # 未命中 → 留空
 
 
@@ -493,6 +499,12 @@ def test_rule_only_classify_six_types():
     assert rule_suggest_expense_type("某某团建拓展服务有限公司", None) == "welfare"
     assert rule_suggest_expense_type("员工聚餐（xx餐厅）", None) == "welfare"  # 团建优先于餐饮
     assert rule_suggest_expense_type("办公用品商行", None) == "office"
+    # 办公类扩展关键词（耗材/快递/软件/会务/物业杂费）
+    for seller in ("XX耗材经营部", "顺丰速运有限公司", "某某软件科技有限公司",
+                   "XX会务服务有限公司", "XX物业服务中心", "某某办公设备有限公司"):
+        assert rule_suggest_expense_type(seller, None) == "office", seller
+    # 办公饮用水 → 福利费（受益对象是本企业员工，与团建同口径）
+    assert rule_suggest_expense_type("某某桶装水配送中心", None) == "welfare"
     assert rule_suggest_expense_type("某不知名科技有限公司", None) is None
 
 
@@ -570,3 +582,60 @@ def test_delete_claim_releases_invoices_and_audits(db, users):
     )
     assert log is not None and log.detail.get("claim_no") == claim.claim_no
     assert log.detail.get("snapshot", {}).get("total_amount")
+
+
+# ---- 单据类型（新建时选择）------------------------------------------------
+
+
+def test_create_claim_with_type_and_entry_inherits(db, users):
+    """新建报销单选择类型；事项类型未指定时跟随单据类型；非法类型拒绝。"""
+    claim = svc.create_claim(db, users["emp"], title="7 月福州出差", claim_type="travel")
+    assert claim.claim_type == "travel"
+
+    # 事项未显式给类型 → 跟随单据类型
+    entry = svc.create_entry(db, users["emp"], claim.id, None, "上海→福州 高铁",
+                             scene_fields={"subtype": "transport", "transport_mode": "高铁",
+                                           "from_city": "上海", "to_city": "福州",
+                                           "travel_date": "2026-07-15"})
+    assert entry.entry_type == "travel"
+
+    # 显式指定类型则以指定为准（差旅单里也可记招待客户）
+    other = svc.create_entry(
+        db, users["emp"], claim.id, "entertainment", "福州客户晚宴",
+        scene_fields={"guests": "客户张总", "headcount": "3"},
+    )
+    assert other.entry_type == "entertainment"
+
+    with pytest.raises(ValueError, match="非法单据类型"):
+        svc.create_claim(db, users["emp"], title="X", claim_type="bad_type")
+
+
+def test_claim_type_filter_and_mcp(db, users):
+    """按单据类型筛选；MCP expense_list 带出单据类型。"""
+    svc.create_claim(db, users["emp"], title="差旅单", claim_type="travel")
+    svc.create_claim(db, users["emp"], title="采购单", claim_type="procurement")
+
+    travel = svc.list_claims(db, users["emp"], claim_type="travel")
+    assert {c.title for c in travel} == {"差旅单"}
+
+    from invoicing.mcp import tools as mt
+
+    rows = mt.expense_list(claim_type="procurement")
+    assert any(c["title"] == "采购单" and c["claim_type"] == "procurement" for c in rows)
+
+
+def test_create_claim_api_with_type(client, db, users):
+    """API：新建报销单带类型；列表与详情带出类型。"""
+    emp = _login(client, "emp1")
+    resp = client.post("/api/v1/expenses", headers=emp,
+                       json={"title": "团建活动", "claim_type": "welfare"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["claim_type"] == "welfare"
+
+    listed = client.get("/api/v1/expenses?claim_type=welfare", headers=emp).json()
+    assert any(c["claim_no"] == body["claim_no"] for c in listed)
+
+    bad = client.post("/api/v1/expenses", headers=emp,
+                      json={"title": "X", "claim_type": "nope"})
+    assert bad.status_code == 422

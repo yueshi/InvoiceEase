@@ -275,13 +275,17 @@ def _mcp_real_user(db) -> User:
     return user or _mcp_admin_user()
 
 
-def expense_create(title: str, remark: str | None = None) -> dict:
-    """创建报销单（草稿），返回单号与 ID；随后用 expense_add_invoices 加票。"""
+def expense_create(title: str, remark: str | None = None, claim_type: str | None = None) -> dict:
+    """创建报销单（草稿）：claim_type 选择单据类型（travel 差旅/procurement 采购/
+    entertainment 招待/office 办公/welfare 福利/other 其他），事项默认继承该类型。"""
     from invoicing.workflow import expenses as svc
 
     with SessionLocal() as db:
-        claim = svc.create_claim(db, _mcp_real_user(db), title, remark)
-        return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status, "title": claim.title}
+        claim = svc.create_claim(db, _mcp_real_user(db), title, remark, claim_type)
+        return {
+            "id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
+            "title": claim.title, "claim_type": claim.claim_type,
+        }
 
 
 def expense_add_entry(claim_id: int, entry_type: str, title: str,
@@ -349,15 +353,16 @@ def expense_submit(claim_id: int) -> dict:
                 "total_amount": _money(claim.total_amount)}
 
 
-def expense_list(status: str | None = None) -> list[dict]:
-    """报销单列表（可按状态过滤：draft/pending_approval/approved/rejected/withdrawn）。"""
+def expense_list(status: str | None = None, claim_type: str | None = None) -> list[dict]:
+    """报销单列表（可按状态与单据类型过滤）。"""
     from invoicing.workflow import expenses as svc
 
     with SessionLocal() as db:
-        rows = svc.list_claims(db, _mcp_real_user(db), status)
+        rows = svc.list_claims(db, _mcp_real_user(db), status, claim_type)
         return [
             {
-                "id": c.id, "claim_no": c.claim_no, "title": c.title, "status": c.status,
+                "id": c.id, "claim_no": c.claim_no, "title": c.title,
+                "claim_type": c.claim_type, "status": c.status,
                 "applicant_id": c.applicant_id, "total_amount": _money(c.total_amount),
                 "item_count": svc.item_count(db, c.id),
                 "entries": [

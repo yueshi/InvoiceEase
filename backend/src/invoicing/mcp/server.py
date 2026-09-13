@@ -68,9 +68,9 @@ def build_server() -> MCPServer:
     ) -> CompanyInfoOut:
         return mcp_tools.company_info_save(name, tax_id, kind, is_default, remark)
 
-    @server.tool(description="创建报销单（草稿）。随后用 expense_add_invoices 按发票号加票，再 expense_submit 提交审批。")
-    def expense_create(title: str, remark: str | None = None) -> dict:
-        return mcp_tools.expense_create(title, remark)
+    @server.tool(description="创建报销单（草稿）：claim_type 选单据类型（travel 差旅/procurement 采购/entertainment 招待/office 办公/welfare 福利/other 其他），事项默认继承。随后 expense_add_entry 建事项、expense_add_invoices 加票、expense_submit 提交。")
+    def expense_create(title: str, remark: str | None = None, claim_type: str | None = None) -> dict:
+        return mcp_tools.expense_create(title, remark, claim_type)
 
     @server.tool(description="新建报销事项（费用明细行）：travel 差旅（需城市+起止日期）/ procurement 采购 / entertainment 招待（需对象+人数）/ office / other。凭证挂到事项下。")
     def expense_add_entry(claim_id: int, entry_type: str, title: str,
@@ -87,9 +87,9 @@ def build_server() -> MCPServer:
     def expense_submit(claim_id: int) -> dict:
         return mcp_tools.expense_submit(claim_id)
 
-    @server.tool(description="报销单列表（status 可选 draft/pending_approval/approved/rejected/withdrawn）。")
-    def expense_list(status: str | None = None) -> list[dict]:
-        return mcp_tools.expense_list(status)
+    @server.tool(description="报销单列表（status 可选 draft/pending_approval/approved/rejected/withdrawn；claim_type 可选单据类型）。")
+    def expense_list(status: str | None = None, claim_type: str | None = None) -> list[dict]:
+        return mcp_tools.expense_list(status, claim_type)
 
     @server.tool(description="审批报销单：action=approve/reject（驳回必填 reason）。")
     def expense_approve(claim_id: int, action: str = "approve", reason: str | None = None) -> dict:

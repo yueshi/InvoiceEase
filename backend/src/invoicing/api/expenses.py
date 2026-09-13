@@ -21,6 +21,7 @@ router = APIRouter(prefix="/expenses", tags=["expenses"])
 class ClaimCreate(BaseModel):
     title: str = Field(min_length=1, max_length=256)
     remark: str | None = Field(default=None, max_length=512)
+    claim_type: str | None = None  # 六类之一（travel/procurement/entertainment/office/welfare/other）
 
 
 class EntryCreate(BaseModel):
@@ -86,6 +87,7 @@ class ClaimOut(BaseModel):
     claim_no: str
     applicant_id: int
     title: str
+    claim_type: str
     total_amount: MoneyStr
     status: str
     approver_id: int | None
@@ -139,11 +141,12 @@ def _claim_out(db: Session, claim) -> ClaimOut:
 @router.get("", response_model=list[ClaimOut])
 def list_claims(
     status: str | None = None,
+    claim_type: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """报销单列表：员工看本人；财务/管理员看全部（可用 status 过滤）。"""
-    rows = svc.list_claims(db, user, status)
+    """报销单列表：员工看本人；财务/管理员看全部（可按 status/claim_type 过滤）。"""
+    rows = svc.list_claims(db, user, status, claim_type)
     return [_claim_out(db, r) for r in rows]
 
 
@@ -152,7 +155,7 @@ def create_claim(
     body: ClaimCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     try:
-        claim = svc.create_claim(db, user, body.title, body.remark)
+        claim = svc.create_claim(db, user, body.title, body.remark, body.claim_type)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     return _claim_out(db, claim)

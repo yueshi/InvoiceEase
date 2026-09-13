@@ -116,13 +116,20 @@ def _recalc_total(db: Session, claim: ExpenseClaim) -> None:
 # ---- 建单 / 明细 ----------------------------------------------------------
 
 
-def create_claim(db: Session, user: User, title: str, remark: str | None = None) -> ExpenseClaim:
+def create_claim(
+    db: Session, user: User, title: str, remark: str | None = None, claim_type: str | None = None
+) -> ExpenseClaim:
+    """新建报销单：claim_type 选择单据类型（六类之一），作为默认事项类型与报表维度。"""
     if not (title or "").strip():
         raise ValueError("请填写报销事由")
+    ctype = claim_type or EntryType.OTHER.value
+    if ctype not in EXPENSE_TYPES:
+        raise ValueError(f"非法单据类型: {ctype}（可选 {'/'.join(EXPENSE_TYPES)}）")
     claim = ExpenseClaim(
         claim_no=_next_claim_no(db),
         applicant_id=user.id,
         title=title.strip(),
+        claim_type=ctype,
         remark=remark,
         status=ExpenseClaimStatus.DRAFT,
         total_amount=Decimal("0"),
@@ -131,7 +138,7 @@ def create_claim(db: Session, user: User, title: str, remark: str | None = None)
     db.flush()
     write_audit(
         db, action="EXPENSE_CREATE", user_id=user.id, channel="web",
-        detail={"claim_no": claim.claim_no, "title": claim.title},
+        detail={"claim_no": claim.claim_no, "title": claim.title, "claim_type": ctype},
     )
     db.commit()
     return claim
@@ -219,7 +226,7 @@ def create_entry(
     db: Session,
     user: User,
     claim_id: int,
-    entry_type: str,
+    entry_type: str | None,
     title: str,
     occurred_on: date | None = None,
     scene_fields: dict | None = None,
@@ -228,6 +235,7 @@ def create_entry(
     """新建事项（费用明细行，凭证挂在其下）。"""
     claim = _get_claim(db, claim_id)
     _require_owner_draft(claim, user)
+    entry_type = entry_type or claim.claim_type  # 未指定则跟随单据类型
     if entry_type not in _ENTRY_TYPE_LABELS:
         raise ValueError(f"非法事项类型: {entry_type}（可选 {'/'.join(_ENTRY_TYPE_LABELS)}）")
     if not (title or "").strip():
@@ -658,13 +666,17 @@ def _release_items(db: Session, claim: ExpenseClaim) -> None:
 # ---- 查询 ----------------------------------------------------------------
 
 
-def list_claims(db: Session, user: User, status: str | None = None) -> list[ExpenseClaim]:
-    """员工看本人；财务/管理员看全部（FRD 权限约定）。"""
+def list_claims(
+    db: Session, user: User, status: str | None = None, claim_type: str | None = None
+) -> list[ExpenseClaim]:
+    """员工看本人；财务/管理员看全部（FRD 权限约定）；可按状态与单据类型筛选。"""
     q = db.query(ExpenseClaim)
     if not _is_finance(user):
         q = q.filter(ExpenseClaim.applicant_id == user.id)
     if status:
         q = q.filter(ExpenseClaim.status == status)
+    if claim_type:
+        q = q.filter(ExpenseClaim.claim_type == claim_type)
     return q.order_by(ExpenseClaim.created_at.desc(), ExpenseClaim.id.desc()).all()
 
 

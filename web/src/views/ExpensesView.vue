@@ -21,6 +21,7 @@ import {
 import { useAuthStore } from "../stores/auth";
 import {
   CLAIM_STATUS_LABELS,
+  EXPENSE_TYPE_COLORS,
   EXPENSE_TYPE_LABELS,
   SCENE_FIELDS,
   TRAVEL_SUBTYPES,
@@ -36,9 +37,10 @@ const canFinance = () => ["finance_staff", "finance_manager", "admin"].includes(
 const rows = ref<ClaimOut[]>([]);
 const loading = ref(false);
 const statusFilter = ref<string | undefined>(undefined);
+const typeFilter = ref<string | undefined>(undefined);
 
 const createOpen = ref(false);
-const createForm = ref({ title: "", remark: "" });
+const createForm = ref({ title: "", remark: "", claim_type: "travel" });
 
 const detailOpen = ref(false);
 const detail = ref<ClaimDetailOut | null>(null);
@@ -68,7 +70,8 @@ const targetEntryId = ref<number | null>(null);
 
 function openEntryForm() {
   travelSubtype.value = "transport";
-  entryForm.entry_type = "travel";
+  // 事项类型默认跟随单据类型（如差旅单里默认加差旅事项）
+  entryForm.entry_type = detail.value?.claim.claim_type || "travel";
   entryForm.title = "";
   entryForm.occurred_on = "";
   entryForm.scene = {};
@@ -125,6 +128,7 @@ const poolExpenseType = ref("other");
 const columns = [
   { title: "单号", dataIndex: "claim_no", key: "claim_no" },
   { title: "事由", dataIndex: "title", key: "title" },
+  { title: "类型", key: "claim_type", width: 100 },
   { title: "金额", dataIndex: "total_amount", key: "total_amount", width: 110 },
   { title: "张数", dataIndex: "item_count", key: "item_count", width: 70 },
   { title: "状态", dataIndex: "status", key: "status", width: 110 },
@@ -135,7 +139,7 @@ const columns = [
 async function load() {
   loading.value = true;
   try {
-    rows.value = await listClaims(statusFilter.value);
+    rows.value = await listClaims(statusFilter.value, typeFilter.value);
   } catch (e) {
     errorMessage(e, "报销单加载失败");
   } finally {
@@ -149,10 +153,12 @@ async function onCreate() {
     return;
   }
   try {
-    const claim = await createClaim(createForm.value.title.trim(), createForm.value.remark || undefined);
-    message.success(`已创建 ${claim.claim_no}`);
+    const claim = await createClaim(
+      createForm.value.title.trim(), createForm.value.remark || undefined, createForm.value.claim_type,
+    );
+    message.success(`已创建 ${claim.claim_no}（${EXPENSE_TYPE_LABELS[claim.claim_type] || claim.claim_type}）`);
     createOpen.value = false;
-    createForm.value = { title: "", remark: "" };
+    createForm.value = { title: "", remark: "", claim_type: "travel" };
     await load();
     await openDetail(claim);
   } catch (e) {
@@ -291,13 +297,21 @@ onMounted(load);
       <a-select v-model:value="statusFilter" placeholder="状态" allow-clear style="width: 160px" @change="load">
         <a-select-option v-for="(v, k) in CLAIM_STATUS_LABELS" :key="k" :value="k">{{ v.text }}</a-select-option>
       </a-select>
+      <a-select v-model:value="typeFilter" placeholder="单据类型" allow-clear style="width: 140px" @change="load">
+        <a-select-option v-for="(label, k) in EXPENSE_TYPE_LABELS" :key="k" :value="k">{{ label }}</a-select-option>
+      </a-select>
       <a-button @click="load">刷新</a-button>
       <a-button type="primary" @click="createOpen = true">新建报销单</a-button>
     </a-space>
 
     <a-table :columns="columns" :data-source="rows" :loading="loading" row-key="id" :pagination="{ pageSize: 20 }">
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'status'">
+        <template v-if="column.key === 'claim_type'">
+          <a-tag :color="EXPENSE_TYPE_COLORS[record.claim_type as string] || 'default'">
+            {{ EXPENSE_TYPE_LABELS[record.claim_type as string] || record.claim_type }}
+          </a-tag>
+        </template>
+        <template v-else-if="column.key === 'status'">
           <a-tag :color="CLAIM_STATUS_LABELS[record.status as string]?.color">
             {{ CLAIM_STATUS_LABELS[record.status as string]?.text || record.status }}
           </a-tag>
@@ -329,6 +343,11 @@ onMounted(load);
     <!-- 新建 -->
     <a-modal v-model:open="createOpen" title="新建报销单" @ok="onCreate">
       <a-form layout="vertical">
+        <a-form-item label="报销类型">
+          <a-select v-model:value="createForm.claim_type">
+            <a-select-option v-for="(label, k) in EXPENSE_TYPE_LABELS" :key="k" :value="k">{{ label }}</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item label="报销事由">
           <a-input v-model:value="createForm.title" placeholder="如：6 月差旅报销" />
         </a-form-item>
@@ -347,6 +366,9 @@ onMounted(load);
     >
       <template v-if="detail">
         <a-space style="margin-bottom: 12px" wrap>
+          <a-tag :color="EXPENSE_TYPE_COLORS[detail.claim.claim_type as string] || 'default'">
+            {{ EXPENSE_TYPE_LABELS[detail.claim.claim_type as string] || detail.claim.claim_type }}
+          </a-tag>
           <a-tag :color="detailStatus?.color">{{ detailStatus?.text }}</a-tag>
           <span>合计 <b>{{ detail.claim.total_amount }}</b> 元 · {{ detail.items.length }} 条明细</span>
           <template v-if="detailEditable">

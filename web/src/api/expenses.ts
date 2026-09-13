@@ -2,13 +2,15 @@
 import { api } from "./client";
 import type { ClaimDetailOut, ClaimOut, EligibleInvoiceOut, EntryOut, ExpenseItemOut } from "../types";
 
-export async function listClaims(status?: string): Promise<ClaimOut[]> {
-  const { data } = await api.get<ClaimOut[]>("/expenses", { params: { status } });
+export async function listClaims(status?: string, claimType?: string): Promise<ClaimOut[]> {
+  const { data } = await api.get<ClaimOut[]>("/expenses", {
+    params: { status, claim_type: claimType },
+  });
   return data;
 }
 
-export async function createClaim(title: string, remark?: string): Promise<ClaimOut> {
-  const { data } = await api.post<ClaimOut>("/expenses", { title, remark });
+export async function createClaim(title: string, remark?: string, claimType?: string): Promise<ClaimOut> {
+  const { data } = await api.post<ClaimOut>("/expenses", { title, remark, claim_type: claimType });
   return data;
 }
 
