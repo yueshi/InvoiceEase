@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from invoicing.api import api_router
 from invoicing.bootstrap import ensure_admin_user
+from invoicing.config import settings
 from invoicing.db import SessionLocal
 from invoicing.mcp.auth import MCPAuthMiddleware
 from invoicing.mcp.server import mcp
@@ -16,6 +17,12 @@ async def lifespan(app: FastAPI):
     from invoicing import scheduler as scheduler_mod
 
     scheduler_mod.setup_scheduler(app)
+    # OCR 引擎预热：模型首次加载 10-30s，放后台线程避免落在首个 OCR 请求上。
+    # 未装 ocr extra 时 preload 内部同步判定为空转（无副作用）。
+    if settings.ocr_preload:
+        from invoicing.parse.ocr import preload_ocr_engine
+
+        preload_ocr_engine()
     # MCP 挂载模式下宿主负责运行 session_manager（SDK v2 要求）。
     # 必须运行本 app 实例自带的 manager：streamable_http_app() 每次调用都会
     # 重建并覆盖 mcp 单例的 session_manager 引用，若读单例最新值会串到别的

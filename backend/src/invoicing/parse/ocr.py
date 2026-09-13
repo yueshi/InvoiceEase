@@ -137,15 +137,17 @@ _tried = False
 def preload_ocr_engine(background: bool = True) -> None:
     """预热 OCR 引擎：模型加载（首次 10-30s）移出请求路径，避免首次调用超时。
 
+    **同步**判定引擎是否在位：未安装时直接返回——既不建线程也不碰 provider 单例，
+    因此服务启动（及测试里反复 create_app）不会因它产生任何副作用。
     background=False 时同步阻塞预热（服务启动变慢约 25s，但首个 OCR 请求即热引擎）。
     """
-    import threading
+    provider = get_ocr_provider()
+    if provider is None:
+        return
 
     def _warm() -> None:
         try:
-            provider = get_ocr_provider()
-            if provider is not None:
-                provider.ocr_image(b"")  # 触发引擎初始化（空输入返回 None，无副作用）
+            provider.ocr_image(b"")  # 触发引擎初始化（空输入返回 None，无副作用）
         except Exception:
             pass
 

@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 25.0
     llm_max_retries: int = 1
     scheduler_enabled: bool = True
+    # 启动时后台预热 OCR 引擎（模型首次加载 10-30s；未装 ocr extra 时为空转）
+    ocr_preload: bool = True
     log_level: str = "INFO"
     # 数字员工 P2：企微群机器人 webhook（空=不启用通知）
     notify_webhook_url: str = ""

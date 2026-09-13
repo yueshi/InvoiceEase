@@ -113,3 +113,36 @@ def test_ocr_watchdog_timeout_resets_engine(monkeypatch):
     result = provider.ocr_image(b"img-watchdog", timeout_seconds=0.2)
     assert result is None
     assert provider._engine is None  # 卡死后引擎已重置
+
+
+# ---- 引擎预热（启动路径）-----------------------------------------------------
+
+
+def test_preload_noop_when_engine_missing(monkeypatch):
+    """未装引擎 → 同步判空并直接返回：不建线程、不抛错（服务照常启动）。"""
+    import types
+
+    monkeypatch.setattr(ocr_mod, "get_ocr_provider", lambda: None)
+    spawned: list = []
+    # 替换模块内的 threading 引用（不动 stdlib 模块本身，避免波及同期其他线程）
+    monkeypatch.setattr(
+        ocr_mod, "threading",
+        types.SimpleNamespace(Thread=lambda *a, **kw: spawned.append(a) or _NoopThread()),
+    )
+
+    ocr_mod.preload_ocr_engine()
+    assert spawned == []
+
+
+def test_preload_warms_engine_when_present(monkeypatch):
+    """引擎在位 → 触发一次空图调用完成模型加载（后台线程，不阻塞启动）。"""
+    provider = FakeProvider(OcrText(text="x", confidence=0.9))
+    monkeypatch.setattr(ocr_mod, "get_ocr_provider", lambda: provider)
+
+    ocr_mod.preload_ocr_engine(background=False)  # 同步，便于断言
+    assert provider.calls == 1
+
+
+class _NoopThread:
+    def start(self) -> None:
+        pass
