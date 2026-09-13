@@ -107,6 +107,31 @@ class PdfiumLocator:
                 return i
             start = i + 1
 
+    def logical_text(self, page_no: int) -> str | None:
+        """坐标法版面还原后的逻辑文本（竖排标签并入值行）；不可用时返回 None。"""
+        if not self.available:
+            return None
+        try:
+            text, tp, _w, _h = self._page(page_no)
+        except Exception:
+            return None
+        from invoicing.parse.receipt_layout import reconstruct_lines
+
+        chars: list[tuple[str, float, float]] = []
+        for i in range(tp.count_chars()):
+            ch = text[i]
+            if ch.strip() == "":
+                continue
+            try:
+                box = tp.get_charbox(i)
+            except Exception:
+                continue
+            chars.append((ch, float(box[0]), float(box[1])))
+        if not chars:
+            return None
+        lines = reconstruct_lines(chars)
+        return "\n".join(lines) if lines else None
+
     def page_height(self, page_no: int) -> float | None:
         try:
             return self._page(page_no)[3]

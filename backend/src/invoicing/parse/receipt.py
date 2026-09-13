@@ -257,6 +257,12 @@ def parse_receipt_text(
     if trade_date is None:
         issues.append("no_trade_date")
     abstract = extract_abstract(text, amount, template=template)
+    from invoicing.parse.receipt_layout import validate_fields
+
+    fields_preview = {"amount": amount, "trade_date": trade_date, "counterparty_name": party}
+    for issue in validate_fields(fields_preview):
+        if issue not in issues:
+            issues.append(issue)
     return {
         "amount": amount,
         "counterparty_name": party,
@@ -458,7 +464,14 @@ def _norm_band(lower: float, upper: float, page_h: float | None) -> list[float] 
 
 
 def _receipt_pages_from_bytes(data: bytes, kind: str) -> list[str]:
-    """回单文本按页切分：PDF 走逐页文本层，图片 OCR 视为单页。"""
+    """回单文本按页切分：PDF 走 pypdf 文本层，图片 OCR 视为单页。
+
+    注：坐标法整页重排（receipt_layout.reconstruct_lines）在本类 PDF 上
+    经多轮尝试仍不可靠（混合排版 + 页面装饰字符 + 多张混排会互相污染），
+    暂不接入主链路——拦不住的字段继续由 LLM 兜底（实测稳定）。
+    后续方向：改为「局部版面查询」（用坐标在标签附近取值，只对规则失败的
+    字段生效），而非整页重排。
+    """
     if kind == "PDF":
         from invoicing.parse.pdf_text_parser import extract_pdf_pages
 
