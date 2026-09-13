@@ -19,6 +19,7 @@ def list_audit_logs(
     user_id: int | None = None,
     action: str | None = None,
     category: str = "business",
+    outcome: str | None = None,
     invoice_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -41,6 +42,14 @@ def list_audit_logs(
     else:
         # 业务审计（默认）：排除身份事件，避免稀释日常查阅
         q = q.filter(~AuditLog.action.in_(_IDENTITY_ACTIONS))
+    if outcome:
+        # abnormal = 需要关注的异常（拦截/失败/系统错误），供「仅看异常」筛选
+        if outcome == "abnormal":
+            q = q.filter(AuditLog.outcome.in_(("blocked", "failed", "error")))
+        elif outcome == "none":
+            q = q.filter(AuditLog.outcome.is_(None))
+        else:
+            q = q.filter(AuditLog.outcome == outcome)
     if invoice_id:
         q = q.filter(AuditLog.invoice_id == invoice_id)
     if date_from:

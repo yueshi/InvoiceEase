@@ -127,9 +127,18 @@ export const VERIFY_STATUS_LABELS: Record<string, string> = {
   pending: "待验真", passed: "通过", failed: "失败",
 };
 
+export type AuditOutcome = "success" | "blocked" | "failed" | "error" | null;
+
+export const AUDIT_OUTCOME_LABELS: Record<string, { text: string; color: string }> = {
+  success: { text: "成功", color: "green" },
+  blocked: { text: "已拦截", color: "orange" }, // 正常业务处置（重复/非发票），非失败
+  failed: { text: "失败", color: "red" },
+  error: { text: "异常", color: "red" },
+};
+
 export interface AuditOut {
   id: number; user_id: number | null; action: string; invoice_id: number | null;
-  detail: Record<string, unknown> | null; ip_address: string | null;
+  detail: Record<string, unknown> | null; outcome: AuditOutcome; ip_address: string | null;
   channel: string; created_at: string;
 }
 export interface AuditListResponse { items: AuditOut[]; total: number; page: number; page_size: number; }

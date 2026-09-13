@@ -11,6 +11,7 @@ class AuditOut(BaseModel):
     action: str
     invoice_id: int | None
     detail: dict | None
+    outcome: str | None
     ip_address: str | None
     channel: str
     created_at: datetime

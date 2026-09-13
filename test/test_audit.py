@@ -134,3 +134,66 @@ def test_audit_login_retention_purge(db):
     assert stale.id not in ids
     assert keep.id in ids
     assert failed_old.id in ids  # 失败登录不清理
+
+
+def test_classify_outcome_mapping():
+    """结果归一化：success / blocked（正常业务处置，不算失败）/ failed / error / None。"""
+    from invoicing.audit import classify_outcome
+
+    # 解析成功 / 系统异常 / 业务拦截
+    assert classify_outcome("PARSE", {"source": "XML", "confidence": 1.0}) == "success"
+    assert classify_outcome("PARSE", {"result": "duplicate", "duplicate_of_id": 5}) == "blocked"
+    assert classify_outcome("PARSE", {"result": "not_invoice"}) == "blocked"
+    assert classify_outcome("PARSE", {"errors": [{"code": "AMOUNT_MISMATCH"}]}) == "failed"
+    assert classify_outcome("PARSE", {"result": "error", "error": "boom"}) == "error"
+    # 验真
+    assert classify_outcome("VERIFY", {"result": "passed"}) == "success"
+    assert classify_outcome("VERIFY", {"result": "failed"}) == "failed"
+    assert classify_outcome("VERIFY", {"result": "error"}) == "error"
+    # 复核 / 收信
+    assert classify_outcome("REVIEW", {"action": "approve"}) == "success"
+    assert classify_outcome("FETCH", {"result": {"received": 3}}) == "success"
+    assert classify_outcome("FETCH", {"result": "error"}) == "error"
+    # 身份事件
+    assert classify_outcome("LOGIN", None) == "success"
+    assert classify_outcome("LOGIN_FAILED", {"username": "x"}) == "failed"
+    # 无成败语义
+    assert classify_outcome("CONFIG_CHANGE", {"entity": "bank_account"}) is None
+    assert classify_outcome("INVOICE_UPDATE", {"changed": {"amount": "1"}}) is None
+
+
+def test_write_audit_persists_outcome(db):
+    """写入时落库 outcome（供筛选/统计；避免每次查询重算）。"""
+    log = write_audit(db, action="VERIFY", channel="system", detail={"result": "failed"})
+    db.commit()
+    assert log.outcome == "failed"
+
+
+def test_audit_outcome_filter_abnormal(client, db):
+    """「仅看异常」筛选：blocked/failed/error 三类，走 SQL 保证分页正确。"""
+    from invoicing.models import Role, User
+    from invoicing.security import hash_password
+
+    db.add(User(username="admin_audit3", password_hash=hash_password("pass123"), role=Role.admin.value))
+    write_audit(db, action="PARSE", channel="system", detail={"source": "XML", "confidence": 1.0})
+    write_audit(db, action="PARSE", channel="system", detail={"result": "duplicate"})
+    write_audit(db, action="VERIFY", channel="system", detail={"result": "failed"})
+    write_audit(db, action="CONFIG_CHANGE", channel="mcp", detail={"entity": "x"})
+    db.commit()
+    token = client.post(
+        "/api/v1/auth/login", json={"username": "admin_audit3", "password": "pass123"}
+    ).json()["access_token"]
+    auth = {"Authorization": f"Bearer {token}"}
+
+    abnormal = client.get("/api/v1/audit-logs?outcome=abnormal", headers=auth).json()
+    outcomes = {i["outcome"] for i in abnormal["items"]}
+    assert outcomes <= {"blocked", "failed", "error"}
+    assert {"blocked", "failed"} <= outcomes
+    assert all(i["outcome"] is not None for i in abnormal["items"])
+
+    success = client.get("/api/v1/audit-logs?outcome=success", headers=auth).json()
+    assert {i["outcome"] for i in success["items"]} == {"success"}
+
+    # 列表响应带出 outcome（前端结果列数据源）
+    default = client.get("/api/v1/audit-logs", headers=auth).json()
+    assert "outcome" in default["items"][0]

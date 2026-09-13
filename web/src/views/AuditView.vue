@@ -5,7 +5,7 @@ import type { Dayjs } from "dayjs";
 import { errorMessage } from "../api/client";
 import { listAuditLogs } from "../api/audit";
 import dayjs from "dayjs";
-import type { AuditListResponse, AuditOut } from "../types";
+import { AUDIT_OUTCOME_LABELS, type AuditListResponse, type AuditOut } from "../types";
 
 const data = ref<AuditListResponse>({ items: [], total: 0, page: 1, page_size: 20 });
 const loading = ref(false);
@@ -33,6 +33,8 @@ function openDetail(record: AuditOut) {
 const filters = reactive({ action: undefined as string | undefined, dateRange: undefined as [Dayjs, Dayjs] | undefined });
 // 安全审计默认只看失败：成功登录量大、日常无异常含义，需要时一键看全部
 const failuresOnly = ref(true);
+// 业务视图：「仅看异常」（拦截/失败/系统错误）——审计的核心用例是找异常
+const abnormalOnly = ref(false);
 
 const BUSINESS_ACTIONS = ["FETCH", "PARSE", "VERIFY", "REVIEW", "REJECT_REPLY", "CONFIG_CHANGE", "REVERIFY", "INGEST", "INVOICE_UPDATE", "INVOICE_DELETE", "UNBLOCK"];
 const SECURITY_ACTIONS = ["LOGIN", "LOGIN_FAILED", "LOGOUT"];
@@ -49,6 +51,7 @@ async function load() {
     data.value = await listAuditLogs({
       category: category.value,
       action: filters.action || (category.value === "security" && failuresOnly.value ? "LOGIN_FAILED" : undefined),
+      outcome: category.value === "business" && abnormalOnly.value ? "abnormal" : undefined,
       date_from: filters.dateRange?.[0]?.format("YYYY-MM-DD"),
       date_to: filters.dateRange?.[1]?.format("YYYY-MM-DDT23:59:59"),
       page: data.value.page,
@@ -77,16 +80,13 @@ const BASE_COLUMNS = [
   { title: "详情", key: "detail", width: 260 },
 ];
 
-// 「结果」只在安全审计视图有意义（登录成功/失败）；业务视图恒为「—」，不占列
-const columns = computed(() => {
-  if (category.value !== "security") return BASE_COLUMNS;
-  return [
-    BASE_COLUMNS[0],
-    BASE_COLUMNS[1],
-    { title: "结果", key: "result", width: 70 },
-    ...BASE_COLUMNS.slice(2),
-  ];
-});
+// 「结果」列两个视图都显示（审计要素：事件是否成功）——数据源为落库的 outcome
+const columns = computed(() => [
+  BASE_COLUMNS[0],
+  BASE_COLUMNS[1],
+  { title: "结果", key: "result", width: 80 },
+  ...BASE_COLUMNS.slice(2),
+]);
 </script>
 
 <template>
@@ -108,6 +108,9 @@ const columns = computed(() => {
       <a-checkbox v-if="category === 'security'" v-model:checked="failuresOnly" @change="reloadFirst">
         仅看失败登录
       </a-checkbox>
+      <a-checkbox v-else v-model:checked="abnormalOnly" @change="load">
+        仅看异常
+      </a-checkbox>
       <a-range-picker v-model:value="filters.dateRange" @change="reloadFirst" />
       <a-button type="primary" @click="load">查询</a-button>
     </a-space>
@@ -119,8 +122,11 @@ const columns = computed(() => {
           {{ dayjs(record.created_at).format("YYYY-MM-DD HH:mm:ss") }}
         </template>
         <template v-else-if="column.key === 'result'">
-          <a-tag v-if="record.action === 'LOGIN_FAILED'" color="red">失败</a-tag>
-          <a-tag v-else-if="record.action === 'LOGIN'" color="green">成功</a-tag>
+          <a-tooltip v-if="AUDIT_OUTCOME_LABELS[record.outcome || '']" :title="record.action === 'PARSE' && record.outcome === 'blocked' ? '业务处置（重复拦截/非发票拒收），非失败' : ''">
+            <a-tag :color="AUDIT_OUTCOME_LABELS[record.outcome || ''].color">
+              {{ AUDIT_OUTCOME_LABELS[record.outcome || ''].text }}
+            </a-tag>
+          </a-tooltip>
           <span v-else>—</span>
         </template>
         <template v-if="column.key === 'detail'">
