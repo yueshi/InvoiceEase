@@ -246,6 +246,9 @@ const columns = [
           <a-tag :color="record.status === 'pending_review' ? 'orange' : record.status === 'blocked' ? 'red' : 'blue'">
             {{ INVOICE_STATUS_LABELS[record.status] || record.status }}
           </a-tag>
+          <!-- 报销维度（与业务状态正交）：已报销 / 报销中 -->
+          <a-tag v-if="record.reimbursement_status === 'claimed'" color="green" style="margin-left: 4px">已报销</a-tag>
+          <a-tag v-else-if="record.reimbursement_status === 'pending'" color="gold" style="margin-left: 4px">报销中</a-tag>
         </template>
         <template v-else-if="column.key === 'verify_status'">
           {{ VERIFY_STATUS_LABELS[record.verify_status] || record.verify_status }}

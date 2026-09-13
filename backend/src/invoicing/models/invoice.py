@@ -83,6 +83,10 @@ class Invoice(Base):
     duplicate_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True
     )
+    # 报销维度（与业务状态机正交）：none 未报销 / pending 报销中 / claimed 已报销
+    reimbursement_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="none", server_default="none"
+    )
 
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=InvoiceStatus.received.value, index=False

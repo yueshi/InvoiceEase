@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     # 审计保留期：登录成功行按天清理（失败登录与业务操作长期保留）
     audit_login_retention_days: int = 90
+    # 小额零星（增值税起征点，按次 300-500 元各省自定）阈值：超过则无票支出需取得发票
+    expense_petty_cash_threshold: int = 500
     admin_password: str = "admin123"
     mock_verify_rules: str = '{"fail_prefixes": ["0000"], "error_prefixes": ["0001"]}'
     # LLM 引擎（OpenAI 兼容协议；未启用时解析链路降级为现状行为）

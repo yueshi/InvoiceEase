@@ -65,6 +65,31 @@ def build_server() -> MCPServer:
     ) -> CompanyInfoOut:
         return mcp_tools.company_info_save(name, tax_id, kind, is_default, remark)
 
+    @server.tool(description="创建报销单（草稿）。随后用 expense_add_invoices 按发票号加票，再 expense_submit 提交审批。")
+    def expense_create(title: str, remark: str | None = None) -> dict:
+        return mcp_tools.expense_create(title, remark)
+
+    @server.tool(description="按发票号码批量加入报销单（自动校验一票一报/已验真/未拦截/归属范围），返回逐条结果。")
+    def expense_add_invoices(claim_id: int, invoice_numbers: list[str],
+                             expense_type: str = "other", note: str | None = None) -> dict:
+        return mcp_tools.expense_add_invoices(claim_id, invoice_numbers, expense_type, note)
+
+    @server.tool(description="提交报销单进入审批（需已有明细）。")
+    def expense_submit(claim_id: int) -> dict:
+        return mcp_tools.expense_submit(claim_id)
+
+    @server.tool(description="报销单列表（status 可选 draft/pending_approval/approved/rejected/withdrawn）。")
+    def expense_list(status: str | None = None) -> list[dict]:
+        return mcp_tools.expense_list(status)
+
+    @server.tool(description="审批报销单：action=approve/reject（驳回必填 reason）。")
+    def expense_approve(claim_id: int, action: str = "approve", reason: str | None = None) -> dict:
+        return mcp_tools.expense_approve(claim_id, action, reason)
+
+    @server.tool(description="可报销发票池（已验真、未拦截、未占用），供选票建单。")
+    def expense_eligible_invoices(limit: int = 50) -> list[dict]:
+        return mcp_tools.expense_eligible_invoices(limit)
+
     @server.tool(description="常用企业银行账号列表（本司账户；回单解析判定「本司账户行」用——账号命中时对方户名留空并待核对）。")
     def bank_account_list() -> list[dict]:
         return mcp_tools.bank_account_list()

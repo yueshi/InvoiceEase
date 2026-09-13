@@ -9,6 +9,8 @@ const routes = [
   { path: "/invoices", component: () => import("../views/InvoiceListView.vue") },
   { path: "/receipts", component: () => import("../views/ReceiptsView.vue") },
   { path: "/tasks", component: () => import("../views/AsyncTasksView.vue"), meta: { financeOnly: true } },
+  // 报销：员工与财务共用（员工看本人，财务看全部并审批）
+  { path: "/expenses", component: () => import("../views/ExpensesView.vue") },
   { path: "/audit", component: () => import("../views/AuditView.vue"), meta: { adminOnly: true } },
   { path: "/settings", component: () => import("../views/SettingsView.vue"), meta: { adminOnly: true } },
 ];

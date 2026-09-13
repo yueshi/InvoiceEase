@@ -13,6 +13,7 @@ const isFinance = () => ["finance_staff", "finance_manager", "admin"].includes(a
 const menuItems = computed(() => [
   { key: "/", label: "工作台" },
   { key: "/invoices", label: "发票列表" },
+  { key: "/expenses", label: "我的报销" },
   ...(isFinance() ? [{ key: "/receipts", label: "银行回单" }] : []),
   ...(isFinance() ? [{ key: "/tasks", label: "异步任务" }] : []),
   ...(auth.isAdmin ? [{ key: "/audit", label: "审计日志" }, { key: "/settings", label: "系统配置" }] : []),

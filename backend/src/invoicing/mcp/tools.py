@@ -247,6 +247,132 @@ def company_info_save(
         return CompanyInfoOut.model_validate(info, from_attributes=True)
 
 
+# ---- 报销（Agent 对话式报销，P0）------------------------------------------
+
+
+def _money(v) -> str | None:
+    """金额统一 2 位小数（Decimal 直接 str 会丢尾零，如 200.00 → 200）。"""
+    return f"{v:.2f}" if v is not None else None
+
+
+def _mcp_real_user(db) -> User:
+    """MCP 静态 token = 管理员通道，但**报销需要真实归属人**：
+
+    合成用户 id=0 会违反外键（expense_claims.applicant_id → users.id，PRAGMA
+    foreign_keys=ON）。解析库内真实管理员（按 id 最小），审计与归属都更可追溯。
+    """
+    from invoicing.models import Role
+
+    user = (
+        db.query(User)
+        .filter(User.role == Role.admin.value)
+        .order_by(User.id)
+        .first()
+    )
+    return user or _mcp_admin_user()
+
+
+def expense_create(title: str, remark: str | None = None) -> dict:
+    """创建报销单（草稿），返回单号与 ID；随后用 expense_add_invoices 加票。"""
+    from invoicing.workflow import expenses as svc
+
+    with SessionLocal() as db:
+        claim = svc.create_claim(db, _mcp_real_user(db), title, remark)
+        return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status, "title": claim.title}
+
+
+def expense_add_invoices(claim_id: int, invoice_numbers: list[str], expense_type: str = "other",
+                         note: str | None = None) -> dict:
+    """按发票号码批量加入报销单（自动校验：一票一报/已验真/未拦截/归属范围）。
+
+    返回逐条结果（success/error），互不影响——便于 Agent 一次性处理多张票。
+    """
+    from invoicing.models import Invoice
+    from invoicing.workflow import expenses as svc
+
+    results = []
+    with SessionLocal() as db:
+        user = _mcp_real_user(db)
+        for number in invoice_numbers:
+            inv = db.query(Invoice).filter(Invoice.invoice_number == number).first()
+            if inv is None:
+                results.append({"invoice_number": number, "success": False, "error": "发票不存在"})
+                continue
+            try:
+                item = svc.add_invoice(db, user, claim_id, inv.id, expense_type, note)
+                results.append({
+                    "invoice_number": number, "success": True,
+                    "amount": _money(item.amount), "item_id": item.id,
+                })
+            except ValueError as e:
+                results.append({"invoice_number": number, "success": False, "error": str(e)})
+        claim = svc._get_claim(db, claim_id)
+        return {
+            "claim_id": claim.id, "claim_no": claim.claim_no,
+            "total_amount": _money(claim.total_amount), "results": results,
+        }
+
+
+def expense_submit(claim_id: int) -> dict:
+    """提交报销单进入审批（需已有明细）。"""
+    from invoicing.workflow import expenses as svc
+
+    with SessionLocal() as db:
+        claim = svc.submit_claim(db, _mcp_real_user(db), claim_id)
+        return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
+                "total_amount": _money(claim.total_amount)}
+
+
+def expense_list(status: str | None = None) -> list[dict]:
+    """报销单列表（可按状态过滤：draft/pending_approval/approved/rejected/withdrawn）。"""
+    from invoicing.workflow import expenses as svc
+
+    with SessionLocal() as db:
+        rows = svc.list_claims(db, _mcp_real_user(db), status)
+        return [
+            {
+                "id": c.id, "claim_no": c.claim_no, "title": c.title, "status": c.status,
+                "applicant_id": c.applicant_id, "total_amount": _money(c.total_amount),
+                "item_count": svc.item_count(db, c.id),
+                "submitted_at": str(c.submitted_at) if c.submitted_at else None,
+                "rejected_reason": c.rejected_reason,
+            }
+            for c in rows
+        ]
+
+
+def expense_approve(claim_id: int, action: str = "approve", reason: str | None = None) -> dict:
+    """审批报销单：action=approve/reject（reject 必填 reason）。财务通道。"""
+    from invoicing.workflow import expenses as svc
+
+    with SessionLocal() as db:
+        user = _mcp_real_user(db)
+        if action == "approve":
+            claim = svc.approve_claim(db, user, claim_id)
+        elif action == "reject":
+            claim = svc.reject_claim(db, user, claim_id, reason or "")
+        else:
+            raise ValueError(f"非法审批动作: {action}（可选 approve/reject）")
+        return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
+                "rejected_reason": claim.rejected_reason}
+
+
+def expense_eligible_invoices(limit: int = 50) -> list[dict]:
+    """可报销发票池（已验真、未拦截、未占用），供 Agent 建单选票。"""
+    from invoicing.workflow import expenses as svc
+
+    with SessionLocal() as db:
+        rows = svc.eligible_invoices(db, _mcp_real_user(db))[:limit]
+        return [
+            {
+                "id": i.id, "invoice_number": i.invoice_number,
+                "issue_date": str(i.issue_date) if i.issue_date else None,
+                "seller_name": i.seller_name, "total_amount": _money(i.total_amount),
+            }
+            for i in rows
+        ]
+
+
 def bank_account_list() -> list[dict]:
     """常用企业银行账号列表（本司账户，回单「本司账户行」判定用）。"""
     from invoicing.models import BankAccount
@@ -566,7 +692,7 @@ def receipt_list(month: str) -> list[dict]:
                 "id": r.id,
                 "trade_date": str(r.trade_date) if r.trade_date else None,
                 "counterparty_name": r.counterparty_name,
-                "amount": str(r.amount) if r.amount else None,
+                "amount": _money(r.amount),
                 "abstract": r.abstract,
                 "direction": r.direction,
                 "needs_review": r.needs_review,

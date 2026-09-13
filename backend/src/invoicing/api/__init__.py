@@ -5,6 +5,7 @@ from invoicing.api import (
     auth,
     bank_accounts,
     company_infos,
+    expenses,
     invoices,
     mailboxes,
     receipts,
@@ -22,5 +23,6 @@ api_router.include_router(audit.router)
 api_router.include_router(users.router)
 api_router.include_router(company_infos.router)
 api_router.include_router(bank_accounts.router)
+api_router.include_router(expenses.router)
 api_router.include_router(reports.router)
 api_router.include_router(receipts.router)

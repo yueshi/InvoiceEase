@@ -49,6 +49,7 @@ export interface InvoiceOut {
   verified_at: string | null;
   duplicate_flag: boolean;
   duplicate_of_id: number | null;
+  reimbursement_status?: "none" | "pending" | "claimed";
   status: string;
   expense_type: string | null;
   cost_center: string | null;
@@ -201,6 +202,78 @@ export interface BankAccountCreate {
   enabled?: boolean;
 }
 export type BankAccountUpdate = Partial<BankAccountCreate>;
+
+// ---- 报销（P0）----------------------------------------------------------
+
+export type ClaimStatus = "draft" | "pending_approval" | "approved" | "rejected" | "withdrawn";
+
+export const CLAIM_STATUS_LABELS: Record<string, { text: string; color: string }> = {
+  draft: { text: "草稿", color: "default" },
+  pending_approval: { text: "待审批", color: "processing" },
+  approved: { text: "已通过", color: "green" },
+  rejected: { text: "已驳回", color: "red" },
+  withdrawn: { text: "已撤回", color: "default" },
+};
+
+export const VOUCHER_TYPE_LABELS: Record<string, string> = {
+  invoice: "发票",
+  bank_receipt: "银行回单",
+  tax_receipt: "缴款书回单",
+  receipt_voucher: "收款凭证（小额零星）",
+  internal: "内部凭证（工资/补助）",
+  contract: "合同/协议类",
+  overseas: "境外票据",
+};
+
+export const EXPENSE_TYPE_LABELS: Record<string, string> = {
+  travel: "差旅", office: "办公", entertainment: "招待", procurement: "采购", other: "其他",
+};
+
+export interface ClaimOut {
+  id: number;
+  claim_no: string;
+  applicant_id: number;
+  title: string;
+  total_amount: string;
+  status: ClaimStatus;
+  approver_id: number | null;
+  submitted_at: string | null;
+  decided_at: string | null;
+  rejected_reason: string | null;
+  remark: string | null;
+  created_at: string;
+  item_count: number;
+}
+
+export interface ExpenseItemOut {
+  id: number;
+  claim_id: number;
+  invoice_id: number | null;
+  receipt_id: number | null;
+  voucher_type: string;
+  amount: string;
+  expense_type: string;
+  note: string | null;
+  payee_name: string | null;
+  payee_id_no: string | null;
+  deductible: boolean;
+  deductible_note: string | null;
+  active: boolean;
+}
+
+export interface ClaimDetailOut {
+  claim: ClaimOut;
+  items: ExpenseItemOut[];
+}
+
+export interface EligibleInvoiceOut {
+  id: number;
+  invoice_number: string | null;
+  issue_date: string | null;
+  seller_name: string | null;
+  total_amount: string | null;
+  expense_type: string | null;
+}
 
 export const BANK_LABELS: Record<string, string> = {
   ccb: "建设银行", icbc: "工商银行", abc: "农业银行", cmb: "招商银行", boc: "中国银行",
