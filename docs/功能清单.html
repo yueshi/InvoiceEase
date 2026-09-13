@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · 功能清单</title>
+<style>
+  :root { --ink:#1f2937; --sub:#6b7280; --line:#e5e7eb; --blue:#2563eb; --blue-bg:#eff6ff;
+          --green:#059669; --green-bg:#ecfdf5; --amber:#d97706; --amber-bg:#fffbeb;
+          --gray:#6b7280; --gray-bg:#f3f4f6; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f6f7f9;
+         color:var(--ink); line-height:1.7; padding:32px 16px 64px; }
+  .wrap { max-width:980px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a8a,#2563eb); color:#fff; border-radius:14px;
+           padding:28px 32px; margin-bottom:24px; }
+  header h1 { font-size:24px; }
+  header p { margin-top:6px; font-size:13px; opacity:.9; }
+  h2 { font-size:18px; margin:32px 0 12px; padding-left:10px; border-left:4px solid var(--blue); }
+  h3 { font-size:15px; margin:18px 0 8px; color:#374151; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px 22px; margin-bottom:14px; }
+  pre { background:#f3f4f6; border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12.5px;
+        font-family:"SF Mono",Menlo,monospace; margin:10px 0; }
+  code { background:#f3f4f6; border-radius:4px; padding:1px 5px; font-size:12.5px; font-family:"SF Mono",Menlo,monospace; }
+  .tag { display:inline-block; border-radius:6px; padding:1px 8px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .tag.blue { background:var(--blue-bg); color:var(--blue); }
+  .tag.green { background:var(--green-bg); color:var(--green); }
+  .tag.amber { background:var(--amber-bg); color:var(--amber); }
+  .tag.gray { background:var(--gray-bg); color:var(--gray); }
+  .note { background:var(--amber-bg); border-left:3px solid var(--amber); border-radius:8px; padding:10px 14px; font-size:13px; margin:10px 0; }
+  .ok { background:var(--green-bg); border-left:3px solid var(--green); border-radius:8px; padding:10px 14px; font-size:13px; margin:10px 0; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top; }
+  th { background:#f9fafb; }
+  td.st { width:120px; }
+  .kpi { display:flex; gap:12px; flex-wrap:wrap; }
+  .kpi div { flex:1; min-width:130px; background:#fff; border:1px solid var(--line); border-radius:12px;
+             padding:14px 16px; }
+  .kpi b { display:block; font-size:24px; color:var(--blue); }
+  .kpi span { font-size:12.5px; color:var(--sub); }
+  footer { margin-top:36px; font-size:12.5px; color:var(--sub); text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易（InvoiceEase）· 功能清单</h1>
+  <p>电子发票自动化处理 AI Agent · 当前版本快照 2026-09-13 · 依据代码实测整理，非规划稿</p>
+</header>
+
+<h2>一、产品定位</h2>
+<div class="card">
+  <p>面向企业级市场的电子发票自动化处理 AI Agent，覆盖
+  <b>「邮箱收取 → 智能解析 → 验真查重 → 报销入账 → 归档提交」</b>全流程，
+  并通过 <b>MCP 协议</b>把全部能力开放给 WorkBuddy 等 Agent 平台调用。</p>
+  <p style="margin-top:8px;color:var(--sub);font-size:13px">
+  合规基线：财会〔2025〕9 号文 —— 只收原件（拍照/截图拒收）、必存含数字签名的 XML 原件、
+  验真覆盖率 100%、审计可追溯、支持纯离线部署。</p>
+</div>
+
+<div class="kpi">
+  <div><b>36</b><span>MCP 工具（= 服务目录）</span></div>
+  <div><b>8</b><span>Web 页面（含登录）</span></div>
+  <div><b>404</b><span>后端自动化测试</span></div>
+  <div><b>28</b><span>前端测试</span></div>
+  <div><b>5</b><span>银行回单模板</span></div>
+</div>
+
+<h2>二、能力全景</h2>
+<div class="card">
+  <table>
+    <tr><th>能力域</th><th>一句话</th><th class="st">成熟度</th></tr>
+    <tr><td><b>A 采集归档</b></td><td>邮箱轮询 + 本地导入 + 银行回单，原件一律归档</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>B 识别解析</b></td><td>五级路由解析，多银行回单模板与多张分块</td><td class="st"><span class="tag green">已上线</span><span class="tag amber">OCR 未部署</span></td></tr>
+    <tr><td><b>C 合规风控</b></td><td>验真、查重、一票一报、人工复核与 AI 预判</td><td class="st"><span class="tag green">已上线</span><span class="tag amber">验真为模拟</span></td></tr>
+    <tr><td><b>D 报销应付</b></td><td>三层事项级报销，无票支出合规，补助自动算</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>E 销项对账</b></td><td>导入已开票 + 红字关联 + 回单方向感知配对</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>F 记账报表</b></td><td>成本报表、凭证草稿、月度健康报告、数字员工班表</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>G Agent 集成</b></td><td>MCP 工具即服务目录，边界显式、异步批次、幂等</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>H 审计权限</b></td><td>全动作留痕含结果类别、四级角色、保留期策略</td><td class="st"><span class="tag green">已上线</span></td></tr>
+  </table>
+</div>
+
+<h2>三、A 采集与归档</h2>
+<div class="card">
+  <table>
+    <tr><th>功能</th><th>说明</th><th class="st">状态</th></tr>
+    <tr><td>邮箱轮询收票</td><td>IMAP 与 Agently 双通道；多邮箱；主题关键词过滤；每 60 秒定时 + 可手动触发</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>只收原件</b></td><td>仅接受 PDF / OFD / XML；<b>图片件自动拒收并回信说明</b>（合规硬约束）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>ZIP 自动解压</td><td>压缩包内逐件判定与处理</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>邮件级防重</td><td>Message-ID 复合唯一索引，支持「一信多票」</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>本地文件导入</td><td>MCP <code>invoice_ingest</code>；<b>非发票文档硬拒绝</b>——零提取即物理删除 + 审计留痕，错误文案引导改用 <code>receipt_ingest</code></td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>原件归档</td><td>原件入库并记存储路径；XML 原件单独存档（含数字签名）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>银行回单入库</td><td>PDF / 图片，<b>异步批次</b>解析；同文件 SHA256 重复提交直接拒绝</td><td class="st"><span class="tag green">已上线</span></td></tr>
+  </table>
+</div>
+
+<h2>四、B 识别与解析</h2>
+<div class="card">
+  <h3>发票解析（分级路由，结果标注来源）</h3>
+  <table>
+    <tr><th>层级</th><th>来源</th><th>说明</th></tr>
+    <tr><td>1</td><td><code>XML</code></td><td>数电票 XML 直接取结构化字段</td></tr>
+    <tr><td>2</td><td><code>OFD_XBRL</code> / <code>PDF_XBRL</code></td><td>内嵌 XBRL 的 OFD / PDF 提取结构化数据</td></tr>
+    <tr><td>3</td><td><code>OFD_TEXT</code> / <code>PDF_TEXT</code></td><td>版式文本规则解析</td></tr>
+    <tr><td>4</td><td><code>PDF_OCR</code> / <code>OFD_OCR</code> / <code>IMAGE_OCR</code></td><td>OCR 通道（<b>代码在位，引擎未部署</b>）</td></tr>
+    <tr><td>5</td><td><code>LLM_TEXT</code> / <code>VLM</code></td><td>大模型兜底，要求结构化输出</td></tr>
+  </table>
+  <div class="note"><b>OCR 现状</b>：provider 与路由已实现（含 Fake 引擎测试），但本机未安装
+  <code>paddleocr</code> / <code>pymupdf</code>（<code>uv sync --extra ocr</code>）。
+  未装时图片型/扫描件走拒收，不影响 XML/OFD/版式 PDF 全链路。</div>
+
+  <h3>字段校验</h3>
+  <table>
+    <tr><th>规则</th><th>说明</th></tr>
+    <tr><td>价税合计自洽</td><td>价税合计 = 不含税金额 + 税额</td></tr>
+    <tr><td>大小写金额一致</td><td>数字与小写/大写金额互校</td></tr>
+    <tr><td>购销方要素</td><td>购买方抬头校验（<code>BUYER_MISMATCH</code> 从严）</td></tr>
+    <tr><td>置信度</td><td>低置信度标记，进入人工复核</td></tr>
+  </table>
+
+  <h3>银行回单解析</h3>
+  <table>
+    <tr><th>能力</th><th>说明</th></tr>
+    <tr><td>多银行模板库</td><td>建设银行 / 工商银行 / 农业银行 / 招商银行 / 中国银行 + 通用兜底；加银行 = 加模板 + 加语料</td></tr>
+    <tr><td>多张分块</td><td>一份 PDF 含多张回单时按免责声明标记切块，<b>N 张回单入库 N 条</b></td></tr>
+    <tr><td>本司账户判定</td><td>常用企业银行账号命中 → 该行不误当对方户名，标「待核对」</td></tr>
+    <tr><td>收付方向</td><td>自动推断「收 / 付」</td></tr>
+    <tr><td>原件定位</td><td>记录页码 + 版面锚点，页面渲染图上叠框高亮，支持快速人工核对</td></tr>
+    <tr><td>摘要提取</td><td>四级兜底（标签行 → 明细行 → 规则 → LLM）</td></tr>
+  </table>
+
+  <h3>其他识别</h3>
+  <table>
+    <tr><th>功能</th><th>说明</th><th class="st">状态</th></tr>
+    <tr><td>费用类型自动标签</td><td>六类（差旅/办公/招待/采购/福利费/其他）；<b>规则优先</b>、未命中留空显示「未归类」，LLM 仅兜底</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>红字发票识别</td><td>发票类型 + 票面文本兜底（含「红字数电票 / 红字」关键词）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>OFD 预览渲染</td><td>矢量路径解析 + 贝塞尔采样 + even-odd 填充（纯 Pillow，无 cairo 依赖）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+  </table>
+</div>
+
+<h2>五、C 验真、查重与风控</h2>
+<div class="card">
+  <table>
+    <tr><th>功能</th><th>说明</th><th class="st">状态</th></tr>
+    <tr><td>验真</td><td>provider 可插拔；失败原因可解释（如 <code>0000</code> 前缀判失败、<code>0001</code> 前缀判异常）；<b>失败必进人工</b></td><td class="st"><span class="tag amber">当前为模拟 provider</span></td></tr>
+    <tr><td>查重</td><td>以「发票代码 + 发票号码」为唯一键，跨主体、跨时段；命中即拦截并可人工放行</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>一票一报</b></td><td>DB <b>部分唯一索引</b>兜底 + 应用层前置校验；删除/驳回/撤回即时释放占用</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>人工复核</td><td>通过 / 驳回（必填理由）；可改字段、可放行被拦截发票</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>AI 复核预判</td><td>给出 approve / reject / uncertain + 理由 + 置信度；<b>建议不自动执行</b>；可配渐进自主阈值（0 = 观察期全人工）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>信任仪表盘</td><td>近 N 天自动/人工复核数与<b>改判率</b>（预判与人工结论相反的比例）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>风险标签扩展</td><td>连号 / 顶额 / 异常税率 / 供应商黑名单 / 非正常户</td><td class="st"><span class="tag gray">未实现（待办 P1-2）</span></td></tr>
+  </table>
+  <div class="note"><b>合规口径说明</b>：不承诺「查验自动化率 100%」（受资质与外部接口限制），
+  只承诺<b>验真覆盖率 100% + 失败原因可解释 + 失败必进人工</b>。UI 对模拟结果明确标注。</div>
+</div>
+
+<h2>六、D 报销与应付</h2>
+<div class="card">
+  <h3>三层结构</h3>
+  <pre>报销单（FY-YYYYMM-####） → 事项（费用明细行） → 凭证（发票 / 回单 / 人工凭证）</pre>
+
+  <table>
+    <tr><th>功能</th><th>说明</th><th class="st">状态</th></tr>
+    <tr><td>单据类型</td><td>六类可选：差旅 / 办公 / 招待 / 采购 / 福利费 / 其他；事项默认继承单据类型</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>差旅子类</td><td>交通（方式/出发到达城市/日期）· 住宿（城市/入住离店）· 市内交通 · <b>伙食补助</b> · 其他</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>伙食补助自动计算</b></td><td>补助无发票（国税函〔2009〕3 号：差旅费津贴凭内部凭证扣除）→ 按 <b>天数 × 日标准</b> 自动生成内部凭证；改天数幂等更新；日标准缺省取公司配置（默认 100 元/天）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>无票支出</td><td>凭证类型枚举七种（发票 / 银行回单 / 缴款书 / 收款凭证 / 内部凭证 / 合同 / 境外票据）；按 28 号公告校验要素（收款凭证需姓名 + 身份证号）。<b>模型、校验与 API 已实现，但 Web 与 MCP 尚无录入入口</b>——除「伙食补助」自动生成外，回单/收款凭证目前进不了报销单</td><td class="st"><span class="tag amber">后端就绪<br>入口待补</span></td></tr>
+    <tr><td>税前扣除判定</td><td>小额零星阈值可配（默认 500 元，超阈值须取得发票）；<code>deductible</code> 标记，不可扣除项可筛出供汇算清缴</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>税务口径分类</td><td>招待费（60% 且 ≤ 营收 5‰）与职工福利费（工资薪金 14%）限额口径区分；团建/聚餐关键词<b>优先于</b>餐饮招待</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>可选票范围</td><td>本人上传 ∪ 公共池未占用；<b>未验真 / 已拦截不得报销</b></td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>整票报销</td><td>P0 口径：明细金额 = 发票全额（拆额报销未开放）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>审批流转</td><td>单级财务审批：提交 → 通过 / 驳回（必填理由）→ 撤回；删除单据释放发票占用</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>场景要素校验</td><td>招待需「对象 + 人数」；采购建议「供应商 / 合同号 / 订单号」；差旅按子类必填</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>证据挂载入口</td><td>当前 Web 只能「加发票」；回单与人工凭证需补录入界面（后端接口已就绪）</td><td class="st"><span class="tag amber">部分</span></td></tr>
+    <tr><td>借款核销 / 未达票暂估</td><td>先付后票、票款不一致</td><td class="st"><span class="tag gray">未实现（待办 P2-2）</span></td></tr>
+    <tr><td>应付台账 + 付款计划</td><td>供应商对账、到期提醒</td><td class="st"><span class="tag gray">未实现（待办 P2-1）</span></td></tr>
+  </table>
+</div>
+
+<h2>七、E 销项与收付款对账</h2>
+<div class="card">
+  <p style="color:var(--sub);font-size:13px">定位：<b>不做出票</b>。销项开票在外部系统执行，发票易只<b>导入已开票</b>，用于与收款回单对账核销、销项归集。</p>
+  <table>
+    <tr><th>功能</th><th>说明</th><th class="st">状态</th></tr>
+    <tr><td>销项导入（文件）</td><td>XML / OFD / PDF 走现有解析链路并归档原件，逐文件返回 imported / skipped / error</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>销项导入（清单）</td><td>开票系统导出的 CSV / Excel；表头别名兼容（发票号码/开票日期/购买方/金额/税额/价税合计/发票类型/原发票号码）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>红字发票</td><td>自动识别 → 自动关联原蓝票（票面「原发票号码」/ 清单列）；未关联的进「未关联红票」清单供人工补关联；金额按「客户净额 = Σ蓝票 − Σ红票」，<b>不进待收款</b></td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>回单 ↔ 发票配对</td><td><b>方向感知</b>：收款回单 → 销项蓝票（匹配购买方）；付款回单 → 进项票（匹配销售方）；付款回单 → 销项红票（退款）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>配对操作</td><td>自动配对建议 + 手动覆盖配对</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>无票费用提示</td><td>未配对回单清单，供催票</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>电子对账单</td><td>账户级完整流水 + 余额勾稽（期初 + 发生 = 期末）+ 现金流看板</td><td class="st"><span class="tag gray">未实现（待办 F 组）</span></td></tr>
+  </table>
+</div>
+
+<h2>八、F 记账、报表与数字员工</h2>
+<div class="card">
+  <table>
+    <tr><th>功能</th><th>说明</th><th class="st">状态</th></tr>
+    <tr><td>月度成本报表</td><td>双口径（含税 / 不含税）+ 费用类型分布 + 部门分布；支持 <b>Excel 导出</b></td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>凭证草稿导出</td><td>回单导出 <b>CSV</b>，金蝶 / 用友通用列（日期/摘要/对方户名/金额/借贷方），借贷方向随收付自动切换</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>发票台账 / 单据导出</td><td>回单凭证草稿 CSV；发票列表<b>尚无导出</b></td><td class="st"><span class="tag amber">部分</span></td></tr>
+    <tr><td>月度健康报告</td><td>收票 / 验真 / 异常 / 成本 / 无票 / 数字员工改判，一屏汇总</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>数字员工班表</td><td>① 邮箱轮询（每 60 秒）② 复核预判（每 60 秒）③ 月度健康报告（每月 1 日 09:00）④ 审计保留期清理（每日 03:17）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>异步任务看板</td><td>批量解析等长任务进度可视（财务可见菜单）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>企微群机器人通知</td><td>Webhook 可配（空 = 不启用）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>科目推荐 + 映射记忆</td><td>供应商 → 科目的历史学习与采纳回写</td><td class="st"><span class="tag gray">未实现（待办 P2-3）</span></td></tr>
+    <tr><td>凭证生成</td><td>可导入金蝶 / 用友的记账凭证（当前为草稿导出）</td><td class="st"><span class="tag gray">未实现（待办 P2-4）</span></td></tr>
+    <tr><td>税负归集 / 申报底稿</td><td>进销项归集、税负计算</td><td class="st"><span class="tag gray">未实现（待办 P3-3）</span></td></tr>
+  </table>
+</div>
+
+<h2>九、G Agent 集成（MCP）</h2>
+<div class="card">
+  <table>
+    <tr><th>能力</th><th>说明</th><th class="st">状态</th></tr>
+    <tr><td>MCP Server</td><td>Streamable HTTP，挂载于 <code>/mcp</code>，Bearer Token 鉴权</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>服务目录</b></td><td>MCP <code>tools/list</code> 即服务目录；每个工具描述写明<b>适用与不适用</b>（如发票工具明确「银行回单请改用 receipt_ingest」）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>长任务异步模式</td><td>回单入库立即返回批次号，后台解析，<code>receipt_parse_status</code> 轮询进度</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>幂等与防重</td><td>文件 SHA256 唯一（重复 409 + 明确文案）；发票号唯一键兜底</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>边界硬拒绝</td><td>非发票文档不产生空壳记录：物理删除 + 审计留痕 + 引导正确工具</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>批量工具</td><td>批量识别、按发票号批量加票，逐条返回 success / error 互不影响</td><td class="st"><span class="tag green">已上线</span></td></tr>
+  </table>
+
+  <h3>工具目录（36 个，按域分组）</h3>
+  <table>
+    <tr><th>分组</th><th>工具</th></tr>
+    <tr><td>收取与查询</td><td><code>invoice_fetch</code> · <code>invoice_list</code> · <code>invoice_detail</code></td></tr>
+    <tr><td>识别与校验</td><td><code>extract_invoice</code> · <code>batch_extract_invoices</code> · <code>validate_invoice</code></td></tr>
+    <tr><td>入库与维护</td><td><code>invoice_ingest</code> · <code>invoice_update</code> · <code>invoice_delete</code> · <code>invoice_unblock</code> · <code>invoice_classify</code> · <code>invoice_ai_review</code></td></tr>
+    <tr><td>报销</td><td><code>expense_create</code> · <code>expense_add_entry</code> · <code>expense_add_invoices</code> · <code>expense_submit</code> · <code>expense_list</code> · <code>expense_approve</code> · <code>expense_eligible_invoices</code></td></tr>
+    <tr><td>销项与红字</td><td><code>sales_invoice_import</code> · <code>sales_invoice_import_list</code> · <code>red_invoice_list</code> · <code>red_invoice_link</code></td></tr>
+    <tr><td>银行回单</td><td><code>receipt_ingest</code> · <code>receipt_parse_status</code> · <code>receipt_list</code> · <code>receipt_pair</code> · <code>receipt_report</code></td></tr>
+    <tr><td>主数据</td><td><code>company_info_list</code> · <code>company_info_save</code> · <code>company_info_delete</code> · <code>bank_account_list</code> · <code>bank_account_save</code> · <code>bank_account_delete</code></td></tr>
+    <tr><td>报表</td><td><code>invoice_report</code>（月度成本）· <code>invoice_health_report</code>（月度健康）</td></tr>
+  </table>
+</div>
+
+<h2>十、H Web 管理后台与权限</h2>
+<div class="card">
+  <table>
+    <tr><th>页面</th><th>路由</th><th>主要功能</th><th class="st">可见角色</th></tr>
+    <tr><td>登录</td><td><code>/login</code></td><td>账号密码登录，登录成败均记审计</td><td class="st">全部</td></tr>
+    <tr><td>工作台</td><td><code>/</code></td><td>待复核 / 待提交 / 今日新增 / 本月累计 + 信任仪表盘 + 开票抬头一键复制</td><td class="st">全部</td></tr>
+    <tr><td>发票列表</td><td><code>/invoices</code></td><td>年/季/月/全部过滤 + 关键词 + 状态 + 费用类型 + 进销项方向；上传、复核、编辑、预览、删除、销项导入、红字关联提示</td><td class="st">全部</td></tr>
+    <tr><td>银行回单</td><td><code>/receipts</code></td><td>上传（异步批次）、周期过滤、只看无票/待核对、原件与页面定位高亮、自动配对、凭证草稿导出</td><td class="st">财务 / 管理员</td></tr>
+    <tr><td>异步任务</td><td><code>/tasks</code></td><td>批量解析批次状态与进度</td><td class="st">财务 / 管理员</td></tr>
+    <tr><td>我的报销</td><td><code>/expenses</code></td><td>建单（选类型）→ 建事项（差旅子类动态表单）→ 选票/录无票凭证 → 提交；财务审批同页</td><td class="st">全部（审批仅财务）</td></tr>
+    <tr><td>审计日志</td><td><code>/audit</code></td><td>业务操作 / 安全事件分区，含结果类别与详情快照</td><td class="st">管理员</td></tr>
+    <tr><td>系统配置</td><td><code>/settings</code></td><td>邮箱配置 / 用户管理 / 常用税号公司 / 常用银行账号</td><td class="st">管理员</td></tr>
+  </table>
+  <p style="margin-top:10px;color:var(--sub);font-size:13px">
+  角色：<code>employee</code> 普通员工 · <code>finance_staff</code> 财务专员 ·
+  <code>finance_manager</code> 财务主管 · <code>admin</code> 系统管理员 —— 菜单与接口按角色收敛。</p>
+</div>
+
+<h2>十一、状态机与关键约束</h2>
+<div class="card">
+  <h3>发票状态机</h3>
+  <pre>收取中 → 已收取 → 解析中 → 解析完成 → 验真查重中 → 待提交 / 待复核 / 已拦截 → 已提交 → 已归档</pre>
+  <h3>报销状态机</h3>
+  <pre>草稿 → 待审批 → 已通过 / 已驳回 → （撤回回到草稿）</pre>
+  <h3>写进数据库的硬约束</h3>
+  <table>
+    <tr><th>约束</th><th>实现方式</th></tr>
+    <tr><td>发票号码全局唯一</td><td>唯一索引（进销项共用一张表，一张票不会既是进项又是销项）</td></tr>
+    <tr><td>一票一报</td><td>明细表的<b>部分唯一索引</b>（仅对 active 且挂了发票的行生效）+ 应用层前置校验</td></tr>
+    <tr><td>一信多票不重复收</td><td>Message-ID 复合唯一索引</td></tr>
+    <tr><td>同文件不重复解析</td><td>文件 SHA256 唯一</td></tr>
+    <tr><td>删除必释放</td><td>删除 / 驳回 / 撤回均释放发票占用，否则发票永久卡在「已报销」</td></tr>
+  </table>
+</div>
+
+<h2>十二、审计与非功能能力</h2>
+<div class="card">
+  <table>
+    <tr><th>能力</th><th>说明</th></tr>
+    <tr><td>全动作审计</td><td>收票、解析、复核、验真、报销、审批、导入、删除…… 含通道（web / mcp / 系统）</td></tr>
+    <tr><td><b>结果类别</b></td><td>outcome 归一化（成功 / 已拦截 / 失败 / 异常 / 无成败语义）——对应等保「事件是否成功」要素</td></tr>
+    <tr><td>身份事件分级</td><td>LOGIN 与 LOGIN_FAILED 分别留痕，按类别分区展示</td></tr>
+    <tr><td>保留期策略</td><td>登录成功行按天清理（默认 90 天，每日 03:17 任务）；失败登录与业务操作长期保留</td></tr>
+    <tr><td>删除留快照</td><td>删除报销单单据前写入全字段快照，事后可追溯</td></tr>
+    <tr><td>离线部署</td><td>开发模式为 SQLite 单机自持（数据不出内网）；生产目标 PG + 对象存储</td></tr>
+  </table>
+</div>
+
+<h2>十三、尚未具备 / 外部依赖（诚实清单）</h2>
+<div class="card">
+  <div class="note"><b>需要外部条件，不是编码问题</b></div>
+  <table>
+    <tr><th>项</th><th>阻塞什么</th><th class="st">状态</th></tr>
+    <tr><td>国税查验资质</td><td>验真 provider 真实化（当前 mock，UI 已标注「模拟结果」）</td><td class="st"><span class="tag amber">外部阻塞</span></td></tr>
+    <tr><td>OCR 运行环境</td><td>图片型 / 扫描件解析（当前一律拒收）</td><td class="st"><span class="tag amber">待评估云/本地</span></td></tr>
+    <tr><td>银行对账单样本</td><td>决定 PDF 版式对账单是否值得投入</td><td class="st"><span class="tag amber">需客户配合</span></td></tr>
+  </table>
+
+  <div class="note" style="margin-top:14px"><b>已排期但尚未实现</b>（详见 <code>design/2026-09-13-高优先级任务总表.md</code>）</div>
+  <table>
+    <tr><th>优先级</th><th>项</th></tr>
+    <tr><td>P0</td><td><b>无票支出录入入口</b>（报销单里挂回单 / 收款凭证 —— 后端与合规校验已就绪，只差界面与 MCP 工具）</td></tr>
+    <tr><td>P1</td><td>时限管理（认证期 / 申报期倒排提醒）· 风险标签扩展 · 局部版面查询（竖排回单脱离 LLM）</td></tr>
+    <tr><td>P2</td><td>应付台账 + 付款计划 · 未达票暂估 / 借款核销 · 科目映射记忆 · 凭证生成 · 电子会计档案包 · 数电票入账标识 · 合规校验扩展</td></tr>
+    <tr><td>P3</td><td>电子对账单（F 组）· 老板问数 · 税负归集 · 代账多企业 · 银企直联付款 · 发票列表导出</td></tr>
+  </table>
+  <div class="ok" style="margin-top:14px"><b>明确不做（YAGNI）</b>：预算与柔性/刚性费控、商旅机酒预订、信用抽审；
+  银企直联与申报提交的<b>全自动化</b>（保持人工确认）；自建开票体系（销项开票外部执行）。</div>
+</div>
+
+<footer>
+  发票易 · 功能清单 · 2026-09-13 · 依据代码实测整理<br>
+  自动化基线：后端 404 passed ／ 前端 28 passed
+</footer>
+
+</div>
+</body>
+</html>
