@@ -28,6 +28,9 @@ def list_audit_logs(
         q = q.filter(AuditLog.user_id == user_id)
     if action:
         q = q.filter(AuditLog.action == action)
+    else:
+        # 历史 LOGIN 行默认隐藏（登录已不再记录；显式 action=LOGIN 仍可回溯）
+        q = q.filter(AuditLog.action != "LOGIN")
     if invoice_id:
         q = q.filter(AuditLog.invoice_id == invoice_id)
     if date_from:

@@ -48,7 +48,7 @@ const columns = [
     <h3>审计日志</h3>
     <a-space style="margin-bottom: 16px" wrap>
       <a-select v-model:value="filters.action" placeholder="操作类型" allow-clear style="width: 180px" @change="reloadFirst">
-        <a-select-option v-for="a in ['FETCH','PARSE','VERIFY','REVIEW','LOGIN','LOGOUT','REJECT_REPLY','CONFIG_CHANGE','REVERIFY']" :key="a" :value="a">{{ a }}</a-select-option>
+        <a-select-option v-for="a in ['FETCH','PARSE','VERIFY','REVIEW','LOGOUT','REJECT_REPLY','CONFIG_CHANGE','REVERIFY','INGEST','INVOICE_UPDATE','INVOICE_DELETE','UNBLOCK']" :key="a" :value="a">{{ a }}</a-select-option>
       </a-select>
       <a-range-picker v-model:value="filters.dateRange" @change="reloadFirst" />
       <a-button type="primary" @click="load">查询</a-button>

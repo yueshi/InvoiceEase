@@ -16,11 +16,9 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == body.username).first()
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户名或密码错误")
-    write_audit(
-        db, action="LOGIN", user_id=user.id, channel="web",
-        ip_address=request.client.host if request.client else None,
-    )
-    db.commit()
+    # 登录不写审计（2026-09-13 调整）：高频访问事件会稀释审计日志，
+    # 业务可审计性由 FETCH/PARSE/VERIFY/REVIEW/INVOICE_* 等操作保证。
+    # 历史 LOGIN 行保留在库中（审计列表默认隐藏，可显式 action=LOGIN 回溯）。
     return TokenResponse(access_token=create_access_token(user), user=user)
 
 
