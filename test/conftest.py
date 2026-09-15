@@ -35,6 +35,22 @@ def db(engine):
 
 
 @pytest.fixture()
+def mcp_admin_auth(db, mcp_auth):
+    """以管理员身份调用工具 —— 供「测工具行为、不测身份」的用例使用。
+
+    等价于升级前的单令牌通道（管理员、全 scope）。**身份相关用例必须显式用
+    `mcp_auth` 覆盖**，否则身份回归会失去意义。
+    """
+    from invoicing.models import Role, User
+
+    admin = User(username="__mcp_admin__", password_hash="x", role=Role.admin.value)
+    db.add(admin)
+    db.commit()
+    mcp_auth(admin)
+    return admin
+
+
+@pytest.fixture()
 def mcp_auth():
     """注入 MCP 认证上下文 —— 测试里替代生产的 AuthContextMiddleware。
 

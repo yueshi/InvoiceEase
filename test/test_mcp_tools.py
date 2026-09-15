@@ -56,7 +56,7 @@ def test_get_invoice_mcp(db, mcp_auth):
     assert isinstance(result, InvoiceOut)
 
 
-def test_fetch_invoices_mcp_writes_mcp_audit(db, monkeypatch):
+def test_fetch_invoices_mcp_writes_mcp_audit(db, monkeypatch, mcp_admin_auth):
     from invoicing.fetch.service import PollResult
 
     _seed(db)

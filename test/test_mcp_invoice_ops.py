@@ -11,6 +11,12 @@ from invoicing.mcp.tools import invoice_delete, invoice_update
 from invoicing.models import AuditLog, Invoice
 
 
+@pytest.fixture(autouse=True)
+def _admin_mcp_ctx(mcp_admin_auth):
+    """本文件测工具**行为**（非身份）：默认以管理员身份调用，等价升级前的单令牌通道。
+    身份/权限相关的回归见 test_mcp_permissions.py。"""
+
+
 def _seed_invoice(db) -> Invoice:
     inv = Invoice(
         file_url="mcp-test/a.xml",

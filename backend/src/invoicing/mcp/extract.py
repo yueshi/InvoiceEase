@@ -9,6 +9,7 @@ from pathlib import Path
 
 from invoicing.config import settings
 from invoicing.fetch.filters import classify_attachment
+from invoicing.mcp.identity import requires
 from invoicing.models.enums import FileType
 from invoicing.parse.router import parse_file
 from invoicing.parse.schemas import ParsedInvoice
@@ -59,6 +60,7 @@ def _map_data(parsed: ParsedInvoice, source_file: str) -> ExtractInvoiceData:
     )
 
 
+@requires("invoice:read")
 def extract_invoice_file(file_path: str) -> ExtractResult:
     data = _read_file(file_path)
     kind = classify_attachment(Path(file_path).name, "", data)
@@ -123,6 +125,7 @@ def extract_invoice_file(file_path: str) -> ExtractResult:
         return ExtractResult(success=False, error=f"解析失败: {e}")
 
 
+@requires("invoice:read")
 def batch_extract_invoice_files(file_paths: list[str]) -> list[ExtractResult]:
     results: list[ExtractResult] = []
     for p in file_paths:
@@ -133,6 +136,7 @@ def batch_extract_invoice_files(file_paths: list[str]) -> list[ExtractResult]:
     return results
 
 
+@requires("invoice:read")
 def validate_invoice_data(invoice_data: dict) -> ValidationResult:
     if not isinstance(invoice_data, dict):
         return ValidationResult(valid=False, errors=[{"code": "INVALID_FIELD", "message": "invoice_data 必须是对象"}])

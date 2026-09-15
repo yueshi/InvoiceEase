@@ -165,3 +165,119 @@ def test_token_bound_user_missing_rejected(db, users, mcp_auth):
     auth_context_var.set(AuthenticatedUser(tok))
     with pytest.raises(ValueError, match="归属用户不存在"):
         mt.list_invoices_mcp(page=1, page_size=10)
+
+
+# ---- 审计主体：能回答"谁干的" -----------------------------------------------
+
+
+def test_write_audit_records_subject(db, users, mcp_auth):
+    """MCP 写操作的审计要带上**主体**：user_id + 令牌 + 租户。
+
+    此前只记 channel="mcp"，能回答「有 Agent 干过这件事」，
+    回答不了「谁干的」——等保要求的「主体」要素在 MCP 通道是空的。
+    """
+    from invoicing.models import AuditLog
+    from invoicing.mcp import tools as mt
+
+    mcp_auth(users["emp"], scopes=("invoice:read", "invoice:write"), token_id=77)
+    mt.fetch_invoices(mailbox_id=None)  # 无邮箱 → 空转，但审计照写
+
+    log = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == "FETCH", AuditLog.channel == "mcp")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert log is not None
+    assert log.user_id == users["emp"].id  # 主体落到人
+    assert log.detail["token_id"] == 77  # 以及"用哪个令牌"
+    assert log.detail["token_source"] == "token"
+    assert log.detail["tenant_id"] == "default"
+
+
+def test_audit_records_legacy_source(db, users, mcp_auth):
+    """legacy 令牌的审计同样可辨识来源（token_id 为空但 source 明确）。"""
+    from invoicing.models import AuditLog
+    from invoicing.mcp import tools as mt
+
+    mcp_auth(users["admin"], source="legacy", token_id=None)
+    mt.fetch_invoices(mailbox_id=None)
+
+    log = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == "FETCH", AuditLog.channel == "mcp")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert log.user_id == users["admin"].id
+    assert log.detail["token_source"] == "legacy"
+    assert log.detail["token_id"] is None
+
+
+# ---- 覆盖性：36 个工具一个都不能漏 ------------------------------------------
+
+
+def test_every_registered_tool_declares_scope():
+    """**防漏网**：所有注册的 MCP 工具都必须声明 scope。
+
+    漏一个 = 那个工具对任何令牌开放（只有服务器级门槛，而它默认是空的）。
+    这比逐个核对更可靠——将来加工具忘了声明会立刻红。
+    """
+    import asyncio
+
+    from invoicing.mcp.server import build_server
+
+    server = build_server()
+    tools = asyncio.run(server.list_tools())
+    names = {t.name for t in tools}
+    assert len(names) == 36, f"工具数变化（{len(names)}），请同步更新设计附录 A"
+
+    from invoicing.mcp import extract as mt_extract
+    from invoicing.mcp import tools as mt
+
+    # server.py 注册名 → 实现函数名
+    impl_map = {
+        "invoice_fetch": mt.fetch_invoices,
+        "invoice_list": mt.list_invoices_mcp,
+        "invoice_detail": mt.get_invoice_mcp,
+        "extract_invoice": mt_extract.extract_invoice_file,
+        "batch_extract_invoices": mt_extract.batch_extract_invoice_files,
+        "validate_invoice": mt_extract.validate_invoice_data,
+        "invoice_ingest": mt.ingest_invoice,
+        "company_info_list": mt.company_info_list,
+        "company_info_save": mt.company_info_save,
+        "expense_create": mt.expense_create,
+        "expense_add_entry": mt.expense_add_entry,
+        "expense_add_invoices": mt.expense_add_invoices,
+        "expense_submit": mt.expense_submit,
+        "expense_list": mt.expense_list,
+        "expense_approve": mt.expense_approve,
+        "expense_eligible_invoices": mt.expense_eligible_invoices,
+        "bank_account_list": mt.bank_account_list,
+        "bank_account_save": mt.bank_account_save,
+        "bank_account_delete": mt.bank_account_delete,
+        "company_info_delete": mt.company_info_delete,
+        "invoice_update": mt.invoice_update,
+        "invoice_delete": mt.invoice_delete,
+        "invoice_unblock": mt.invoice_unblock,
+        "invoice_classify": mt.invoice_classify,
+        "invoice_ai_review": mt.invoice_ai_review,
+        "invoice_report": mt.invoice_report,
+        "sales_invoice_import": mt.sales_invoice_import,
+        "sales_invoice_import_list": mt.sales_invoice_import_list,
+        "red_invoice_list": mt.red_invoice_list,
+        "red_invoice_link": mt.red_invoice_link,
+        "receipt_ingest": mt.receipt_ingest,
+        "receipt_parse_status": mt.receipt_upload_status,
+        "receipt_list": mt.receipt_list,
+        "receipt_pair": mt.receipt_pair,
+        "receipt_report": mt.receipt_report,
+        "invoice_health_report": mt.invoice_health_report,
+    }
+    assert set(impl_map) == names, (
+        f"注册名与实现映射不一致：注册多出 {names - set(impl_map)}，映射多出 {set(impl_map) - names}"
+    )
+
+    # requires 用 functools.wraps，被包裹的函数带 __wrapped__
+    unprotected = [reg for reg, fn in impl_map.items() if not hasattr(fn, "__wrapped__")]
+    assert unprotected == [], f"以下工具未声明 scope：{unprotected}"

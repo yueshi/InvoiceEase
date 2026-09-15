@@ -339,7 +339,7 @@ def test_list_receipt_uploads_endpoint(client, db, monkeypatch, tmp_path):
     assert rows[0]["receipt_count"] == 0
 
 
-def test_mcp_receipt_ingest_async_batch(db, tmp_path, monkeypatch):
+def test_mcp_receipt_ingest_async_batch(db, tmp_path, monkeypatch, mcp_admin_auth):
     """MCP receipt_ingest 切批次模式：立即返回批次号（解析入队），重复提交 ValueError。"""
     from invoicing.models import ReceiptUpload
     from invoicing.mcp.tools import receipt_ingest, receipt_upload_status

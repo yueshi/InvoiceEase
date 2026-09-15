@@ -44,6 +44,25 @@ def _current_user(db) -> User:
     return user
 
 
+def _audit(db, action: str, *, invoice_id: int | None = None, detail: dict | None = None):
+    """MCP 审计：**带上主体**（谁、用哪个令牌、哪个租户）。
+
+    此前只记 `channel="mcp"`，审计能回答「有 Agent 干过这件事」，
+    回答不了「谁干的」——等保要求的「主体」要素在 MCP 通道是空的。
+    主体取自认证上下文（`@requires` 已保证存在）。
+    """
+    from invoicing.mcp.identity import current_principal
+
+    p = current_principal()
+    merged = {"token_source": p.source, "token_id": p.token_id, "tenant_id": p.tenant_id}
+    merged.update(detail or {})
+    return write_audit(
+        db, action=action, user_id=p.user_id, invoice_id=invoice_id,
+        channel="mcp", detail=merged,
+    )
+
+
+@requires("invoice:write")
 def fetch_invoices(mailbox_id: int | None = None) -> PollResultOut:
     total = {"received": 0, "rejected_images": 0, "ignored": 0, "duplicates": 0, "errors": 0}
     with SessionLocal() as db:
@@ -57,8 +76,8 @@ def fetch_invoices(mailbox_id: int | None = None) -> PollResultOut:
             result = poll_mailbox(db, mb)
             for key in total:
                 total[key] += getattr(result, key)
-        write_audit(
-            db, action="FETCH", channel="mcp",
+        _audit(
+            db, action="FETCH",
             detail={"mailbox_ids": [mb.id for mb in mailboxes], "result": total},
         )
         db.commit()
@@ -118,6 +137,7 @@ def _not_invoice_reason(data: bytes, kind: str) -> str:
     return "该文件不是电子发票原件（未识别出发票字段），已拒收。"
 
 
+@requires("invoice:write")
 def ingest_invoice(file_path: str) -> InvoiceOut:
     """WorkBuddy 归档闭环：原件入存储 → 解析 → 验真（本地模式内联）→ 返回发票记录。
     注意：本地模式返回终态 InvoiceOut；redis 模式返回 parsing 中间态（异步 worker 处理），状态以发票详情查询为准。"""
@@ -157,8 +177,8 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
         db.add(inv)
         db.commit()
         invoice_id = inv.id
-        write_audit(
-            db, action=AuditAction.INGEST.value, invoice_id=invoice_id, channel="mcp",
+        _audit(
+            db, action=AuditAction.INGEST.value, invoice_id=invoice_id,
             detail={"source_file": file_path, "file_type": kind},
         )
         db.commit()
@@ -203,8 +223,8 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
 
             get_storage().delete(key)
             reason = _not_invoice_reason(data, kind)
-            write_audit(
-                db, action="PARSE", invoice_id=inv.id, channel="mcp",
+            _audit(
+                db, action="PARSE", invoice_id=inv.id,
                 detail={"result": "not_invoice", "rejected_by": "mcp_ingest", "file_type": kind},
             )
             _cleanup_dependents_of(db, inv.id)
@@ -214,6 +234,7 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
+@requires("masterdata:read")
 def company_info_list(kind: str | None = None) -> list[CompanyInfoOut]:
     """常用公司列表（kind 可选：self/supplier/other）。"""
     with SessionLocal() as db:
@@ -223,6 +244,7 @@ def company_info_list(kind: str | None = None) -> list[CompanyInfoOut]:
         return [CompanyInfoOut.model_validate(i, from_attributes=True) for i in q.order_by(CompanyInfo.id).all()]
 
 
+@requires("masterdata:write")
 def company_info_save(
     name: str,
     tax_id: str,
@@ -259,8 +281,8 @@ def company_info_save(
         info.remark = remark
         if bank_account is not None:
             info.bank_account = bank_account.strip() or None
-        write_audit(
-            db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
+        _audit(
+            db, action=AuditAction.CONFIG_CHANGE.value,
             detail={"entity": "company_info", "tax_id": tax_id},
         )
         db.commit()
@@ -421,6 +443,7 @@ def expense_eligible_invoices(limit: int = 50) -> list[dict]:
         ]
 
 
+@requires("masterdata:read")
 def bank_account_list() -> list[dict]:
     """常用企业银行账号列表（本司账户，回单「本司账户行」判定用）。"""
     from invoicing.models import BankAccount
@@ -440,6 +463,7 @@ def bank_account_list() -> list[dict]:
         ]
 
 
+@requires("masterdata:write")
 def bank_account_save(
     account_no: str,
     account_name: str | None = None,
@@ -474,8 +498,8 @@ def bank_account_save(
         acc.remark = remark
         acc.is_default = is_default
         acc.enabled = enabled
-        write_audit(
-            db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
+        _audit(
+            db, action=AuditAction.CONFIG_CHANGE.value,
             detail={"entity": "bank_account", "account_no": normalized, "created": created},
         )
         db.commit()
@@ -486,6 +510,7 @@ def bank_account_save(
         }
 
 
+@requires("masterdata:write")
 def bank_account_delete(id: int) -> dict:
     """删除本司银行账号；不存在抛 ValueError。"""
     from invoicing.models import BankAccount
@@ -495,14 +520,15 @@ def bank_account_delete(id: int) -> dict:
         if acc is None:
             raise ValueError(f"账号不存在: {id}")
         db.delete(acc)
-        write_audit(
-            db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
+        _audit(
+            db, action=AuditAction.CONFIG_CHANGE.value,
             detail={"entity": "bank_account", "id": id, "deleted": True},
         )
         db.commit()
         return {"ok": True}
 
 
+@requires("masterdata:write")
 def company_info_delete(id: int) -> dict:
     """删除常用公司；不存在抛 ValueError。"""
     with SessionLocal() as db:
@@ -510,8 +536,8 @@ def company_info_delete(id: int) -> dict:
         if info is None:
             raise ValueError(f"记录不存在: {id}")
         db.delete(info)
-        write_audit(
-            db, action=AuditAction.CONFIG_CHANGE.value, channel="mcp",
+        _audit(
+            db, action=AuditAction.CONFIG_CHANGE.value,
             detail={"entity": "company_info", "id": id, "deleted": True},
         )
         db.commit()
@@ -528,6 +554,7 @@ def _http_to_value_error(fn, *args, **kwargs):
         raise ValueError(str(e.detail)) from e
 
 
+@requires("invoice:write")
 def invoice_update(
     invoice_id: int,
     invoice_number: str | None = None,
@@ -563,28 +590,33 @@ def invoice_update(
     with SessionLocal() as db:
         inv = _http_to_value_error(
             services.update_invoice, db, None, invoice_id,
-            body.model_dump(exclude_none=True), channel="mcp",
+            body.model_dump(exclude_none=True),
         )
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
+@requires("invoice:admin")
 def invoice_delete(invoice_id: int) -> dict:
     """删除发票（审计全字段快照 + 原件清理）；不存在抛 ValueError。"""
     with SessionLocal() as db:
         return _http_to_value_error(
-            services.delete_invoice, db, None, invoice_id, channel="mcp"
+            services.delete_invoice, db, _current_user(db), invoice_id,
+            channel="mcp"
         )
 
 
+@requires("invoice:admin")
 def invoice_unblock(invoice_id: int) -> InvoiceOut:
     """人工放行被拦截发票：blocked → 待复核（清除重复标记）；非 blocked 抛 ValueError。"""
     with SessionLocal() as db:
         inv = _http_to_value_error(
-            services.unblock_invoice, db, None, invoice_id, channel="mcp"
+            services.unblock_invoice, db, _current_user(db), invoice_id,
+            channel="mcp"
         )
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
+@requires("invoice:write")
 def invoice_classify(
     invoice_id: int,
     expense_type: str | None = None,
@@ -608,14 +640,15 @@ def invoice_classify(
             inv.cost_center = cost_center
         if description is not None:
             inv.description = description
-        write_audit(
-            db, action="INVOICE_CLASSIFY", invoice_id=invoice_id, channel="mcp",
+        _audit(
+            db, action="INVOICE_CLASSIFY", invoice_id=invoice_id,
             detail={"expense_type": expense_type, "cost_center": cost_center, "description": description},
         )
         db.commit()
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
+@requires("invoice:write")
 def invoice_ai_review(invoice_id: int) -> InvoiceOut:
     """生成/重算发票复核预判（approve/reject/uncertain + 理由 + 置信度）。"""
     from invoicing.models import Invoice
@@ -633,8 +666,8 @@ def invoice_ai_review(invoice_id: int) -> InvoiceOut:
         inv.ai_review_reason = verdict.reason
         inv.ai_review_confidence = verdict.confidence
         inv.ai_reviewed_at = utcnow()
-        write_audit(
-            db, action="AI_REVIEW", invoice_id=invoice_id, channel="mcp",
+        _audit(
+            db, action="AI_REVIEW", invoice_id=invoice_id,
             detail={"verdict": verdict.verdict, "reason": verdict.reason, "confidence": verdict.confidence},
         )
         db.commit()
@@ -670,6 +703,7 @@ def sales_invoice_import_list(file_path: str) -> dict:
         return sales_svc.import_sales_list(db, _current_user(db), data, path.name)
 
 
+@requires("sales:read")
 def red_invoice_list() -> list[dict]:
     """未关联原蓝票的红字票（销项退款场景待人工补关联）。"""
     from invoicing.workflow import sales as sales_svc
@@ -693,6 +727,7 @@ def red_invoice_link(red_invoice_id: int, original_invoice_id: int) -> dict:
         return {"ok": True, "invoice_id": inv.id, "original_invoice_id": inv.original_invoice_id}
 
 
+@requires("report:read")
 def invoice_report(month: str) -> str:
     """月度成本报表摘要（供数字员工汇报）：总额/张数/类型分布/部门分布。"""
     from invoicing.reports import monthly_cost
@@ -708,6 +743,7 @@ def invoice_report(month: str) -> str:
     return "\n".join(lines)
 
 
+@requires("report:read")
 def invoice_health_report(month: str) -> str:
     """月度健康报告（P3/R3）：老板视角收口文本，供数字员工直接引用推送。"""
     from invoicing.reports import monthly_health
@@ -716,6 +752,7 @@ def invoice_health_report(month: str) -> str:
         return monthly_health(db, month)
 
 
+@requires("receipt:write")
 def receipt_ingest(file_path: str) -> dict:
     """银行回单入库（R1.1 批次异步模式）：存档 → 建批次 → 后台解析 → 立即返回批次号。
 
@@ -765,6 +802,7 @@ def receipt_ingest(file_path: str) -> dict:
     }
 
 
+@requires("receipt:read")
 def receipt_upload_status(upload_id: int) -> dict:
     """回单上传批次解析状态（receipt_ingest 异步模式的配套轮询工具）。"""
     with SessionLocal() as db:
@@ -781,6 +819,7 @@ def receipt_upload_status(upload_id: int) -> dict:
         }
 
 
+@requires("receipt:read")
 def receipt_list(month: str) -> list[dict]:
     """回单清单（P3/R1）：month=YYYY-MM。"""
     from invoicing.reports import receipts_in_month
@@ -806,6 +845,7 @@ def receipt_list(month: str) -> list[dict]:
         ]
 
 
+@requires("receipt:write")
 def receipt_pair(receipt_id: int, invoice_id: int) -> dict:
     """手动配对回单与发票（覆盖自动建议）。"""
     from invoicing.models import BankReceipt, Invoice
@@ -822,6 +862,7 @@ def receipt_pair(receipt_id: int, invoice_id: int) -> dict:
         return {"receipt_id": receipt_id, "paired_invoice_id": invoice_id, "status": "paired"}
 
 
+@requires("report:read")
 def receipt_report(month: str) -> str:
     """回单/无票费用汇报（P3/R1+R2）：总额/张数 + 无票支出清单（催票数据源）。"""
     from invoicing.models import BankReceipt

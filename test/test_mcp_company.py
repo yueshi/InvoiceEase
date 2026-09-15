@@ -8,6 +8,12 @@ from invoicing.mcp.tools import company_info_delete, company_info_list, company_
 from invoicing.models import AuditLog
 
 
+@pytest.fixture(autouse=True)
+def _admin_mcp_ctx(mcp_admin_auth):
+    """本文件测工具**行为**（非身份）：默认以管理员身份调用，等价升级前的单令牌通道。
+    身份/权限相关的回归见 test_mcp_permissions.py。"""
+
+
 def test_save_and_list(db):
     saved = company_info_save(
         name="澜铮鸿欣（上海）数字科技有限公司",
@@ -84,7 +90,11 @@ def test_save_writes_audit(db):
             .all()
         )
     assert len(logs) == 1
-    assert logs[0].detail == {"entity": "company_info", "tax_id": "91310101MAELA36R35"}
+    # detail 除业务字段外还带审计主体（谁 / 哪个令牌 / 哪个租户）——MCP 身份设计 §4.5
+    assert logs[0].detail["entity"] == "company_info"
+    assert logs[0].detail["tax_id"] == "91310101MAELA36R35"
+    assert logs[0].detail["token_source"] == "token"
+    assert logs[0].user_id is not None  # 主体落到人（此前为 None）
 
 
 @pytest.mark.asyncio
