@@ -1,17 +1,39 @@
 # invoicing/mcp/server.py
-"""MCP Server 装配：10 个 Tool 注册（收取/查询/详情 + WorkBuddy 识别/校验/归档 + 常用公司管理）。"""
+"""MCP Server 装配：36 个 Tool 注册 + 认证链路。
+
+认证交给 SDK 内置栈（`auth=AuthSettings` + `token_verifier`）：
+`AuthenticationMiddleware` → `AuthContextMiddleware` → `RequireAuthMiddleware`，
+规范要求的 401 invalid_token / 403 insufficient_scope + WWW-Authenticate 由它负责，
+我们只提供「令牌 → AccessToken」这一步（`MCPTokenVerifier`）。
+设计见 design/2026-09-13-MCP身份与权限设计.md §4.1。
+"""
 from datetime import date
 
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 
+from invoicing.config import settings
 from invoicing.mcp import tools as mcp_tools
+from invoicing.mcp.verifier import MCPTokenVerifier
 from invoicing.schemas.company_info import CompanyInfoOut
 from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut
 from invoicing.schemas.mailbox import PollResultOut
 
 
+def _auth_settings() -> AuthSettings:
+    """阶段 1 只需 resource_server_url（构造 WWW-Authenticate 的元数据地址）；
+    issuer_url 是为满足 AuthSettings 必填约束，阶段 2 接 IdP 时才真正启用。
+    required_scopes 默认留空——权限全部由工具级 scope 承担（见设计 R2）。"""
+    scopes = [s.strip() for s in (settings.mcp_required_scopes or "").split(",") if s.strip()]
+    return AuthSettings(
+        issuer_url=settings.mcp_issuer_url,
+        resource_server_url=settings.mcp_resource_url,
+        required_scopes=scopes or None,
+    )
+
+
 def build_server() -> MCPServer:
-    server = MCPServer("发票易")
+    server = MCPServer("发票易", auth=_auth_settings(), token_verifier=MCPTokenVerifier())
 
     @server.tool(
         description="手动触发邮箱轮询收取发票，返回收取结果统计（收到/拒收/忽略/重复/错误）。mailbox_id 缺省收取全部启用邮箱。",

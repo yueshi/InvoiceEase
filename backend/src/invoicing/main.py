@@ -6,7 +6,6 @@ from invoicing.api import api_router
 from invoicing.bootstrap import ensure_admin_user
 from invoicing.config import settings
 from invoicing.db import SessionLocal
-from invoicing.mcp.auth import MCPAuthMiddleware
 from invoicing.mcp.server import mcp
 
 
@@ -40,7 +39,8 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="发票易 InvoiceEase", lifespan=lifespan)
-    app.add_middleware(MCPAuthMiddleware)
+    # /mcp 的鉴权由 SDK 认证栈负责（装配在 mcp/server.py），不再自研中间件：
+    # 自研版本只认单一静态令牌，会挡在 SDK 前面把个人令牌全部 401。
 
     @app.get("/health")
     def health() -> dict:
