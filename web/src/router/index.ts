@@ -11,6 +11,8 @@ const routes = [
   { path: "/tasks", component: () => import("../views/AsyncTasksView.vue"), meta: { financeOnly: true } },
   // 报销：员工与财务共用（员工看本人，财务看全部并审批）
   { path: "/expenses", component: () => import("../views/ExpensesView.vue") },
+  // 我的令牌：自助签发（所有角色可见——平台侧按用户配令牌是主路径）
+  { path: "/mcp-tokens", component: () => import("../views/McpTokensView.vue") },
   { path: "/audit", component: () => import("../views/AuditView.vue"), meta: { adminOnly: true } },
   { path: "/settings", component: () => import("../views/SettingsView.vue"), meta: { adminOnly: true } },
 ];

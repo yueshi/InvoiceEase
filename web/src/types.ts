@@ -181,6 +181,27 @@ export interface CompanyInfoCreate {
   bank_account?: string | null;
 }
 export type CompanyInfoUpdate = Partial<CompanyInfoCreate>;
+/** MCP 访问令牌（Agent 通道身份；一人一令牌，见 MCP 身份设计 §10） */
+export interface McpTokenOut {
+  id: number;
+  name: string;
+  token_prefix: string;
+  user_id: number;
+  scopes: string[];
+  expires_at: string | null;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+  state: "active" | "revoked" | "expired";
+  owner_username: string | null;
+}
+
+export interface McpTokenIssued {
+  token: McpTokenOut;
+  /** 明文**仅此一次**返回，不落库；关闭后不可再取 */
+  plaintext: string;
+}
+
 /** 常用企业银行账号（本司账户；回单「本司账户行」判定） */
 export interface BankAccountOut {
   id: number;
