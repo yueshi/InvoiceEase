@@ -15,3 +15,8 @@ export async function fetchMe(): Promise<UserOut> {
   const { data } = await api.get<UserOut>("/auth/me");
   return data;
 }
+
+/** 自助改密（须验原密码）；管理员重置后的强制改密也走这里 */
+export async function changeOwnPassword(oldPassword: string, newPassword: string): Promise<void> {
+  await api.post("/auth/password", { old_password: oldPassword, new_password: newPassword });
+}

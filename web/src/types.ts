@@ -1,11 +1,27 @@
 // 核心类型定义：角色、用户、登录响应
 export type Role = "employee" | "finance_staff" | "finance_manager" | "admin";
 
+export type UserStatus = "active" | "suspended";
+
+export const USER_STATUS_LABELS: Record<UserStatus, { text: string; color: string }> = {
+  active: { text: "正常", color: "green" },
+  suspended: { text: "已暂停", color: "red" },
+};
+
 export interface UserOut {
   id: number;
   username: string;
   role: Role;
+  status: UserStatus;
+  /** 管理员重置密码后置位：该用户须先改密才能用其他功能 */
+  must_change_password: boolean;
   created_at: string;
+}
+
+export interface ResetPasswordOut {
+  user: UserOut;
+  /** 仅"自动生成"时返回，一次性展示（同 MCP 令牌的明文策略） */
+  plaintext: string | null;
 }
 
 export interface LoginResponse {

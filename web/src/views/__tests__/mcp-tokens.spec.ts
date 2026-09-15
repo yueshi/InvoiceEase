@@ -60,6 +60,7 @@ describe("McpTokensView", () => {
     setActivePinia(createPinia());
     useAuthStore().user = {
       id: 1, username: "admin", role: "admin", created_at: "2026-09-15T00:00:00",
+      status: "active", must_change_password: false,
     };
   });
 

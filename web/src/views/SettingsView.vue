@@ -6,8 +6,8 @@ import { errorMessage } from "../api/client";
 import { createCompanyInfo, deleteCompanyInfo, listCompanyInfos, updateCompanyInfo } from "../api/companyInfos";
 import { createBankAccount, deleteBankAccount, listBankAccounts, updateBankAccount } from "../api/bankAccounts";
 import { createMailbox, listMailboxes, pollMailbox, testMailbox, updateMailbox } from "../api/mailboxes";
-import { createUser, listUsers, updateUser } from "../api/users";
-import { BANK_LABELS, COMPANY_KIND_LABELS, ROLE_LABELS, type BankAccountCreate, type BankAccountOut, type CompanyInfoCreate, type CompanyInfoOut, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut } from "../types";
+import { createUser, listUsers, resetUserPassword, resumeUser, suspendUser, updateUser } from "../api/users";
+import { BANK_LABELS, COMPANY_KIND_LABELS, ROLE_LABELS, USER_STATUS_LABELS, type BankAccountCreate, type BankAccountOut, type CompanyInfoCreate, type CompanyInfoOut, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut, type UserStatus } from "../types";
 
 const TAX_ID_RE = /^[0-9A-Z]{18}$/;
 
@@ -257,9 +257,65 @@ const mailboxColumns = [
 const userColumns = [
   { title: "用户名", dataIndex: "username", key: "username" },
   { title: "角色", dataIndex: "role", key: "role" },
+  { title: "状态", dataIndex: "status", key: "status", width: 120 },
   { title: "创建时间", dataIndex: "created_at", key: "created_at" },
   { title: "操作", key: "actions" },
 ];
+
+// ---- 用户管理：重置密码 / 暂停恢复 ----
+const resetTarget = ref<UserOut | null>(null);
+const resetForm = reactive({ generate: true, new_password: "" });
+const resetPlaintext = ref<{ username: string; plaintext: string } | null>(null);
+
+function openReset(record: UserOut) {
+  resetTarget.value = record;
+  resetForm.generate = true;
+  resetForm.new_password = "";
+}
+
+async function onResetPassword() {
+  if (!resetTarget.value) return;
+  try {
+    const res = await resetUserPassword(resetTarget.value.id, {
+      generate: resetForm.generate,
+      new_password: resetForm.generate ? undefined : resetForm.new_password,
+    });
+    message.success(`已重置「${resetTarget.value.username}」的密码，其下次登录须先改密`);
+    if (res.plaintext) {
+      resetPlaintext.value = { username: resetTarget.value.username, plaintext: res.plaintext };
+    }
+    resetTarget.value = null;
+    loadAll();
+  } catch (e) {
+    errorMessage(e, "重置失败");
+  }
+}
+
+async function onToggleStatus(record: UserOut) {
+  const suspend = record.status === "active";
+  try {
+    if (suspend) {
+      await suspendUser(record.id);
+      message.success(`已暂停「${record.username}」：登录、已登录会话与其 Agent 令牌立即失效`);
+    } else {
+      await resumeUser(record.id);
+      message.success(`已恢复「${record.username}」`);
+    }
+    loadAll();
+  } catch (e) {
+    errorMessage(e, suspend ? "暂停失败" : "恢复失败");
+  }
+}
+
+async function copyResetPassword() {
+  if (!resetPlaintext.value) return;
+  try {
+    await navigator.clipboard.writeText(resetPlaintext.value.plaintext);
+    message.success("已复制");
+  } catch {
+    message.error("复制失败，请手动选择复制");
+  }
+}
 const companyColumns = [
   { title: "名称", dataIndex: "name", key: "name" },
   { title: "税号", dataIndex: "tax_id", key: "tax_id" },
@@ -292,8 +348,30 @@ const companyColumns = [
         <a-table :columns="userColumns" :data-source="users" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'role'">{{ ROLE_LABELS[record.role as Role] || record.role }}</template>
+            <template v-else-if="column.key === 'status'">
+              <a-tag :color="USER_STATUS_LABELS[record.status as UserStatus]?.color">
+                {{ USER_STATUS_LABELS[record.status as UserStatus]?.text || record.status }}
+              </a-tag>
+              <a-tooltip v-if="record.must_change_password" title="管理员已重置其密码，本人尚未修改">
+                <a-tag color="orange" style="margin-left: 4px">待改密</a-tag>
+              </a-tooltip>
+            </template>
             <template v-else-if="column.key === 'actions'">
-              <a @click="editingUser = record; Object.assign(userForm, { username: record.username, password: '', role: record.role }); userModalOpen = true">编辑角色</a>
+              <a-space>
+                <a @click="editingUser = record; Object.assign(userForm, { username: record.username, password: '', role: record.role }); userModalOpen = true">改角色</a>
+                <a @click="openReset(record)">重置密码</a>
+                <a-popconfirm
+                  :title="record.status === 'active'
+                    ? '暂停后该用户将立即无法登录，其 Agent 令牌同时失效。确定？'
+                    : '恢复该用户的访问？'"
+                  ok-text="确定" cancel-text="取消"
+                  @confirm="onToggleStatus(record)"
+                >
+                  <a :style="record.status === 'active' ? 'color:#cf1322' : ''">
+                    {{ record.status === "active" ? "暂停" : "恢复" }}
+                  </a>
+                </a-popconfirm>
+              </a-space>
             </template>
           </template>
         </a-table>
@@ -366,13 +444,54 @@ const companyColumns = [
     <a-modal v-model:open="userModalOpen" :title="editingUser ? '编辑用户' : '新建用户'" @ok="saveUser">
       <a-form layout="vertical">
         <a-form-item label="用户名"><a-input v-model:value="userForm.username" :disabled="!!editingUser" /></a-form-item>
-        <a-form-item v-if="!editingUser" label="密码"><a-input-password v-model:value="userForm.password" /></a-form-item>
+        <a-form-item v-if="!editingUser" label="密码"><a-input-password v-model:value="userForm.password" placeholder="至少 8 位" /></a-form-item>
         <a-form-item label="角色">
           <a-select v-model:value="userForm.role">
             <a-select-option v-for="(label, value) in ROLE_LABELS" :key="value" :value="value">{{ label }}</a-select-option>
           </a-select>
         </a-form-item>
       </a-form>
+    </a-modal>
+
+    <a-modal
+      :open="Boolean(resetTarget)"
+      :title="`重置密码：${resetTarget?.username ?? ''}`"
+      @ok="onResetPassword"
+      @cancel="resetTarget = null"
+    >
+      <a-radio-group v-model:value="resetForm.generate">
+        <a-radio :value="true">自动生成强密码（推荐）</a-radio>
+        <a-radio :value="false">手动指定</a-radio>
+      </a-radio-group>
+      <a-input-password
+        v-if="!resetForm.generate"
+        v-model:value="resetForm.new_password"
+        placeholder="至少 8 位"
+        style="margin-top: 12px"
+      />
+      <div style="color: #888; font-size: 12px; margin-top: 12px">
+        重置后该用户下次登录必须修改密码；其角色不变（降级请用「改角色」）。
+      </div>
+    </a-modal>
+
+    <a-modal
+      :open="Boolean(resetPlaintext)"
+      title="密码已重置 —— 请立即复制"
+      :footer="null"
+      :closable="false"
+      :mask-closable="false"
+    >
+      <a-alert
+        type="warning" show-icon style="margin-bottom: 12px"
+        message="明文只显示这一次"
+        description="密码以哈希存储，关闭后无法再次查看。若丢失，只能再重置一次。"
+      />
+      <p style="margin-bottom: 6px">「{{ resetPlaintext?.username }}」的新密码：</p>
+      <a-textarea :value="resetPlaintext?.plaintext" :rows="2" readonly style="font-family: monospace" />
+      <a-space style="margin-top: 12px">
+        <a-button type="primary" @click="copyResetPassword">复制密码</a-button>
+        <a-button @click="resetPlaintext = null">我已复制，关闭</a-button>
+      </a-space>
     </a-modal>
 
     <a-modal v-model:open="companyModalOpen" :title="editingCompanyId ? '编辑公司' : '新建公司'" @ok="saveCompany">

@@ -39,6 +39,7 @@ function onMenuClick(info: { key: string }) {
     <a-layout>
       <a-layout-header style="background: #fff; display: flex; justify-content: flex-end; align-items: center; gap: 12px">
         <span>{{ auth.user?.username }}</span>
+        <a-button @click="router.push('/change-password')">修改密码</a-button>
         <a-button @click="onLogout">退出登录</a-button>
       </a-layout-header>
       <a-layout-content style="padding: 24px">

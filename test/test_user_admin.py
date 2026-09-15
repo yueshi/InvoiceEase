@@ -334,3 +334,29 @@ def _issue(db, user, name):
     from invoicing.workflow import mcp_tokens as tokens
 
     return tokens.issue_token(db, user, name=name, scopes=("invoice:read",))
+
+
+def test_user_out_exposes_status_and_flag(client, db, users):
+    """**接口必须回传 status 与 must_change_password**。
+
+    前端路由守卫读的就是这两个字段：少了 must_change_password，强制改密会
+    **静默失效**（页面照常进得去）；少了 status，管理页显示不出暂停态。
+    这类"契约缺字段"用 mock 数据的前端单测照不出来，必须在真实响应上钉住。
+    """
+    h = _h(_login(client, "adm"))
+    rows = client.get("/api/v1/users", headers=h).json()
+    emp = next(u for u in rows if u["username"] == "emp")
+    assert emp["status"] == "active"
+    assert emp["must_change_password"] is False
+
+    # 暂停 + 重置后，两个字段都要如实反映
+    client.post(f"/api/v1/users/{users['emp'].id}/suspend", headers=h)
+    client.post(f"/api/v1/users/{users['emp'].id}/password", headers=h, json={})
+    emp = next(u for u in client.get("/api/v1/users", headers=h).json()
+               if u["username"] == "emp")
+    assert emp["status"] == "suspended"
+    assert emp["must_change_password"] is True
+
+    # /auth/me 同样要带（登录后守卫立刻要用）
+    me = client.get("/api/v1/auth/me", headers=_h(_login(client, "adm"))).json()
+    assert "status" in me and "must_change_password" in me

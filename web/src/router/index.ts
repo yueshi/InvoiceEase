@@ -11,6 +11,8 @@ const routes = [
   { path: "/tasks", component: () => import("../views/AsyncTasksView.vue"), meta: { financeOnly: true } },
   // 报销：员工与财务共用（员工看本人，财务看全部并审批）
   { path: "/expenses", component: () => import("../views/ExpensesView.vue") },
+  // 修改密码：顶栏自愿改密 + 管理员重置后的强制改密（同一页）
+  { path: "/change-password", component: () => import("../views/ChangePasswordView.vue") },
   // 我的令牌：自助签发（所有角色可见——平台侧按用户配令牌是主路径）
   { path: "/mcp-tokens", component: () => import("../views/McpTokensView.vue") },
   { path: "/audit", component: () => import("../views/AuditView.vue"), meta: { adminOnly: true } },
@@ -32,6 +34,10 @@ router.beforeEach(async (to) => {
       localStorage.removeItem(TOKEN_KEY);
       return { path: "/login" };
     }
+  }
+  // 强制改密：管理员重置后只能先改密（后端默认全拦，前端把人送到改密页）
+  if (auth.user?.must_change_password && to.path !== "/change-password") {
+    return { path: "/change-password" };
   }
   if (to.meta.adminOnly && !auth.isAdmin) {
     return { path: "/" };
