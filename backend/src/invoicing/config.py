@@ -19,7 +19,12 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480
-    mcp_token: str = "change-me"
+    mcp_token: str = "change-me"  # legacy 内建令牌（兼容期，建议改用个人令牌）
+    # MCP 身份与权限（design/2026-09-13-MCP身份与权限设计.md）
+    mcp_issuer_url: str = "http://localhost:8000"  # 阶段 1 仅作 claims["iss"]；阶段 2 接 IdP 时替换
+    mcp_resource_url: str = "http://localhost:8000/mcp"  # RFC 8707 audience / PRM 元数据地址
+    mcp_required_scopes: str = ""  # 服务器级最低门槛，逗号分隔；空=不设（权限全交工具级，见 R2）
+    mcp_token_default_expires_days: int = 90  # 签发默认有效期
     workbuddy_inbox_dir: str = ""  # WorkBuddy 附件目录信任边界；为空表示不限制，生产建议配置
     fernet_key: str = "change-me-32bytes-base64-key!!!"  # 生产环境必须覆盖
     admin_username: str = "admin"
@@ -30,6 +35,9 @@ class Settings(BaseSettings):
     # 差旅伙食补助日标准（元/天）：补助无发票，按 天数 × 本标准 自动生成内部凭证
     travel_allowance_daily_standard: int = 100
     admin_password: str = "admin123"
+    # bcrypt cost（口令哈希强度）：生产保持 12；测试调低可省大量时间
+    # （本机 cost=12 一次哈希约 4.5 秒，测试里大量建用户会白付）
+    password_hash_rounds: int = 12
     mock_verify_rules: str = '{"fail_prefixes": ["0000"], "error_prefixes": ["0001"]}'
     # LLM 引擎（OpenAI 兼容协议；未启用时解析链路降级为现状行为）
     llm_enabled: bool = False

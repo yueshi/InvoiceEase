@@ -6,6 +6,7 @@ os.environ.setdefault("INVOICING_STORAGE_ROOT", "./data/test-originals")
 os.environ.setdefault("INVOICING_QUEUE_BACKEND", "local")
 os.environ.setdefault("INVOICING_SCHEDULER_ENABLED", "false")
 os.environ.setdefault("INVOICING_OCR_PRELOAD", "false")  # 测试不预热引擎（装了 ocr extra 时避免每次 create_app 触发推理）
+os.environ.setdefault("INVOICING_PASSWORD_HASH_ROUNDS", "4")  # bcrypt 降 cost：本机 cost=12 一次 4.5 秒，测试建用户量大会拖垮套件
 os.environ.setdefault("INVOICING_LLM_ENABLED", "false")  # 测试环境禁用 LLM（防 .env 真实配置污染）
 os.environ.setdefault("INVOICING_JWT_SECRET", "test-secret-0123456789-0123456789-0123456789")
 os.environ.setdefault("INVOICING_ADMIN_PASSWORD", "admin123")

@@ -14,7 +14,10 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    # cost 可配：生产默认 12；测试设 INVOICING_PASSWORD_HASH_ROUNDS=4（一次哈希省约 4.4 秒）
+    return bcrypt.hashpw(
+        password.encode("utf-8"), bcrypt.gensalt(rounds=settings.password_hash_rounds)
+    ).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:

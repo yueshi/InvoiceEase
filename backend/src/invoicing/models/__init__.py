@@ -20,6 +20,7 @@ from invoicing.models.expense import (
 )
 from invoicing.models.invoice import Invoice
 from invoicing.models.mailbox import Mailbox
+from invoicing.models.mcp_token import McpToken
 from invoicing.models.receipt import BankReceipt, ReceiptUpload
 from invoicing.models.user import User
 
@@ -40,6 +41,7 @@ __all__ = [
     "Invoice",
     "InvoiceStatus",
     "Mailbox",
+    "McpToken",
     "ParseSource",
     "ReceiptUpload",
     "Role",

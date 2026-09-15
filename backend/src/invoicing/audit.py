@@ -76,6 +76,14 @@ def classify_outcome(action: str, detail: dict | None) -> str | None:
         if result in _FAILED_RESULTS:
             return "failed"
 
+    # MCP 令牌签发/撤销：身份类事件。越权尝试是**系统正确拦截**（blocked），不是失败
+    if action in {"MCP_TOKEN_ISSUE", "MCP_TOKEN_REVOKE"}:
+        if result in _BLOCKED_RESULTS:
+            return "blocked"
+        if result in _ERROR_RESULTS:
+            return "error"
+        return "success"
+
     # 上传/删除/更新/归类/放行/配置变更等：完成即成功，但配置变更无成败语义
     if action == "CONFIG_CHANGE":
         return None
