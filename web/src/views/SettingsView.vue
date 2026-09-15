@@ -275,6 +275,18 @@ function openReset(record: UserOut) {
 
 async function onResetPassword() {
   if (!resetTarget.value) return;
+  // 客户端先挡一道：手动指定时校验长度（否则要等服务端 422 才知道，
+  // 且后端 schema 的报错是英文的 pydantic 文案）
+  if (!resetForm.generate) {
+    if (!resetForm.new_password) {
+      message.warning("请输入新密码，或改选「自动生成」");
+      return;
+    }
+    if (resetForm.new_password.length < 8) {
+      message.warning("新密码至少 8 位");
+      return;
+    }
+  }
   try {
     const res = await resetUserPassword(resetTarget.value.id, {
       generate: resetForm.generate,

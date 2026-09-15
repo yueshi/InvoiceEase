@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
-import { errorMessage } from "../api/client";
+import { errorMessage, errorText } from "../api/client";
 import {
   addInvoiceToClaim,
   approveClaim,
@@ -227,9 +227,10 @@ async function onAddSelected() {
       await addInvoiceToClaim(detail.value.claim.id, targetEntryId.value, id, poolExpenseType.value);
       ok += 1;
     } catch (e) {
-      // errorMessage 自身会弹提示；这里只收集文本用于汇总（避免双重弹窗）
-      const text = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      errors.push(text || "加入失败");
+      // 不弹提示，只收集文本用于汇总（避免逐条弹窗噪音）；
+      // 用 errorText 而不是裸读 detail —— 后者遇 pydantic 校验错误（detail 是数组）
+      // 会显示 [object Object]
+      errors.push(errorText(e, "加入失败"));
     }
   }
   if (ok) message.success(`已加入 ${ok} 张发票`);
