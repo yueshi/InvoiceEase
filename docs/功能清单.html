@@ -46,7 +46,7 @@
 
 <header>
   <h1>发票易（InvoiceEase）· 功能清单</h1>
-  <p>电子发票自动化处理 AI Agent · 当前版本快照 2026-09-13 · 依据代码实测整理，非规划稿</p>
+  <p>电子发票自动化处理 AI Agent · 当前版本快照 2026-09-15 · 依据代码实测整理，非规划稿</p>
 </header>
 
 <h2>一、产品定位</h2>
@@ -61,9 +61,9 @@
 
 <div class="kpi">
   <div><b>36</b><span>MCP 工具（= 服务目录）</span></div>
-  <div><b>8</b><span>Web 页面（含登录）</span></div>
-  <div><b>404</b><span>后端自动化测试</span></div>
-  <div><b>28</b><span>前端测试</span></div>
+  <div><b>10</b><span>Web 页面（含登录）</span></div>
+  <div><b>493</b><span>后端自动化测试</span></div>
+  <div><b>35</b><span>前端测试</span></div>
   <div><b>5</b><span>银行回单模板</span></div>
 </div>
 
@@ -78,7 +78,7 @@
     <tr><td><b>E 销项对账</b></td><td>导入已开票 + 红字关联 + 回单方向感知配对</td><td class="st"><span class="tag green">已上线</span></td></tr>
     <tr><td><b>F 记账报表</b></td><td>成本报表、凭证草稿、月度健康报告、数字员工班表</td><td class="st"><span class="tag green">已上线</span></td></tr>
     <tr><td><b>G Agent 集成</b></td><td>MCP 工具即服务目录，边界显式、异步批次、幂等</td><td class="st"><span class="tag green">已上线</span></td></tr>
-    <tr><td><b>H 审计权限</b></td><td>全动作留痕含结果类别、四级角色、保留期策略</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>H 审计权限</b></td><td>全动作留痕含结果类别、四级角色、账号全生命周期管理（改密/重置/暂停/改角色）</td><td class="st"><span class="tag green">已上线</span></td></tr>
   </table>
 </div>
 
@@ -250,7 +250,8 @@
     <tr><td>我的报销</td><td><code>/expenses</code></td><td>建单（选类型）→ 建事项（差旅子类动态表单）→ 选票/录无票凭证 → 提交；财务审批同页</td><td class="st">全部（审批仅财务）</td></tr>
     <tr><td><b>我的令牌</b></td><td><code>/mcp-tokens</code></td><td>自助签发 Agent 令牌（明文一次性展示 + 一键复制）、列表（状态/有效期/最后使用）、撤销；管理员可代发并查看全部</td><td class="st">全部（全局视图仅管理员）</td></tr>
     <tr><td>审计日志</td><td><code>/audit</code></td><td>业务操作 / 安全事件分区，含结果类别与详情快照</td><td class="st">管理员</td></tr>
-    <tr><td>系统配置</td><td><code>/settings</code></td><td>邮箱配置 / 用户管理 / 常用税号公司 / 常用银行账号</td><td class="st">管理员</td></tr>
+    <tr><td>修改密码</td><td><code>/change-password</code></td><td>顶栏入口；管理员重置密码后由守卫强制跳转至此，改完才能用其他功能</td><td class="st">全部</td></tr>
+    <tr><td>系统配置</td><td><code>/settings</code></td><td>邮箱配置 / <b>用户管理</b>（建号·改角色·重置密码·暂停恢复）/ 常用税号公司 / 常用银行账号</td><td class="st">管理员</td></tr>
   </table>
   <p style="margin-top:10px;color:var(--sub);font-size:13px">
   角色：<code>employee</code> 普通员工 · <code>finance_staff</code> 财务专员 ·
@@ -280,7 +281,8 @@
     <tr><th>能力</th><th>说明</th></tr>
     <tr><td>全动作审计</td><td>收票、解析、复核、验真、报销、审批、导入、删除…… 含通道（web / mcp / 系统）</td></tr>
     <tr><td><b>结果类别</b></td><td>outcome 归一化（成功 / 已拦截 / 失败 / 异常 / 无成败语义）——对应等保「事件是否成功」要素</td></tr>
-    <tr><td>身份事件分级</td><td>LOGIN 与 LOGIN_FAILED 分别留痕，按类别分区展示</td></tr>
+    <tr><td>身份事件分级</td><td>LOGIN 与 LOGIN_FAILED 分别留痕，按类别分区展示；暂停用户的登录失败带 <code>reason=suspended</code>（避免与"密码错"混淆，能看出有人在撞已停用账号）</td></tr>
+    <tr><td><b>账号安全事件</b></td><td>密码变更/重置、暂停/恢复、角色调整、建号 —— 六类全部留痕并记<b>操作者</b>（重置他人密码时记的是管理员），归入安全审计视图；越权尝试记 <code>blocked</code></td></tr>
     <tr><td>保留期策略</td><td>登录成功行按天清理（默认 90 天，每日 03:17 任务）；失败登录与业务操作长期保留</td></tr>
     <tr><td>删除留快照</td><td>删除报销单单据前写入全字段快照，事后可追溯</td></tr>
     <tr><td>离线部署</td><td>开发模式为 SQLite 单机自持（数据不出内网）；生产目标 PG + 对象存储</td></tr>
