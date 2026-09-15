@@ -22,7 +22,7 @@ from invoicing.models.invoice import Invoice
 from invoicing.models.mailbox import Mailbox
 from invoicing.models.mcp_token import McpToken
 from invoicing.models.receipt import BankReceipt, ReceiptUpload
-from invoicing.models.user import User
+from invoicing.models.user import User, UserStatus
 
 __all__ = [
     "AuditLog",
@@ -46,5 +46,6 @@ __all__ = [
     "ReceiptUpload",
     "Role",
     "User",
+    "UserStatus",
     "VerifyStatus",
 ]

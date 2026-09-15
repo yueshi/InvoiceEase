@@ -1,14 +1,36 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
 from invoicing.audit import write_audit
 from invoicing.db import get_db
-from invoicing.models import User
+from invoicing.models import User, UserStatus
 from invoicing.schemas.auth import LoginRequest, TokenResponse
 from invoicing.schemas.user import UserOut
 from invoicing.security import create_access_token, get_current_user, verify_password
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+class ChangePasswordIn(BaseModel):
+    old_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=1)
+
+
+@router.post("/password")
+def change_password(
+    body: ChangePasswordIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """自助改密（须验旧密码）。管理员重置后强制改密也走这里，改完即解除。"""
+    from invoicing.workflow import users as users_svc
+
+    try:
+        users_svc.change_own_password(db, user, body.old_password, body.new_password)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    return {"ok": True}
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -28,6 +50,15 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         )
         db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户名或密码错误")
+    # 闸门 1：暂停用户登不进来。审计带 reason，避免与"密码错"混在一起
+    # （否则看不出有人在反复尝试登录一个已停用的账号）。
+    if user.status == UserStatus.SUSPENDED.value:
+        write_audit(
+            db, action="LOGIN_FAILED", user_id=user.id, channel="web", ip_address=ip,
+            detail={"username": body.username, "reason": "suspended"},
+        )
+        db.commit()
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "账号已暂停，请联系管理员")
     write_audit(db, action="LOGIN", user_id=user.id, channel="web", ip_address=ip)
     db.commit()
     return TokenResponse(access_token=create_access_token(user), user=user)

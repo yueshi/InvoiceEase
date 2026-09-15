@@ -18,7 +18,7 @@ from mcp.server.auth.provider import AccessToken
 
 from invoicing.config import settings
 from invoicing.db import SessionLocal
-from invoicing.models import McpToken, Role, User
+from invoicing.models import McpToken, Role, User, UserStatus
 from invoicing.models.fields import utcnow
 
 logger = logging.getLogger(__name__)
@@ -61,10 +61,13 @@ class MCPTokenVerifier:
             return None
 
         admin = (
-            db.query(User).filter(User.role == Role.admin.value).order_by(User.id).first()
+            db.query(User)
+            .filter(User.role == Role.admin.value, User.status == UserStatus.ACTIVE.value)
+            .order_by(User.id)
+            .first()
         )
         if admin is None:
-            logger.warning("legacy MCP 令牌已配置但库内无管理员用户，拒绝认证")
+            logger.warning("legacy MCP 令牌已配置但库内无**可用**管理员用户，拒绝认证")
             return None
         from invoicing.mcp.identity import SCOPES
 
@@ -89,6 +92,10 @@ class MCPTokenVerifier:
 
         user = db.get(User, row.user_id)
         if user is None:  # 归属人被删（FK CASCADE 理论上已清）
+            return None
+        # 闸门 3：**暂停立即波及 Agent 通道**——不查这一句，"暂停用户"就是假的：
+        # 人登不进 Web，但他的 MCP 令牌照跑，等于账号没停。
+        if user.status == UserStatus.SUSPENDED.value:
             return None
 
         self._touch(db, row, now)

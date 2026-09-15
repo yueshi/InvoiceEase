@@ -40,7 +40,7 @@ def test_create_user_admin_only(client, db):
     token = _login(client, "root")
     resp = client.post(
         "/api/v1/users",
-        json={"username": "caiwu1", "password": "pass123", "role": "finance_staff"},
+        json={"username": "caiwu1", "password": "pass12345", "role": "finance_staff"},
         headers=_headers(token),
     )
     assert resp.status_code == 200
@@ -52,7 +52,7 @@ def test_create_user_forbidden_for_finance(client, db):
     token = _login(client, "caiwu0")
     resp = client.post(
         "/api/v1/users",
-        json={"username": "x", "password": "pass123", "role": "finance_staff"},
+        json={"username": "x", "password": "pass12345", "role": "finance_staff"},
         headers=_headers(token),
     )
     assert resp.status_code == 403
@@ -71,7 +71,7 @@ def test_create_user_invalid_role_422(client, db):
     token = _login(client, "root")
     resp = client.post(
         "/api/v1/users",
-        json={"username": "bad1", "password": "pass123", "role": "Finance"},
+        json={"username": "bad1", "password": "pass12345", "role": "Finance"},
         headers=_headers(token),
     )
     assert resp.status_code == 422
@@ -82,7 +82,7 @@ def test_update_user_invalid_role_422(client, db):
     token = _login(client, "root")
     resp = client.post(
         "/api/v1/users",
-        json={"username": "caiwu1", "password": "pass123", "role": "finance_staff"},
+        json={"username": "caiwu1", "password": "pass12345", "role": "finance_staff"},
         headers=_headers(token),
     )
     user_id = resp.json()["id"]

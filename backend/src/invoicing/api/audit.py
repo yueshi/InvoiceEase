@@ -11,7 +11,12 @@ from invoicing.security import require_role
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
 
 
-_IDENTITY_ACTIONS = ("LOGIN", "LOGIN_FAILED", "LOGOUT")
+# 身份与账号安全事件：登录成败/登出 + 密码与账号权限变更（谁改了谁的密码/权限/状态）
+_IDENTITY_ACTIONS = (
+    "LOGIN", "LOGIN_FAILED", "LOGOUT",
+    "PASSWORD_CHANGE", "PASSWORD_RESET",
+    "USER_SUSPEND", "USER_RESUME", "USER_ROLE_CHANGE", "USER_CREATE",
+)
 
 
 @router.get("", response_model=AuditListResponse)
@@ -35,7 +40,7 @@ def list_audit_logs(
         # 显式 action 优先（历史回溯不受分类限制）
         q = q.filter(AuditLog.action == action)
     elif category == "security":
-        # 安全审计：仅身份事件（登录成败/登出）
+        # 安全审计：身份与账号安全事件（登录成败/登出/密码与权限变更）
         q = q.filter(AuditLog.action.in_(_IDENTITY_ACTIONS))
     elif category == "all":
         pass
