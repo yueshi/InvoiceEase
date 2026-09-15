@@ -406,9 +406,11 @@ def test_expense_api_other_person_claim_hidden(client, db, users):
 # ---- MCP 工具 -------------------------------------------------------------
 
 
-def test_mcp_expense_tools_full_flow(db, users):
+def test_mcp_expense_tools_full_flow(db, users, mcp_auth):
     """WorkBuddy 对话报销链路：建单 → 批量加票（含失败项）→ 提交 → 审批。"""
     from invoicing.mcp import tools as mt
+
+    mcp_auth(users["admin"])  # 工具层改为从认证上下文取身份，不再隐式用「最小 id 的 admin」
 
     inv1 = _invoice(db, number="24312000000000000021", user_id=None, total_amount=Decimal("120.00"))
     inv2 = _invoice(db, number="24312000000000000022", user_id=None, total_amount=Decimal("80.00"))
@@ -611,8 +613,8 @@ def test_create_claim_with_type_and_entry_inherits(db, users):
         svc.create_claim(db, users["emp"], title="X", claim_type="bad_type")
 
 
-def test_claim_type_filter_and_mcp(db, users):
-    """按单据类型筛选；MCP expense_list 带出单据类型。"""
+def test_claim_type_filter_and_mcp(db, users, mcp_auth):
+    """按单据类型筛选；MCP expense_list 带出单据类型，且**以员工身份只看到自己的单**。"""
     svc.create_claim(db, users["emp"], title="差旅单", claim_type="travel")
     svc.create_claim(db, users["emp"], title="采购单", claim_type="procurement")
 
@@ -621,6 +623,7 @@ def test_claim_type_filter_and_mcp(db, users):
 
     from invoicing.mcp import tools as mt
 
+    mcp_auth(users["emp"])
     rows = mt.expense_list(claim_type="procurement")
     assert any(c["title"] == "采购单" and c["claim_type"] == "procurement" for c in rows)
 

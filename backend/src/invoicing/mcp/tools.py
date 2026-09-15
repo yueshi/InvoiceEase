@@ -18,6 +18,7 @@ from invoicing.models import (
     Role,
     User,
 )
+from invoicing.mcp.identity import requires
 from invoicing.schemas.company_info import CompanyInfoOut, TAX_ID_PATTERN
 from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut
 from invoicing.schemas.mailbox import PollResultOut
@@ -25,9 +26,22 @@ from invoicing.workflow import services
 from invoicing.workers.queue import enqueue_receipt_parse_sync
 
 
-def _mcp_admin_user() -> User:
-    """MCP 静态 token 即管理员通道：合成 admin 用户走 service 层（无租户过滤，MVP 单租户）。"""
-    return User(id=0, username="mcp", password_hash="", role=Role.admin.value)
+def _current_user(db) -> User:
+    """当前 MCP 调用的真实用户（service 层接口要 ORM 对象）。
+
+    Principal 来自 SDK 认证上下文（`@requires` 已保证上下文存在）；
+    这里只做 Principal → User 的落地。**不再合成 admin、不再取"最小 id 的 admin"**
+    ——那正是「MCP 调用全算管理员」的根因。
+    """
+    from invoicing.mcp.identity import current_principal
+
+    principal = current_principal()
+    if principal.user_id is None:
+        raise ValueError("当前令牌未绑定用户，无法执行需要归属的操作")
+    user = db.get(User, principal.user_id)
+    if user is None:
+        raise ValueError(f"令牌归属用户不存在: {principal.user_id}")
+    return user
 
 
 def fetch_invoices(mailbox_id: int | None = None) -> PollResultOut:
@@ -51,6 +65,7 @@ def fetch_invoices(mailbox_id: int | None = None) -> PollResultOut:
     return PollResultOut(**total, active_mailboxes=[mb.username or mb.name for mb in mailboxes])
 
 
+@requires("invoice:read")
 def list_invoices_mcp(
     status: str | None = None,
     date_from: date | None = None,
@@ -63,7 +78,7 @@ def list_invoices_mcp(
     with SessionLocal() as db:
         # 关键字参数：避免签名扩展（如新增 expense_type）导致位置参数错位
         result = services.list_invoices(
-            db, _mcp_admin_user(), status=status, date_from=date_from, date_to=date_to,
+            db, _current_user(db), status=status, date_from=date_from, date_to=date_to,
             keyword=keyword, expense_type=expense_type, page=page, page_size=page_size,
         )
     # MCP 返回需 pydantic 模型（REST 由 response_model 转换，MCP 无此层）
@@ -71,10 +86,12 @@ def list_invoices_mcp(
     return result
 
 
+@requires("invoice:read")
 def get_invoice_mcp(invoice_id: int) -> InvoiceOut:
     with SessionLocal() as db:
         try:
-            inv = services.get_invoice(db, _mcp_admin_user(), invoice_id)
+            # get_invoice 走 _scope_query：员工查他人发票得 404（数据范围隔离生效点）
+            inv = services.get_invoice(db, _current_user(db), invoice_id)
         except HTTPException as e:
             # service 层 404 泄漏到 MCP 层，映射为协议友好的错误信息
             raise ValueError(f"发票不存在或无权访问: {invoice_id}") from e
@@ -258,36 +275,21 @@ def _money(v) -> str | None:
     return f"{v:.2f}" if v is not None else None
 
 
-def _mcp_real_user(db) -> User:
-    """MCP 静态 token = 管理员通道，但**报销需要真实归属人**：
-
-    合成用户 id=0 会违反外键（expense_claims.applicant_id → users.id，PRAGMA
-    foreign_keys=ON）。解析库内真实管理员（按 id 最小），审计与归属都更可追溯。
-    """
-    from invoicing.models import Role
-
-    user = (
-        db.query(User)
-        .filter(User.role == Role.admin.value)
-        .order_by(User.id)
-        .first()
-    )
-    return user or _mcp_admin_user()
-
-
+@requires("expense:write")
 def expense_create(title: str, remark: str | None = None, claim_type: str | None = None) -> dict:
     """创建报销单（草稿）：claim_type 选择单据类型（travel 差旅/procurement 采购/
     entertainment 招待/office 办公/welfare 福利/other 其他），事项默认继承该类型。"""
     from invoicing.workflow import expenses as svc
 
     with SessionLocal() as db:
-        claim = svc.create_claim(db, _mcp_real_user(db), title, remark, claim_type)
+        claim = svc.create_claim(db, _current_user(db), title, remark, claim_type)
         return {
             "id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
             "title": claim.title, "claim_type": claim.claim_type,
         }
 
 
+@requires("expense:write")
 def expense_add_entry(claim_id: int, entry_type: str, title: str,
                       occurred_on: str | None = None, scene_fields: dict | None = None,
                       note: str | None = None) -> dict:
@@ -308,7 +310,7 @@ def expense_add_entry(claim_id: int, entry_type: str, title: str,
     occurred = _date.fromisoformat(occurred_on) if occurred_on else None
     with SessionLocal() as db:
         entry = svc.create_entry(
-            db, _mcp_real_user(db), claim_id, entry_type, title, occurred, scene_fields, note
+            db, _current_user(db), claim_id, entry_type, title, occurred, scene_fields, note
         )
         return {
             "entry_id": entry.id, "claim_id": entry.claim_id, "entry_type": entry.entry_type,
@@ -316,6 +318,7 @@ def expense_add_entry(claim_id: int, entry_type: str, title: str,
         }
 
 
+@requires("expense:write")
 def expense_add_invoices(claim_id: int, entry_id: int, invoice_numbers: list[str],
                          expense_type: str = "other", note: str | None = None) -> dict:
     """按发票号码批量加入报销单（自动校验：一票一报/已验真/未拦截/归属范围）。
@@ -327,7 +330,7 @@ def expense_add_invoices(claim_id: int, entry_id: int, invoice_numbers: list[str
 
     results = []
     with SessionLocal() as db:
-        user = _mcp_real_user(db)
+        user = _current_user(db)
         for number in invoice_numbers:
             inv = db.query(Invoice).filter(Invoice.invoice_number == number).first()
             if inv is None:
@@ -348,22 +351,24 @@ def expense_add_invoices(claim_id: int, entry_id: int, invoice_numbers: list[str
         }
 
 
+@requires("expense:write")
 def expense_submit(claim_id: int) -> dict:
     """提交报销单进入审批（需已有明细）。"""
     from invoicing.workflow import expenses as svc
 
     with SessionLocal() as db:
-        claim = svc.submit_claim(db, _mcp_real_user(db), claim_id)
+        claim = svc.submit_claim(db, _current_user(db), claim_id)
         return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
                 "total_amount": _money(claim.total_amount)}
 
 
+@requires("expense:read")
 def expense_list(status: str | None = None, claim_type: str | None = None) -> list[dict]:
     """报销单列表（可按状态与单据类型过滤）。"""
     from invoicing.workflow import expenses as svc
 
     with SessionLocal() as db:
-        rows = svc.list_claims(db, _mcp_real_user(db), status, claim_type)
+        rows = svc.list_claims(db, _current_user(db), status, claim_type)
         return [
             {
                 "id": c.id, "claim_no": c.claim_no, "title": c.title,
@@ -382,12 +387,13 @@ def expense_list(status: str | None = None, claim_type: str | None = None) -> li
         ]
 
 
+@requires("expense:approve")
 def expense_approve(claim_id: int, action: str = "approve", reason: str | None = None) -> dict:
     """审批报销单：action=approve/reject（reject 必填 reason）。财务通道。"""
     from invoicing.workflow import expenses as svc
 
     with SessionLocal() as db:
-        user = _mcp_real_user(db)
+        user = _current_user(db)
         if action == "approve":
             claim = svc.approve_claim(db, user, claim_id)
         elif action == "reject":
@@ -398,12 +404,13 @@ def expense_approve(claim_id: int, action: str = "approve", reason: str | None =
                 "rejected_reason": claim.rejected_reason}
 
 
+@requires("expense:read")
 def expense_eligible_invoices(limit: int = 50) -> list[dict]:
     """可报销发票池（已验真、未拦截、未占用），供 Agent 建单选票。"""
     from invoicing.workflow import expenses as svc
 
     with SessionLocal() as db:
-        rows = svc.eligible_invoices(db, _mcp_real_user(db))[:limit]
+        rows = svc.eligible_invoices(db, _current_user(db))[:limit]
         return [
             {
                 "id": i.id, "invoice_number": i.invoice_number,
@@ -634,6 +641,7 @@ def invoice_ai_review(invoice_id: int) -> InvoiceOut:
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
+@requires("sales:write")
 def sales_invoice_import(file_path: str) -> dict:
     """导入已开票（销项，文件解析）：XML/OFD/PDF → 入库为销项票，红票自动关联原蓝票。"""
     from pathlib import Path
@@ -644,10 +652,11 @@ def sales_invoice_import(file_path: str) -> dict:
     path = Path(file_path)
     data = _read_file(file_path)
     with SessionLocal() as db:
-        results = sales_svc.import_sales_files(db, _mcp_real_user(db), [(path.name, data)])
+        results = sales_svc.import_sales_files(db, _current_user(db), [(path.name, data)])
         return results[0]
 
 
+@requires("sales:write")
 def sales_invoice_import_list(file_path: str) -> dict:
     """导入已开票（清单批量）：开票系统导出的 CSV/Excel；含"原发票号码"列则自动关联红票。"""
     from pathlib import Path
@@ -658,7 +667,7 @@ def sales_invoice_import_list(file_path: str) -> dict:
     path = Path(file_path)
     data = _read_file(file_path)
     with SessionLocal() as db:
-        return sales_svc.import_sales_list(db, _mcp_real_user(db), data, path.name)
+        return sales_svc.import_sales_list(db, _current_user(db), data, path.name)
 
 
 def red_invoice_list() -> list[dict]:
@@ -674,12 +683,13 @@ def red_invoice_list() -> list[dict]:
         ]
 
 
+@requires("sales:write")
 def red_invoice_link(red_invoice_id: int, original_invoice_id: int) -> dict:
     """人工补关联：把红字票挂到原蓝票。"""
     from invoicing.workflow import sales as sales_svc
 
     with SessionLocal() as db:
-        inv = sales_svc.link_red_invoice(db, _mcp_real_user(db), red_invoice_id, original_invoice_id)
+        inv = sales_svc.link_red_invoice(db, _current_user(db), red_invoice_id, original_invoice_id)
         return {"ok": True, "invoice_id": inv.id, "original_invoice_id": inv.original_invoice_id}
 
 

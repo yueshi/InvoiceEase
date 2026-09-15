@@ -32,3 +32,36 @@ def db(engine):
     session = SessionLocal()
     yield session
     session.close()
+
+
+@pytest.fixture()
+def mcp_auth():
+    """注入 MCP 认证上下文 —— 测试里替代生产的 AuthContextMiddleware。
+
+    直接调 `mcp_tools.*` 的测试需要它：工具层 `@requires(...)` 会读上下文，
+    没有上下文会抛 NoPrincipalError（**故意如此**，静默降级为管理员正是要修的缺陷）。
+
+    用法：`mcp_auth(users["admin"])` 或 `mcp_auth(user, scopes=("invoice:read",))`
+    """
+    from mcp.server.auth.middleware.auth_context import auth_context_var
+    from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+    from mcp.server.auth.provider import AccessToken
+
+    from invoicing.mcp.identity import ROLE_DEFAULT_SCOPES
+
+    tokens = []
+
+    def _set(user, scopes=None, source="token", token_id=None):
+        effective = tuple(scopes) if scopes is not None else ROLE_DEFAULT_SCOPES.get(user.role, ())
+        tok = AccessToken(
+            token="test-token", client_id="test-client", scopes=list(effective),
+            subject=str(user.id),
+            claims={"username": user.username, "role": user.role, "tenant_id": "default",
+                    "source": source, "token_id": token_id, "iss": "test"},
+        )
+        tokens.append(auth_context_var.set(AuthenticatedUser(tok)))
+        return user
+
+    yield _set
+    for t in reversed(tokens):
+        auth_context_var.reset(t)
