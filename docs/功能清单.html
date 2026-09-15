@@ -215,7 +215,8 @@
 <div class="card">
   <table>
     <tr><th>能力</th><th>说明</th><th class="st">状态</th></tr>
-    <tr><td>MCP Server</td><td>Streamable HTTP，挂载于 <code>/mcp</code>，Bearer Token 鉴权</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td>MCP Server</td><td>Streamable HTTP，挂载于 <code>/mcp</code>；认证由 MCP SDK 内置栈承担（<code>TokenVerifier</code> → 401 invalid_token / 403 insufficient_scope + <code>WWW-Authenticate</code>，符合规范）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>身份与权限（一人一令牌）</b></td><td>Agent 调用以<b>令牌归属人</b>的身份执行：员工只看得到自己的发票与报销单，财务看全公司（FRD §380）；13 个 <b>scope</b> 覆盖 36 个工具，按角色预设；令牌可签发/撤销/设有效期，撤销即时生效；审计记到人（user_id + 令牌 + 租户）</td><td class="st"><span class="tag green">已上线</span></td></tr>
     <tr><td><b>服务目录</b></td><td>MCP <code>tools/list</code> 即服务目录；每个工具描述写明<b>适用与不适用</b>（如发票工具明确「银行回单请改用 receipt_ingest」）</td><td class="st"><span class="tag green">已上线</span></td></tr>
     <tr><td>长任务异步模式</td><td>回单入库立即返回批次号，后台解析，<code>receipt_parse_status</code> 轮询进度</td><td class="st"><span class="tag green">已上线</span></td></tr>
     <tr><td>幂等与防重</td><td>文件 SHA256 唯一（重复 409 + 明确文案）；发票号唯一键兜底</td><td class="st"><span class="tag green">已上线</span></td></tr>
@@ -247,6 +248,7 @@
     <tr><td>银行回单</td><td><code>/receipts</code></td><td>上传（异步批次）、周期过滤、只看无票/待核对、原件与页面定位高亮、自动配对、凭证草稿导出</td><td class="st">财务 / 管理员</td></tr>
     <tr><td>异步任务</td><td><code>/tasks</code></td><td>批量解析批次状态与进度</td><td class="st">财务 / 管理员</td></tr>
     <tr><td>我的报销</td><td><code>/expenses</code></td><td>建单（选类型）→ 建事项（差旅子类动态表单）→ 选票/录无票凭证 → 提交；财务审批同页</td><td class="st">全部（审批仅财务）</td></tr>
+    <tr><td><b>我的令牌</b></td><td><code>/mcp-tokens</code></td><td>自助签发 Agent 令牌（明文一次性展示 + 一键复制）、列表（状态/有效期/最后使用）、撤销；管理员可代发并查看全部</td><td class="st">全部（全局视图仅管理员）</td></tr>
     <tr><td>审计日志</td><td><code>/audit</code></td><td>业务操作 / 安全事件分区，含结果类别与详情快照</td><td class="st">管理员</td></tr>
     <tr><td>系统配置</td><td><code>/settings</code></td><td>邮箱配置 / 用户管理 / 常用税号公司 / 常用银行账号</td><td class="st">管理员</td></tr>
   </table>
