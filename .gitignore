@@ -83,3 +83,4 @@ data/
 # Claude Code worktrees
 .claude/
 *.db
+.superpowers/

@@ -18,14 +18,7 @@ const form = reactive({ old_password: "", new_password: "", confirm: "" });
 const loading = ref(false);
 
 async function onSubmit() {
-  if (!form.old_password) {
-    message.warning("请输入原密码");
-    return;
-  }
-  if (form.new_password.length < 8) {
-    message.warning("新密码至少 8 位");
-    return;
-  }
+  // 两次输入一致性只能前端查（后端无 confirm 字段）；其余交给 service 层抛中文错。
   if (form.new_password !== form.confirm) {
     message.warning("两次输入的新密码不一致");
     return;

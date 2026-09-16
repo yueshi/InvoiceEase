@@ -31,12 +31,14 @@ class ResetPasswordOut(BaseModel):
 
 
 def _run(fn, *args, **kwargs):
-    """service 层 ValueError → HTTP；保持 API 层薄。"""
+    """service 层 ValueError → 422；保持 API 层薄。
+    注意：admin 调用这些接口时 user_id 来自列表，「用户不存在」属编程错误路径，
+    422 反而更对（客户端不该 retry）；原先用「不存在」字符串判 404 太脆弱。
+    """
     try:
         return fn(*args, **kwargs)
     except ValueError as e:
-        msg = str(e)
-        raise HTTPException(404 if "不存在" in msg else 422, msg) from None
+        raise HTTPException(422, str(e)) from None
 
 
 @router.get("", response_model=list[UserOut])

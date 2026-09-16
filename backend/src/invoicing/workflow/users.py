@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from invoicing.audit import write_audit
 from invoicing.models import McpToken, Role, User, UserStatus
+from invoicing.models.fields import utcnow
 from invoicing.security import hash_password, verify_password
 
 logger = logging.getLogger(__name__)
@@ -82,8 +83,6 @@ def _denied(db: Session, actor: User, action: str, reason: str, **extra) -> None
 
 def active_token_count(db: Session, user_id: int) -> int:
     """该用户未撤销、未过期的令牌数（UI 用于提示"降级后旧令牌仍带旧 scope"）。"""
-    from invoicing.models.fields import utcnow
-
     now = utcnow()
     return (
         db.query(func.count(McpToken.id))

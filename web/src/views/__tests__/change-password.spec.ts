@@ -47,11 +47,15 @@ function fillInputs(wrapper: ReturnType<typeof mount> extends never ? never : an
 }
 
 describe("ChangePasswordView", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
     // pinia 必须在 useAuthStore() 之前激活（setUser 会用它）
     pinia = createPinia();
     setActivePinia(pinia);
+    // 重置 mock 状态：避免上一例的调用记到本例
+    const api = await import("../../api/auth");
+    (api.changeOwnPassword as ReturnType<typeof vi.fn>).mockReset();
+    (api.changeOwnPassword as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
   });
 
   it("自愿改密：不显示强制提示，有取消按钮", async () => {
@@ -73,7 +77,9 @@ describe("ChangePasswordView", () => {
     expect(buttonTexts(wrapper)).not.toContain("取消");
   }, 20000);
 
-  it("新密码不足 8 位 → 不发请求", async () => {
+  it("新密码不足 8 位 → 仍发请求，由后端中文错拦截", async () => {
+    // 长度校验统一交给 service 层（workflow.users._validate_password 抛「密码至少 8 位」），
+    // errorText 渲染；前端不再挡，简化 UI 校验。
     setUser(false);
     const wrapper = await mountWithAntd();
     await flushPromises();
@@ -85,10 +91,10 @@ describe("ChangePasswordView", () => {
     await flushPromises();
 
     const api = await import("../../api/auth");
-    expect(api.changeOwnPassword).not.toHaveBeenCalled();
+    expect(api.changeOwnPassword).toHaveBeenCalledWith("oldpass123", "short");
   }, 20000);
 
-  it("两次输入不一致 → 不发请求", async () => {
+  it("两次输入不一致 → 不发请求（前端 UI-only 检查）", async () => {
     setUser(false);
     const wrapper = await mountWithAntd();
     await flushPromises();

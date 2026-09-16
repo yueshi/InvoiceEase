@@ -42,8 +42,9 @@ def decode_token(token: str) -> dict:
     return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
 
 
-# 强制改密时仍可访问的路径（否则用户无法完成改密，把自己锁死）
-_PASSWORD_CHANGE_ALLOWLIST = ("/api/v1/auth/password", "/api/v1/auth/me", "/api/v1/auth/logout")
+# 强制改密时仍可访问的 endpoint 在自己身上打标（`func.allow_during_must_change = True`），
+# 路径改名也不会失效；缺省默认拦（默认拦是刻意的——将来新增接口不会漏网）。
+_ALLOW_DURING_MUST_CHANGE_ATTR = "allow_during_must_change"
 
 
 def get_current_user(
@@ -63,12 +64,13 @@ def get_current_user(
     # 闸门 2/3：暂停立即生效——不等 JWT 过期（否则"暂停"最长 8 小时才起作用）
     if user.status == UserStatus.SUSPENDED.value:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "账号已暂停，请联系管理员")
-    # 闸门 3：强制改密时**默认全拦**、白名单放行。
-    # 默认拦截是刻意的——将来新增接口不会漏网（放行清单短且显式）。
-    if user.must_change_password and request.url.path not in _PASSWORD_CHANGE_ALLOWLIST:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "请先修改密码（管理员已重置你的密码）"
-        )
+    # 闸门 3：强制改密时默认拦、endpoint 自己声明放行
+    if user.must_change_password:
+        endpoint = getattr(request.scope.get("route"), "endpoint", None)
+        if not getattr(endpoint, _ALLOW_DURING_MUST_CHANGE_ATTR, False):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "请先修改密码（管理员已重置你的密码）"
+            )
     return user
 
 

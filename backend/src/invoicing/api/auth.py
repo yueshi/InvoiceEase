@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from invoicing.audit import write_audit
 from invoicing.db import get_db
@@ -7,14 +7,15 @@ from invoicing.models import User, UserStatus
 from invoicing.schemas.auth import LoginRequest, TokenResponse
 from invoicing.schemas.user import UserOut
 from invoicing.security import create_access_token, get_current_user, verify_password
+from invoicing.workflow import users as users_svc
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 class ChangePasswordIn(BaseModel):
-    old_password: str = Field(min_length=1)
-    new_password: str = Field(min_length=1)
+    old_password: str
+    new_password: str
 
 
 @router.post("/password")
@@ -24,13 +25,17 @@ def change_password(
     db: Session = Depends(get_db),
 ):
     """自助改密（须验旧密码）。管理员重置后强制改密也走这里，改完即解除。"""
-    from invoicing.workflow import users as users_svc
-
     try:
         users_svc.change_own_password(db, user, body.old_password, body.new_password)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     return {"ok": True}
+
+
+# 强制改密期间必须能访问（否则用户无法完成改密，把自己锁死）。
+# 标在 endpoint 函数本身——路径改名不会失效；get_current_user 通过 route.endpoint
+# 反查这个标记。
+change_password.allow_during_must_change = True
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -71,6 +76,13 @@ def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db)
     return {"ok": True}
 
 
+# /me 也得放行：路由守卫读 user.must_change_password 就要拉一次 me
+logout.allow_during_must_change = True
+
+
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+me.allow_during_must_change = True

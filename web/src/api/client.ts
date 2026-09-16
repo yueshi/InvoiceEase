@@ -40,45 +40,32 @@ export async function downloadFile(path: string, filename: string): Promise<void
 
 /**
  * FastAPI 的 `detail` 有**两种**形态，必须都认：
- * - 字符串：业务错误（我们自己 raise HTTPException(422, "密码至少 8 位")）
- * - **数组**：pydantic schema 校验错误，元素形如 `{loc: ["body","new_password"], msg: "..."}`
+ * - 字符串：业务错误（HTTPException(422, "密码至少 8 位")）
+ * - **数组**：pydantic 校验错误，元素形如 `{loc: ["body","new_password"], msg: "..."}`
  *
- * 只按字符串处理时，数组会被 `message.error` 渲染成 `[object Object]`
- * （真实 bug 已复现：管理员重置密码时手动填了过短的密码）。
+ * 只按字符串处理时，数组会被 `message.error` 渲染成 `[object Object]`（已复现）。
  * 顺带处理空数组——`[] || fallback` 走真值分支会弹出**空消息**（同类历史 bug）。
  */
 function normalizeDetail(detail: unknown): string | null {
   if (typeof detail === "string") return detail.trim() || null;
-
   if (Array.isArray(detail)) {
     const parts = detail
       .map((item) => {
         if (typeof item === "string") return item;
-        if (!item || typeof item !== "object") return "";
         const { loc, msg } = item as { loc?: unknown; msg?: unknown };
-        // loc 形如 ["body", "new_password"]：去掉 "body" 前缀，只留字段名
-        const field = Array.isArray(loc)
-          ? loc.filter((p) => p !== "body").join(".")
-          : "";
+        const field = Array.isArray(loc) ? loc.filter((p) => p !== "body").join(".") : "";
         const text = typeof msg === "string" ? msg : "";
-        return field && text ? `${field}: ${text}` : text || field;
+        return [field, text].filter(Boolean).join(": ");
       })
       .filter(Boolean);
     return parts.length ? parts.join("；") : null;
-  }
-
-  if (detail && typeof detail === "object") {
-    return JSON.stringify(detail); // 兜底：总比 [object Object] 强
   }
   return null;
 }
 
 /**
- * 从异常里取出**可读**错误文本（不弹提示）。
- *
- * 供两类调用处使用：`errorMessage`（直接弹），以及需要自行汇总多条结果的场景
- * （批量加入发票时逐条收集失败原因）——后者若各自手写 `response.data.detail`，
- * 就会漏掉数组形态的处理，再次踩出 `[object Object]`。
+ * 从异常里取出可读错误文本（不弹提示）——供需自行汇总多条结果的场景用
+ * （如 ExpensesView 批量加发票时逐条收集失败原因，避免双重弹窗）。
  */
 export function errorText(e: unknown, fallback = "请求失败"): string {
   const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
