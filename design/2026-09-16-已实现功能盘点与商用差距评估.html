@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · 已实现功能盘点与商用差距评估</title>
+<style>
+  :root {
+    --ink: #1f2937; --sub: #6b7280; --line: #e5e7eb;
+    --blue: #2563eb; --blue-bg: #eff6ff; --green: #059669; --green-bg: #ecfdf5;
+    --amber: #d97706; --amber-bg: #fffbeb; --red: #dc2626; --red-bg: #fef2f2;
+    --card-bg: #ffffff; --page-bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--page-bg); color: var(--ink); line-height: 1.65; padding: 32px 16px 64px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff;
+           border-radius: 14px; padding: 32px 36px; margin-bottom: 24px; }
+  header h1 { font-size: 26px; font-weight: 700; }
+  header .meta { margin-top: 10px; font-size: 13px; opacity: .92; }
+  header .meta span { display: inline-block; background: rgba(255,255,255,.18);
+                      border-radius: 999px; padding: 2px 12px; margin-right: 8px; margin-top: 6px; }
+  h2 { font-size: 19px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid var(--blue); }
+  h3 { font-size: 15.5px; margin: 18px 0 8px; color: #111827; }
+  h4 { font-size: 14px; margin: 14px 0 6px; color: #111827; font-weight: 600; }
+  .card { background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 24px; margin-bottom: 16px; }
+  .card ul, .card ol { padding-left: 22px; font-size: 13.5px; }
+  .card ul li, .card ol li { margin: 5px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; white-space: nowrap; }
+  code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-size: 12.5px;
+         font-family: "SF Mono", Menlo, monospace; color: #111827; }
+  pre { background: #f3f4f6; border: 1px solid var(--line); border-radius: 10px;
+        padding: 14px 18px; font-size: 12.5px; font-family: "SF Mono", Menlo, monospace;
+        overflow-x: auto; line-height: 1.7; white-space: pre; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tag.blue { background: var(--blue-bg); color: var(--blue); }
+  .tag.green { background: var(--green-bg); color: var(--green); }
+  .tag.amber { background: var(--amber-bg); color: var(--amber); }
+  .tag.red { background: var(--red-bg); color: var(--red); }
+  .tag.gray { background: #f3f4f6; color: var(--sub); }
+  .note { background: var(--blue-bg); border-left: 3px solid var(--blue); border-radius: 8px;
+          padding: 12px 16px; font-size: 13.5px; margin: 12px 0; }
+  .warn { background: var(--amber-bg); border-left: 3px solid var(--amber); }
+  .danger { background: var(--red-bg); border-left: 3px solid var(--red); }
+  .ok { background: var(--green-bg); border-left: 3px solid var(--green); }
+  .toc { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .toc a { display: inline-block; background: var(--card-bg); border: 1px solid var(--line);
+           border-radius: 999px; padding: 3px 14px; font-size: 12.5px; color: var(--ink);
+           text-decoration: none; }
+  .toc a:hover { border-color: var(--blue); color: var(--blue); }
+  footer { margin-top: 40px; text-align: center; color: var(--sub); font-size: 12.5px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 · 已实现功能盘点与商用差距评估</h1>
+  <div class="meta">
+    <span>V1.0 · 2026-09-16</span>
+    <span>性质：现状盘点 + 忠实差距评估（非规划稿）</span>
+    <span>实测基线：后端 493 passed / 前端 39 passed</span>
+    <span>完整文档：design/2026-09-16-已实现功能盘点与商用差距评估.md</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#s1">一 结论</a><a href="#s2">二 已实现功能</a><a href="#s3">三 差距清单</a>
+  <a href="#s4">四 目标解析架构</a><a href="#s5">五 真实水位</a>
+  <a href="#s6">六 上线路径</a><a href="#app">附</a>
+</nav>
+
+<h2 id="s1">一、一句话结论</h2>
+<div class="card">
+  <p style="font-size:14px"><b>发票易当前是一个功能面超预期、工程纪律良好的「单租户内网 MVP」</b>：采集/解析/查重/复核/报销/回单/报表/MCP Agent 全链路真实可用，测试密度高（493+39）；但它<b>离商用之间隔着五类硬差距</b>——验真仍是模拟（合规硬约束）、生产部署形态不存在、多租户是空架子、安全基线未达标、若干外部依赖未落地。</p>
+  <p style="margin-top:10px; font-size:13.5px">按目标口径分级：</p>
+  <table style="margin-top:8px">
+    <tr><th>商用口径</th><th>距离</th></tr>
+    <tr><td>内部试点 / PoC（单企业、有人值守）</td><td><span class="tag green">基本就绪</span>。差 OCR 部署、真机验收、运维兜底</td></tr>
+    <tr><td>单企业私有化商用</td><td><span class="tag amber">差一个生产化里程碑</span>：部署物 + 安全基线 + 验真合规口径</td></tr>
+    <tr><td>多租户 SaaS</td><td><span class="tag red">架构级差距</span>：tenant_id 仅是摆设，隔离无强制，改造量大</td></tr>
+  </table>
+</div>
+
+<h2 id="s2">二、已实现功能清单（按能力域，含实现细节）</h2>
+
+<div class="card">
+  <h3>A. 发票采集与归档（已上线）</h3>
+  <ul>
+    <li><b>双通道邮箱收取</b>：IMAP（<code>imaplib</code>，UID 游标 + <code>\Seen</code> 标记，<code>fetch/imap.py</code>）与 Agently CLI（子进程调用，<code>created_at</code> 游标，限流 10 次/分、200 次/时、单轮 8 封，<code>fetch/agently.py</code>）。调度器每 60s 检查各邮箱 <code>poll_interval_seconds</code>（<code>scheduler.py:65</code>）。</li>
+    <li><b>附件合规过滤</b>：PDF/OFD/XML/ZIP（递归取内层原件）→ 收；图片 → 拒收并向发件人回提示邮件（SMTP 或 agently <code>+reply</code>，<code>fetch/filters.py</code>、<code>fetch/reply.py</code>）。</li>
+    <li><b>防重复收取</b>：<code>(email_message_id, file_url)</code> 复合唯一索引兜底（<code>models/invoice.py:37-44</code>），撞索引记 <code>duplicate_email</code> 审计。</li>
+    <li><b>员工交票上传</b>：仅 PDF/OFD/XML，图片 422 引导走邮箱（<code>api/invoices.py:48-56</code>）。</li>
+    <li><b>销项导入</b>：已开票文件导入（红票自动关联蓝票）+ 开票清单 CSV/Excel 批量导入（<code>api/invoices.py:59-84</code>）。</li>
+    <li><b>原件归档</b>：本地存储 <code>data/originals/tenant-default/...</code>；XML 原件必存（财会〔2025〕9 号）；S3/MinIO 存储类已实现（含 presigned_url）但未启用、零测试（<code>storage.py:56-93</code>）。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>B. 发票解析 · 分级路由（已上线）</h3>
+  <ul>
+    <li>策略链 <code>CHAINS</code>（<code>parse/pipeline.py:228-233</code>）：XML 直解（置信度 1.0）→ OFD/PDF 内嵌 XBRL 提取 → OFD 文本 / PDF 文本（pypdf）→ OCR（PaddleOCR，<b>未部署</b>，未装时该环节返回 None）→ VLM 多模态兜底。</li>
+    <li><b>LLM 引擎</b>：OpenAI 兼容端点双通道（文本结构化 + VLM 看图），进程内缓存；默认关，当前 <code>.env</code> 已启用（DeepSeek 文本通道，VLM 留空 = 图像兜底禁用）。</li>
+    <li><b>OFD 全自研</b>：纯 Pillow 矢量渲染（贝塞尔采样 + even-odd 填充，<code>ofd_render.py</code>）+ 坐标排序文本提取，摆脱了 cairocffi 系统依赖。</li>
+    <li><b>校验</b>：价税合计 = 不含税 + 税额、大小写金额一致、纠错字典 + 购买方抬头比对（BUYER_MISMATCH）；置信度 &lt; 0.8 或关键字段缺失 → 人工复核。</li>
+    <li><b>红字发票识别</b>：关键词标记 + 转 <code>pending_review</code>，不自动对冲（<code>parse/red_flag.py</code>、<code>workers/tasks.py:130-140</code>）。</li>
+    <li><b>费用归类</b>：规则关键词优先（福利&gt;差旅&gt;招待&gt;办公），LLM 兜底，再兜底 <code>other</code>。</li>
+    <li><b>XML 数字签名验签</b>：signxml 按签名内嵌 X509 做完整性校验（<code>xml_parser.py:14-50</code>）；<b>税务 CA 链验证未实现</b>（注释明言待国税资质后补）。</li>
+    <li><b>无外部服务时的降级是诚实的</b>：OCR/LLM 缺失 → 降级到人工复核，不产假数据（<code>_parse_chain_armed</code> 保证非发票不误杀）。</li>
+  </ul>
+  <div class="note warn" style="margin-top:14px">
+    <b>架构债</b>：LLM 文本通道当前是「直接落库」而非「建议后由规则闸门决策」——见 <a href="#s4">§四 目标解析架构</a> G1 缺口。
+  </div>
+</div>
+
+<div class="card">
+  <h3>C. 验真与查重 ⚠️ 一半是模拟</h3>
+  <ul>
+    <li><b>验真 = MockVerifyProvider，无真实国税 API 代码路径</b>（<code>verify/provider.py:19-22</code> 实证复核）。按发票号码前缀规则返回 passed/failed/error（<code>verify/mock.py:8-28</code>）。模拟状态在三处主动披露：API 字段 <code>verify_is_mock</code>（<code>schemas/invoice.py:70-73</code>）、前端「模拟模式」橙色 tag（<code>InvoiceDetailDrawer.vue:71</code>）、月度健康报告正文声明（<code>reports.py:260</code>）。</li>
+    <li><b>查重是真实的</b>：<code>(tenant_id, coalesce(code,''), number)</code> 应用层查重 + DB 部分唯一索引双保险（<code>verify/dedup.py</code>、<code>models/invoice.py:28-35</code>），解析落库与验真两个环节拦截，重复票物理删除留审计。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>D. 状态机与人工复核（已上线）</h3>
+  <ul>
+    <li>12 态状态机（<code>workflow/state.py</code>）；复核 approve/reject、字段纠错后三态重校验 + 自动重验、拦截票人工放行（unblock）。</li>
+    <li><b>AI 复核预判</b>（<code>parse/ai_review.py</code>）：四层判定（规则硬拦截 → OCR 置信度 → 规则通过 → LLM 边缘判断）；自动通过方向可配阈值（默认 0.0 = 观察期全人工），<b>拦截方向永不自动</b>；改判埋点 + 信任统计接口 <code>/stats/trust</code>。</li>
+    <li>后台班表每 60s 为待复核票补生成预判（每批 ≤10）。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>E. 银行回单（P0 已上线，P1 部分待办）</h3>
+  <ul>
+    <li>批量上传（file_hash 唯一防重、异步批次解析、REST/MCP 双通道进度轮询）。</li>
+    <li>多银行模板 <code>parse/bank_templates.py</code>：<b>建行最完整、工行部分、农行/招行/中行仅识别骨架</b>（字段标签待真实样本沉淀）。</li>
+    <li>字段级校验 <code>validate_fields</code> 已接入主链路（日期越界/金额非正/户名疑似账号 → quality_issues + 待核对）。</li>
+    <li>原件定位：页码 + bbox 锚点 → 后端渲染 PNG，前端高亮层（y 翻转换算），失败降级 PDF <code>#page=N</code>。</li>
+    <li><b>自动配对</b>：金额相等 + 户名规范化互相包含 + 方向感知（收/付/红票退款三场景）。</li>
+    <li>凭证草稿 CSV（金蝶/用友列）、周期外提示、无票支出（未配对回单）清单。</li>
+    <li><b>已知未解（项目自证）</b>：整页版面重排四轮启发式全部产生跨回单污染、已证伪禁做；替代方案「局部版面查询」<b>尚未实现</b>（<code>receipt.py:469-473</code> 仅留方向注释）。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>F. 报销（已上线，入口有缺口）</h3>
+  <ul>
+    <li>三层结构：报销单 → 事项（entry）→ 凭证项（item）；差旅子类动态场景字段；伙食补助按天数自动计算生成凭证。</li>
+    <li><b>一票一报</b>：应用层校验 + 部分唯一索引双保险（<code>expense.py:124-138</code>）；仅 <code>verify_status=passed</code> 的发票可报销。</li>
+    <li><b>无票支出合规</b>：银行回单/缴款书/人工凭证三通道，按 28 号公告判税前扣除资格、小额零星 500 元阈值；差旅补助日标准 100 元。</li>
+    <li>审批流：提交/通过/驳回（带理由）/撤回/删除，财务角色审批。</li>
+    <li><b>缺口</b>：无票支出的手工录入入口未做（后端与合规校验就绪，Web/MCP 无界面）；证据挂载只能加发票，回单/人工凭证无界面。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>G. MCP Server（36 工具 / 13 scope，已上线）</h3>
+  <ul>
+    <li>streamable HTTP 挂 <code>/mcp</code>（SDK 2.0），36 个工具覆盖收取/识别/入库/列表/详情/纠错/归类/预判/报销全流程/回单/销项红字/报表/健康报告。</li>
+    <li><b>身份与权限（2026-09-15 完成）</b>：per-user 令牌（仅存 sha256、明文一次展示、默认 90 天、撤销即时生效、用户暂停即失效）、13 scope × 4 角色预设、工具级 <code>@requires()</code> 装饰器 + service 层数据范围双控、审计带令牌主体。</li>
+    <li>legacy 全局令牌（<code>INVOICING_MCP_TOKEN</code>）兼容通道仍开放（映射最小 id 的 admin）。</li>
+    <li>WorkBuddy 侧 SKILL 手册（含「验真模拟声明」SOP）+ 定时自动化双轨已在真机初步验证。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>H. Web 管理后台（10 页面，已上线）</h3>
+  <ul>
+    <li>工作台（统计 + 信任卡片 + 复制抬头）、发票列表（筛选/分页/周期/上传/销项导入/红字关联/复核/归类/Excel 导出）、回单页（上传/轮询/配对/定位/导出）、报销页（全流程 + 补助预览）、异步任务页、MCP 令牌管理、审计（业务/安全双 tab）、设置（邮箱/用户/税号/银行账号四 tab）、改密页、登录页。</li>
+    <li>无 mock 数据，全部接真实 API；错误处理有 FastAPI detail 双形态归一。</li>
+    <li>无路由级角色守卫的页面靠菜单收敛（发票/回单/报销页财务专属操作在页面内按角色隐藏）；前端无 playwright e2e（装了依赖没写用例）。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>I. 账号与权限（2026-09-15 完成增强）</h3>
+  <ul>
+    <li>4 角色 RBAC（employee/finance_staff/finance_manager/admin），JWT（HS256，8h）、bcrypt(12)。</li>
+    <li>强制改密：置位后全 API 拦截（白名单三路径）+ 前端路由守卫，浏览器实测无法绕过。</li>
+    <li>暂停/恢复：登录、存量 JWT、MCP 令牌三处即时失效（每次请求查库校验状态）；管理员重置密码（自动生成/指定 + 强制改密）；防自锁（最后一个可用 admin 不可降级/暂停）；登录成功/失败全审计（含 IP）。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>J. 数字员工与报表</h3>
+  <ul>
+    <li>月度成本报表（双金额口径 + 类型/部门分布）、月度健康报告（老板视角收口，每月 1 日推送企微）、Excel 台账导出（三 sheet）。</li>
+    <li>审计保留策略（登录成功日志 90 天，每日清理任务）。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>工程基础设施现状</h3>
+  <table>
+    <tr><th>项</th><th>现状</th></tr>
+    <tr><td>数据库</td><td>SQLite（开发模式）；alembic 22 个迁移链完整；PG 未实测</td></tr>
+    <tr><td>队列</td><td>进程内 local（发票同步内联、回单后台线程）；redis/arq 代码在位但<b>从未在真实 redis 上跑过</b></td></tr>
+    <tr><td>LLM</td><td>已启用 DeepSeek（云端），文本通道可用</td></tr>
+    <tr><td>可观测性</td><td><b>无日志落盘/轮转配置、<code>log_level</code> 设置未被消费、无 metrics、无全局异常处理器</b>；仅 /health</td></tr>
+    <tr><td>CI/CD</td><td>无</td></tr>
+    <tr><td>部署物</td><td><code>deploy/dev-compose.yml</code> 仅含基础设施（PG/Redis/MinIO）；<b>无 Dockerfile/应用 compose/nginx/备份脚本</b>（本机无 Docker）</td></tr>
+  </table>
+</div>
+
+<h2 id="s3">三、离上线/商用还差什么（分级清单）</h2>
+
+<h3>3.1 阻塞级——不解决不能对客收费</h3>
+<div class="card">
+  <table>
+    <tr><th>#</th><th>差距</th><th>事实依据</th><th>性质</th></tr>
+    <tr>
+      <td>B1</td>
+      <td><b>验真是模拟，无真实国税 API 路径</b></td>
+      <td><code>verify/provider.py:19-22</code> 无条件返回 Mock；FRD §7.1 验收标准「成功调用国税 API」、§4.3「验真覆盖率 100%」均为合规硬约束</td>
+      <td>外部依赖（国税资质）+ 开发（真实 provider）</td>
+    </tr>
+    <tr>
+      <td>B2</td>
+      <td><b>安全基线未达标</b></td>
+      <td>① <code>jwt_secret</code> 默认 <code>change-me</code> 且<b>本地 .env 实测仍是 change-me</b>（token 可伪造）；② 初始管理员 <code>admin/admin123</code> 且 .env 未改；③ FERNET_KEY 是占位值（见 R1 后果）；④ 无登录限流/失败锁定（已明确裁决不做，商用需重新评估）；⑤ 无 CORS/TrustedHost 中间件；⑥ <code>workbuddy_inbox_dir</code> 空 = MCP 可读任意路径</td>
+      <td>纯开发，成本低但必须做</td>
+    </tr>
+    <tr>
+      <td>B3</td>
+      <td><b>生产部署形态不存在</b></td>
+      <td>无 Dockerfile/应用 compose/nginx/TLS 终结/备份恢复方案；PG/Redis/S3 全部未实测（Plan D 清单「待启动」）；SQLite→PG 已知雷：naive-UTC 时间戳会 TypeError、迁移需按 PG 重新生成核对；S3 分支零测试、无 404 守卫、整文件读内存</td>
+      <td>需有 Docker 的环境 + 开发</td>
+    </tr>
+    <tr>
+      <td>B4</td>
+      <td><b>多租户隔离是空架子</b></td>
+      <td>tenant_id 全硬编码 <code>default</code>、查询层无任何租户过滤、users/mailboxes/audit_logs 等表无租户列；数据边界实际只有「角色 + 员工本人」。<b>若商用形态是 SaaS 必须架构级改造；若是单企业私有化则应正式裁决「不做多租户」</b></td>
+      <td>架构决策 + 开发</td>
+    </tr>
+    <tr>
+      <td>B5</td>
+      <td><b>运维兜底为零</b></td>
+      <td>无日志落盘/轮转、无 metrics、无告警（仅可选企微 webhook）、调度器与 API 同进程（单点，重启丢任务）</td>
+      <td>开发 + 运维设计</td>
+    </tr>
+  </table>
+</div>
+
+<h3>3.2 高风险——带着上线会出事故</h3>
+<div class="card">
+  <table>
+    <tr><th>#</th><th>风险</th><th>事实依据</th></tr>
+    <tr>
+      <td>R1</td>
+      <td><b>邮箱密码加密跨重启失效（实锤 bug）</b></td>
+      <td><code>fetch/crypto.py:5</code>：fernet_key 长度≠44 时<b>每次启动随机生成</b>新 key；当前 .env 的 FERNET_KEY 正是占位值 → 已加密落库的 IMAP/SMTP/agently 凭据重启后解密必炸，收取通道瘫痪。顺带：<code>admin_password</code> 改了也一样，重启后邮箱全失联</td>
+    </tr>
+    <tr>
+      <td>R2</td>
+      <td>zip 炸弹无防护</td>
+      <td><code>unpack_zip</code> 无条目大小/数量上限，加密 ZIP 成员 <code>zf.read</code> RuntimeError 未兜底（Plan D 已记录）</td>
+    </tr>
+    <tr>
+      <td>R3</td>
+      <td>数据删除/容量类</td>
+      <td>发票删除全字段快照审计（好），但审计表无索引、无分区，量大后查询/清理会拖垮</td>
+    </tr>
+    <tr>
+      <td>R4</td>
+      <td>前端工程隐患</td>
+      <td><code>dayjs</code> 是 antd 传递依赖（未声明，升级 antd 可能崩）；角色数组 5 处重复硬编码；401 用 <code>window.location</code> 硬跳丢状态</td>
+    </tr>
+    <tr>
+      <td>R5</td>
+      <td>legacy 全局 MCP token 兼容通道</td>
+      <td>一枚静态 token = 最小 id admin 全权，商用前应禁用通道（新部署留空即禁用的开关已有）</td>
+    </tr>
+    <tr>
+      <td>R6</td>
+      <td>LLM 云端 vs 离线合规矛盾</td>
+      <td>FRD 要求「支持纯离线部署，数据不出内网」；当前 .env 把发票内容发往 api.deepseek.com。机制上 OpenAI 兼容端点可换内网模型，但<b>离线部署时必须强制配置内网 LLM 或关闭，目前无启动校验</b></td>
+    </tr>
+    <tr>
+      <td>R7</td>
+      <td>队列单进程</td>
+      <td>local 模式下解析/验真与 API 同进程；量大后阻塞请求（回单已用后台线程规避，发票仍是同步内联）</td>
+    </tr>
+  </table>
+</div>
+
+<h3>3.3 产品功能缺口（非阻塞，影响完整度）</h3>
+<div class="card">
+  <ul>
+    <li><b>OCR 未部署</b>：图片/扫描件目前一律拒收或落人工，FRD 分级路由的第 3 级形同虚设（P0-3；需 paddleocr/pymupdf 环境 + 离线模型预置）。</li>
+    <li><b>VLM 通道未配置</b>：模糊件兜底缺一半（<code>MODEL_VLM</code> 空）。</li>
+    <li>回单多银行 P1：局部版面查询未实现；农/招/中模板无字段标签（等真实样本）。</li>
+    <li>无票支出录入入口、发票列表导出、批量提交金蝶/用友 API、时限管理、风险标签扩展、入账标识、档案包等（项目自己的 P1–P3 排期，见《高优先级任务总表》《待办清单》）。</li>
+    <li>明确不做（YAGNI，已裁决）：费控、商旅、信用抽审、银企直联/申报自动化（保持人工）、自建开票、自助注册、登录失败锁定、密码强度规则、逐人细粒度权限——<b>商用前需重新确认这批裁决客户能否接受</b>。</li>
+  </ul>
+</div>
+
+<h3>3.4 外部依赖（不是编码问题）</h3>
+<div class="card">
+  <ol>
+    <li>国税查验平台资质（B1 的前置）</li>
+    <li>OCR 运行环境 + 离线模型</li>
+    <li>真机验收清单未执行（2026-08-18 定的 5 项：真实回单 PDF、企微真实推送、员工真实上传全链路、WorkBuddy 平台挂载实测、真实数电票验真回归）</li>
+    <li>观察期数据评估（B1 改判埋点自 2026-08-17 积累，决定 <code>auto_review_threshold</code> 是否开启）</li>
+    <li>银行对账单样本（F 组电子对账单的前置）</li>
+  </ol>
+</div>
+
+<h3>3.5 需要产品/商业决策的</h3>
+<div class="card">
+  <table>
+    <tr><th>决策点</th><th>选项与影响</th></tr>
+    <tr><td>商用形态</td><td>单企业私有化（便宜：正式放弃多租户，B4 消解大半）vs SaaS（昂贵：租户隔离架构级改造）</td></tr>
+    <tr><td>验真过渡口径</td><td>国税资质下来之前，能否以「模拟模式显著声明 + 人工查验兜底 SOP」对外？还是必须等资质？</td></tr>
+    <tr><td>图片 OCR</td><td>FRD「只收原件」与 OCR 路线冲突，此前裁决按 FRD 拒收——商用客户若大量拍照件，需重新裁决</td></tr>
+    <tr><td>公共池发票口径</td><td>员工看不到公共池（邮箱归集）票但报销时可用，已有测试钉住的体验落差，是否调整</td></tr>
+    <tr><td>离线部署 LLM</td><td>内网 OpenAI 兼容模型（如 vLLM/本地 Qwen）作为离线交付标配？</td></tr>
+  </table>
+</div>
+
+<h2 id="s4">四、目标解析架构：OCR + 规则 + LLM + 人工</h2>
+<div class="note">
+  <b>这是商用口径下的架构裁决</b>——MVP 阶段实现的「解析 → 校验 → 复核」是骨架，本节定职责边界，把 LLM 锁死在「建议层」而非「决策层」。
+</div>
+
+<h3>4.1 流水线总览</h3>
+<div class="card">
+<pre>邮件收取 ─┐
+员工上传 ─┼─→ 路由分发 ─→ 层1: XML/文本直解（置信度 1.0） ──→ 规则硬校验 ─┐
+销项导入 ─┘              层2: OCR 识别（图像→带置信度候选） ─┐            │
+                         层3: LLM 语义增强（纠错/映射/科目建议）──┐         │
+                                                             ↓         ↓
+                                                     交叉验证(层5)   验真 + 查重
+                                                             ↓         ↓
+                                                  不一致 / 低置信 / 高风险
+                                                             ↓
+                                                    层6: 人工复核（兜底）
+                                                             ↓
+                                                    层7: 反馈闭环（修正回流
+                                                          → 纠错字典 / LLM prompt 版本 / 模板库）</pre>
+</div>
+
+<h3>4.2 各层职责边界</h3>
+<div class="card">
+  <table>
+    <tr><th>层</th><th>职责</th><th>可信度</th><th>谁决策</th><th>当前实现</th></tr>
+    <tr>
+      <td><b>层1 XML/文本直解</b></td>
+      <td>数电票 XML、XBRL、OFD/PDF 文本层读取</td>
+      <td>高（≥0.95）</td>
+      <td>自身</td>
+      <td><span class="tag green">✅</span> 已上线（<code>xml_parser</code>、XBRL、自研 OFD 渲染、pypdf）</td>
+    </tr>
+    <tr>
+      <td><b>层2 OCR 识别</b></td>
+      <td>扫描件 / 图像 PDF / OFD 无文本层</td>
+      <td>中（按字段打 0-1）</td>
+      <td>自身 + 规则</td>
+      <td><span class="tag amber">⚠️</span> 框架在位，<b>未部署</b></td>
+    </tr>
+    <tr>
+      <td><b>层3 LLM 语义增强</b></td>
+      <td>OCR 后纠错、模糊字段映射、科目推荐、异常解释</td>
+      <td>LLM 建议（<b>非决策</b>）</td>
+      <td>建议层</td>
+      <td><span class="tag green">✅</span> 文本通道（DeepSeek）已用，<span class="tag amber">⚠️</span> VLM 未配</td>
+    </tr>
+    <tr>
+      <td><b>层4 规则硬校验</b></td>
+      <td>金额自洽、税号格式、大小写一致、查重</td>
+      <td>绝对（确定性规则）</td>
+      <td>决策层</td>
+      <td><span class="tag green">✅</span> 已上线（<code>validation</code> / <code>dedup</code> / <code>verify</code>）</td>
+    </tr>
+    <tr>
+      <td><b>层5 交叉验证</b></td>
+      <td>OCR ↔ LLM 同字段结论比对，不一致转人工</td>
+      <td>—</td>
+      <td>触发人工</td>
+      <td><span class="tag red">❌</span> 未实现（VLM 是前置）</td>
+    </tr>
+    <tr>
+      <td><b>层6 人工复核</b></td>
+      <td>低置信、字段冲突、关键字段被 LLM 修改、高风险</td>
+      <td>绝对（人确认）</td>
+      <td>兜底</td>
+      <td><span class="tag green">✅</span> 已上线（状态机 + AI 预判）</td>
+    </tr>
+    <tr>
+      <td><b>层7 反馈闭环</b></td>
+      <td>人工修正结果回流：纠错字典 / LLM prompt 版本 / 模板库</td>
+      <td>—</td>
+      <td>持续改进</td>
+      <td><span class="tag amber">⚠️</span> 改判埋点已上线（<code>ai_review.py</code>），<b>回流管线未实现</b></td>
+    </tr>
+  </table>
+</div>
+
+<h3>4.3 关键原则（架构硬约束）</h3>
+<div class="card">
+  <ol>
+    <li>
+      <b>LLM 是建议层，不是决策层</b>
+      <ul>
+        <li><b>关键财务字段</b>（金额、税额、价税合计、税号、账号、发票号）→ 必须经过规则硬校验通过才能落库</li>
+        <li>LLM 对这些字段的修改必须标记为「<b>suggested</b> / 可疑」，由规则或人工最终确认</li>
+        <li><b>非关键字段</b>（摘要、科目、备注、政策匹配）→ LLM 建议可直接采用（可逆）</li>
+      </ul>
+    </li>
+    <li>
+      <b>关键字段修改必须留痕</b>
+      <ul>
+        <li>LLM 任何修改关键字段的建议 → 写审计表，含 prompt 版本号、输入摘要、采纳/驳回</li>
+        <li>「拦截方向永不自动」已在 <code>ai_review.py</code> 实现（AI 只能建议<b>放行</b>，不能建议<b>拦截</b>）</li>
+      </ul>
+    </li>
+    <li>
+      <b>多源交叉验证是兜底，不是可选项</b>
+      <ul>
+        <li>OCR 与 LLM 对同一关键字段结论不一致 → 转人工，UI 高亮冲突</li>
+        <li>仅 OCR 可信度 &lt; 0.8 → 转人工（已实现）</li>
+      </ul>
+    </li>
+    <li>
+      <b>离线部署时 LLM 必须内网化</b>
+      <ul>
+        <li>FRD 要求「数据不出企业内网」；当前 <code>.env</code> 把发票内容发往 <code>api.deepseek.com</code></li>
+        <li>启动校验：<code>OFFLINE_DEPLOY=true</code> + 检测到云端 endpoint → 拒绝启动（<b>当前 R6 已记录未做</b>）</li>
+      </ul>
+    </li>
+  </ol>
+</div>
+
+<h3>4.4 当前实现 vs 目标覆盖度</h3>
+<div class="card">
+  <table>
+    <tr><th>层</th><th>状态</th><th>缺口</th><th>归口</th></tr>
+    <tr><td>层1</td><td><span class="tag green">✅</span></td><td>无</td><td>—</td></tr>
+    <tr><td>层2 OCR</td><td><span class="tag amber">⚠️</span> 框架在位</td><td>运行环境 + 离线模型预置</td><td>P0-3 / 待办清单 A3</td></tr>
+    <tr><td>层3 LLM 文本</td><td><span class="tag green">✅</span></td><td>关键字段决策边界在 schema 层未强制</td><td>M1 安全类同步做</td></tr>
+    <tr><td>层3 LLM VLM</td><td><span class="tag red">❌</span></td><td>通道未配</td><td>与层5 一并做</td></tr>
+    <tr><td>层4 规则</td><td><span class="tag green">✅</span></td><td>无</td><td>—</td></tr>
+    <tr><td>层5 交叉验证</td><td><span class="tag red">❌</span></td><td>VLM 是前置</td><td>层3 VLM 上线后做</td></tr>
+    <tr><td>层6 人工</td><td><span class="tag green">✅</span></td><td>UI 已支持纠错，但 LLM 建议「采纳/驳回」交互未做</td><td>解析 UI 增强</td></tr>
+    <tr><td>层7 反馈闭环</td><td><span class="tag amber">⚠️</span> 埋点</td><td>修正回流管线（字典更新 / prompt 版本化）</td><td>观察期后立项</td></tr>
+  </table>
+</div>
+
+<h3>4.5 与现有差距清单的对接</h3>
+<div class="card">
+  <p style="font-size:13.5px">原 §3.3「OCR 未部署」「VLM 通道未配置」是<b>层 2/3 的缺口</b>；新增到该表的口径：</p>
+  <ul>
+    <li><b>G1（架构级）</b>：关键字段 LLM 决策边界未在 schema 强制 —— 即使现在 VLM 不上线，文本通道已经能改字段，必须先把 schema 加 <code>suggested</code> 标记 + 规则闸门。</li>
+    <li><b>G2（架构级）</b>：交叉验证层缺失 —— VLM 上线时同步建设，否则 LLM 修改字段后会无声入库。</li>
+    <li><b>G3（运营级）</b>：反馈闭环回流管线缺失 —— 改判埋点只是数据收集，没有回流到 prompt/字典/模板。</li>
+  </ul>
+</div>
+
+<h2 id="s5">五、诚实面：这个项目的真实水位</h2>
+<div class="card">
+  <h3><span class="tag green">扎实的地方</span>（不多见）</h3>
+  <ul>
+    <li>493 + 39 测试全绿且是「今日实跑」验证的，不是文档自述；测试用 Fake/mock 隔离外部服务，套件 87s 可回归。</li>
+    <li>解析链是真实实现（XML/XBRL/OFD 文本/自研 OFD 渲染/PDF 文本），不是纸面架构。</li>
+    <li>合规意识贯穿：图片拒收回信、XML 必存、一票一报双保险、验真模拟三处主动披露、审计带结果与主体。</li>
+    <li>MCP 侧身份/权限/审计做到了多数同类产品 Agent 接入没有的细度。</li>
+    <li>设计文档与裁决记录完整（Plan D 清单、YAGNI 清单、证伪记录），本次盘点大量依赖它们且与代码对得上。</li>
+  </ul>
+  <h3 style="margin-top:20px"><span class="tag red">水分的地方</span>（必须说透）</h3>
+  <ul>
+    <li>「验真覆盖率 100%」目前覆盖的是 100% 的<b>模拟</b>。</li>
+    <li>多租户、PG/Redis/S3、离线部署，都只有代码占位或静态文件，没有一次真实环境验证。</li>
+    <li>可观测性接近于零：出了问题只能看 uvicorn 控制台。</li>
+    <li>文档数字有滞后：<code>docs/功能清单.html</code> header 493/35、footer 404/28，今日实测为 <b>493/39</b>；测试基线数字在 4 份文档中 4 个样。</li>
+    <li>源码零 TODO/FIXME 标记——干净得可疑，实际待办全在 <code>design/</code> 文档里，代码内不搜到不代表没有欠账（如 R1 就是隐性 bug 而非显性标记）。</li>
+    <li>「LLM 增强」目前是<b>直接落库</b>而非「建议后由规则闸门决策」——架构上违反 <a href="#s4">§4.3 原则 1</a>（G1 缺口），是文本通道上线时埋下的隐性债。</li>
+  </ul>
+</div>
+
+<h2 id="s6">六、建议的上线路径（三个里程碑）</h2>
+
+<div class="card">
+  <h3><span class="tag green">M1 · 安全与补口</span>（本机即可做，1 周量级）</h3>
+  <p style="font-size:13.5px">修 R1（fernet key 启动校验：非法 key fail-fast 而非随机生成）、生产启动自检（弱 jwt_secret/admin123/change-me 系 fail-fast 告警）、<code>workbuddy_inbox_dir</code> 空值告警、简单登录限流（重新评估已裁决项）、日志落盘轮转、无票支出录入入口、发票列表导出；<b>新增 G1：关键字段 <code>suggested</code> 标记 + 规则闸门</b>（即使 VLM 不上线，文本通道已经在改关键字段）；正式文档裁决「单企业私有化、不做多租户」（或立项改造）。</p>
+</div>
+
+<div class="card">
+  <h3><span class="tag blue">M2 · 生产化对齐</span>（需有 Docker 的环境）</h3>
+  <p style="font-size:13.5px">Plan D 清单执行：PG/Redis/S3 真实联调（naive-UTC 统一 timestamptz、迁移按 PG 重生成、zip 加固、S3 测试与 404 守卫）、应用 Dockerfile + 六服务 compose + nginx/TLS + backup.sh、redis/arq 模式实测 + received 状态叙事恢复、CI 流水线（后端串行 pytest + 前端 vitest）。</p>
+</div>
+
+<div class="card">
+  <h3><span class="tag amber">M3 · 合规与验收</span>（外部依赖驱动）</h3>
+  <p style="font-size:13.5px">国税资质 → 验真 provider 真实化 + 税务 CA 链验证；<b>层 2 OCR 环境部署 + 离线模型</b>；<b>层 3 VLM 通道 + 层 5 交叉验证同步上线</b>（G2）；<b>层 7 反馈闭环修正回流管线</b>（G3，依托观察期改判埋点数据）；执行 2026-08-18 真机验收清单 5 项；观察期改判率评估 → 决定 auto_review 阈值。</p>
+</div>
+
+<hr>
+<h2 id="app">附：本报告与既有文档的关系</h2>
+<div class="card">
+  <ul>
+    <li>事实来源：本日 5 路代码扫描（后端 API/链路/MCP/前端/测试与文档）+ 今日全量测试实跑 + <code>.env</code> 掩码审计。</li>
+    <li>关键指控均经二次实证：验真 mock（<code>verify/provider.py</code>）、Fernet 重启失效（<code>fetch/crypto.py:5</code>）、.env 弱默认值（键名核对，值未外泄）。</li>
+    <li>替代/更新：《2026-09-13-发票易待办清单.md》《高优先级任务总表.md》记录的是「项目决定做什么」；本报告回答的是「离商用还差什么」，两份结论一致且互补。</li>
+  </ul>
+</div>
+
+<footer>
+  发票易 · 设计文档 · 由 markdown 同步生成 · 2026-09-16
+</footer>
+
+</div>
+</body>
+</html>
