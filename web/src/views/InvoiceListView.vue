@@ -18,8 +18,10 @@ import {
 } from "../api/invoices";
 import { useAuthStore } from "../stores/auth";
 import { EXPENSE_TYPE_COLORS, EXPENSE_TYPE_LABELS, INVOICE_STATUS_LABELS, VERIFY_STATUS_LABELS, type InvoiceListResponse, type InvoiceOut } from "../types";
+import PageHeader from "../components/PageHeader.vue";
 import InvoiceDetailDrawer from "../components/InvoiceDetailDrawer.vue";
 import PreviewModal from "../components/PreviewModal.vue";
+import { formatMoney } from "../utils/format";
 
 const auth = useAuthStore();
 const data = ref<InvoiceListResponse>({ items: [], total: 0, page: 1, page_size: 20 });
@@ -269,22 +271,35 @@ onMounted(() => {
 });
 
 const columns = [
-  { title: "发票号码", dataIndex: "invoice_number", key: "invoice_number" },
+  { title: "发票号码", dataIndex: "invoice_number", key: "invoice_number", width: 180 },
   { title: "方向", key: "invoice_direction", width: 80 },
-  { title: "销售方", dataIndex: "seller_name", key: "seller_name" },
-  { title: "开票日期", dataIndex: "issue_date", key: "issue_date" },
-  { title: "价税合计", dataIndex: "total_amount", key: "total_amount" },
+  { title: "销售方", dataIndex: "seller_name", key: "seller_name", ellipsis: true },
+  { title: "开票日期", dataIndex: "issue_date", key: "issue_date", width: 110 },
+  { title: "价税合计", dataIndex: "total_amount", key: "total_amount", width: 120, align: "right" as const },
   { title: "费用类型", key: "expense_type", width: 110 },
   { title: "状态", dataIndex: "status", key: "status" },
-  { title: "验真", dataIndex: "verify_status", key: "verify_status" },
-  { title: "操作", key: "actions" },
+  { title: "验真", dataIndex: "verify_status", key: "verify_status", width: 90 },
+  { title: "操作", key: "actions", width: 170 },
 ];
 </script>
 
 <template>
   <div>
-    <h3>发票列表</h3>
-    <a-space style="margin-bottom: 16px" wrap>
+    <PageHeader title="发票列表" desc="收取的进项/销项发票：按周期与状态筛选、复核、归类与导出。">
+      <template #extra>
+        <a-upload :before-upload="onBeforeUpload" :show-upload-list="false" accept=".pdf,.ofd,.xml">
+          <a-button>上传发票</a-button>
+        </a-upload>
+        <a-upload :before-upload="onBeforeImportSales" :show-upload-list="false" accept=".xml,.ofd,.pdf" multiple>
+          <a-button>导入已开票</a-button>
+        </a-upload>
+        <a-upload :before-upload="onBeforeImportSalesList" :show-upload-list="false" accept=".csv,.xlsx,.xlsm">
+          <a-button>导入开票清单</a-button>
+        </a-upload>
+        <a-button @click="exportMonthly">导出本月台账</a-button>
+      </template>
+    </PageHeader>
+    <div class="filter-toolbar">
       <a-select v-model:value="filters.status" placeholder="状态" allow-clear style="width: 160px" @change="reloadFirst">
         <a-select-option v-for="(label, value) in INVOICE_STATUS_LABELS" :key="value" :value="value">{{ label }}</a-select-option>
       </a-select>
@@ -324,17 +339,7 @@ const columns = [
         @change="onAnchorChange"
       />
       <a-button type="primary" @click="reloadFirst">查询</a-button>
-      <a-button @click="exportMonthly">导出本月台账</a-button>
-      <a-upload :before-upload="onBeforeUpload" :show-upload-list="false" accept=".pdf,.ofd,.xml">
-        <a-button>上传发票</a-button>
-      </a-upload>
-      <a-upload :before-upload="onBeforeImportSales" :show-upload-list="false" accept=".xml,.ofd,.pdf" multiple>
-        <a-button>导入已开票</a-button>
-      </a-upload>
-      <a-upload :before-upload="onBeforeImportSalesList" :show-upload-list="false" accept=".csv,.xlsx,.xlsm">
-        <a-button>导入开票清单</a-button>
-      </a-upload>
-    </a-space>
+    </div>
     <a-alert
       v-if="unlinkedRed.length"
       type="warning"
@@ -361,10 +366,9 @@ const columns = [
         <a @click="showAllPeriods">查看全部时间</a>
       </template>
     </a-alert>
-    <p v-else-if="!loading && data.total === 0" style="color: #888; margin-bottom: 8px">
-      当前筛选无发票；可切换周期或选「全部」（不做日期过滤）。
-    </p>
-    <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
+    <a-empty v-else-if="!loading && data.total === 0" description="当前筛选无发票；可切换周期或选「全部」（不做日期过滤）。" />
+    <div class="table-card">
+    <a-table size="middle" :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size, showSizeChanger: true }"
       @change="(p: any) => onPageChange(p.current, p.pageSize)">
       <template #bodyCell="{ column, record }">
@@ -405,9 +409,12 @@ const columns = [
         <template v-else-if="column.key === 'verify_status'">
           {{ VERIFY_STATUS_LABELS[record.verify_status] || record.verify_status }}
         </template>
-        <template v-else-if="column.key === 'invoice_number' || column.key === 'seller_name' || column.key === 'issue_date' || column.key === 'total_amount'">
+        <template v-else-if="column.key === 'total_amount'">
+          <span class="num">{{ formatMoney(record.total_amount) }}</span>
+        </template>
+        <template v-else-if="column.key === 'invoice_number' || column.key === 'seller_name' || column.key === 'issue_date'">
           <!-- 待复核/解析失败记录无结构化字段，显示占位符而非空白 -->
-          <span :style="record[column.dataIndex] ? {} : { color: '#bbb' }">{{ record[column.dataIndex] || "—" }}</span>
+          <span class="num" :style="record[column.dataIndex] ? {} : { color: '#bbb' }">{{ record[column.dataIndex] || "—" }}</span>
         </template>
         <template v-else-if="column.key === 'actions'">
           <a-space>
@@ -422,6 +429,7 @@ const columns = [
         </template>
       </template>
     </a-table>
+    </div>
     <InvoiceDetailDrawer v-model:open="drawerOpen" :invoice="current" @refresh="load" />
     <PreviewModal v-model:open="previewOpen" :invoice="previewTarget" />
   </div>
