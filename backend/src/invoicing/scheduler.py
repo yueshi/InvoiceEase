@@ -53,12 +53,12 @@ def _poll_due_mailboxes() -> None:
                 poll_mailbox(db, mb)
             except Exception as exc:
                 logger.exception("定时收取失败 mailbox_id=%s", mailbox_id)
-                from invoicing.notify import notify
-
-                notify(f"🔴 班表任务异常：mailbox_poll mailbox_id={mailbox_id}（{type(exc).__name__}）")
                 from invoicing.ops.instrumentation import record_failure
 
                 record_failure("mailbox_poll", exc, {"mailbox_id": mailbox_id})
+                from invoicing.notify import notify
+
+                notify(f"🔴 班表任务异常：mailbox_poll mailbox_id={mailbox_id}（{type(exc).__name__}）")
 
 
 async def _scheduled_poll() -> None:
@@ -83,12 +83,12 @@ def _generate_review_predictions() -> None:
                     logger.info("渐进自主自动通过 %s 张（阈值 %s）", n, settings.auto_review_threshold)
     except Exception as exc:
         logger.exception("复核预判任务异常")
-        from invoicing.notify import notify
-
-        notify(f"🔴 班表任务异常：review_predict（{type(exc).__name__}）")
         from invoicing.ops.instrumentation import record_failure
 
         record_failure("review_predict", exc)
+        from invoicing.notify import notify
+
+        notify(f"🔴 班表任务异常：review_predict（{type(exc).__name__}）")
 
 
 register_task("review_predict", _generate_review_predictions, seconds=60)
@@ -114,12 +114,12 @@ def _monthly_health_report() -> None:
         logger.info("月度健康报告已生成 month=%s", month)
     except Exception as exc:
         logger.exception("月度健康报告任务异常")
-        from invoicing.notify import notify
-
-        notify(f"🔴 班表任务异常：monthly_health（{type(exc).__name__}）")
         from invoicing.ops.instrumentation import record_failure
 
         record_failure("monthly_health", exc)
+        from invoicing.notify import notify
+
+        notify(f"🔴 班表任务异常：monthly_health（{type(exc).__name__}）")
 
 
 register_task("monthly_health", _monthly_health_report, trigger="cron", day=1, hour=9)
