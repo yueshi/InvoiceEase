@@ -1,0 +1,83 @@
+/* 发票易设计令牌与页面模式类（design/2026-09-16-WebUI布局与样式优化设计.md §2）
+   一处定义全局生效；组件主题色在 App.vue 的 ConfigProvider token 里 */
+:root {
+  /* 语义色 */
+  --c-warn: #d97706;
+  --c-danger: #dc2626;
+  --c-success: #059669;
+  --c-sub: #5b6472; /* 次要文字（描述/辅助说明） */
+  /* 间距刻度 4/8/12/16/24/32 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  /* 卡片阴影 */
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+
+/* 页面内容容器（App.vue 布局骨架统一包裹；宽屏不无限拉伸） */
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-5) 48px;
+}
+
+/* 页头模式：标题 20px/600 + 描述 13px + 右侧动作区 */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.page-header-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+}
+.page-header-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--c-sub);
+}
+.page-header-extra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* 列表页筛选工具栏：白卡容器 */
+.filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 12px var(--space-4);
+  margin-bottom: var(--space-4);
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
+}
+
+/* 表格白卡容器 */
+.table-card {
+  padding: var(--space-4);
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
+}
+
+/* 金额/编号等数字列：等宽数字对齐 */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 表头防断字（窄列标题被折行难读） */
+.ant-table-thead > tr > th {
+  white-space: nowrap;
+}
