@@ -393,13 +393,19 @@ def _parse_receipt_upload(upload_id: int) -> None:
 
 
 async def parse_invoice_task(ctx, invoice_id: int) -> None:
-    await asyncio.to_thread(_parse_invoice, invoice_id)
+    from invoicing.ops.instrumentation import record_run_async
+
+    await record_run_async("parse", "enqueue", _parse_invoice, invoice_id)
 
 
 async def verify_invoice_task(ctx, invoice_id: int) -> None:
     # _verify_invoice 在 Task 11 中与本函数同文件定义，运行时解析
-    await asyncio.to_thread(_verify_invoice, invoice_id)
+    from invoicing.ops.instrumentation import record_run_async
+
+    await record_run_async("verify", "enqueue", _verify_invoice, invoice_id)
 
 
 async def receipt_parse_task(ctx, upload_id: int) -> None:
-    await asyncio.to_thread(_parse_receipt_upload, upload_id)
+    from invoicing.ops.instrumentation import record_run_async
+
+    await record_run_async("receipt_parse", "enqueue", _parse_receipt_upload, upload_id)

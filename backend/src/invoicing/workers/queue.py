@@ -44,7 +44,10 @@ def enqueue_parse_sync(invoice_id: int) -> None:
             from invoicing.workers.tasks import _parse_invoice
 
             _parse_invoice(invoice_id)
-        except Exception:
+        except Exception as exc:
+            from invoicing.ops.instrumentation import record_failure
+
+            record_failure("parse", exc, {"invoice_id": invoice_id})
             logger.exception("内联解析执行失败 invoice_id=%s", invoice_id)
         return
     try:
@@ -69,7 +72,10 @@ def enqueue_receipt_parse_sync(upload_id: int) -> None:
         return
     try:
         asyncio.run(enqueue_receipt_parse(upload_id))
-    except Exception:
+    except Exception as exc:
+        from invoicing.ops.instrumentation import record_failure
+
+        record_failure("receipt_parse", exc, {"upload_id": upload_id})
         logger.exception("入队回单解析任务失败 upload_id=%s", upload_id)
 
 
@@ -80,7 +86,10 @@ def enqueue_verify_sync(invoice_id: int) -> None:
             from invoicing.workers.tasks import _verify_invoice
 
             _verify_invoice(invoice_id)
-        except Exception:
+        except Exception as exc:
+            from invoicing.ops.instrumentation import record_failure
+
+            record_failure("verify", exc, {"invoice_id": invoice_id})
             logger.exception("内联验真执行失败 invoice_id=%s", invoice_id)
         return
     try:

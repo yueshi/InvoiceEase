@@ -56,6 +56,9 @@ def _poll_due_mailboxes() -> None:
                 from invoicing.notify import notify
 
                 notify(f"🔴 班表任务异常：mailbox_poll mailbox_id={mailbox_id}（{type(exc).__name__}）")
+                from invoicing.ops.instrumentation import record_failure
+
+                record_failure("mailbox_poll", exc, {"mailbox_id": mailbox_id})
 
 
 async def _scheduled_poll() -> None:
@@ -83,6 +86,9 @@ def _generate_review_predictions() -> None:
         from invoicing.notify import notify
 
         notify(f"🔴 班表任务异常：review_predict（{type(exc).__name__}）")
+        from invoicing.ops.instrumentation import record_failure
+
+        record_failure("review_predict", exc)
 
 
 register_task("review_predict", _generate_review_predictions, seconds=60)
@@ -111,6 +117,9 @@ def _monthly_health_report() -> None:
         from invoicing.notify import notify
 
         notify(f"🔴 班表任务异常：monthly_health（{type(exc).__name__}）")
+        from invoicing.ops.instrumentation import record_failure
+
+        record_failure("monthly_health", exc)
 
 
 register_task("monthly_health", _monthly_health_report, trigger="cron", day=1, hour=9)
@@ -146,11 +155,31 @@ def _scheduled_audit_retention() -> None:
 register_task("audit_retention", _scheduled_audit_retention, trigger="cron", hour=3, minute=17)
 
 
+def _install_missed_listener(scheduler) -> None:
+    """EVENT_JOB_MISSED → task_runs outcome=missed。"""
+    from apscheduler.events import EVENT_JOB_MISSED
+
+    from invoicing.ops.instrumentation import _write_row
+
+    def _on_missed(event) -> None:
+        _write_row(str(getattr(event, "job_id", "?")), "scheduler", utcnow(), None,
+                   "missed", None, {"scheduled_time": str(getattr(event, "scheduled_time", ""))})
+
+    scheduler.add_listener(_on_missed, EVENT_JOB_MISSED)
+
+
 def setup_scheduler(app: FastAPI) -> None:
     if not settings.scheduler_enabled:
         return
+    from invoicing.ops.instrumentation import wrap_job
+
     scheduler = AsyncIOScheduler()
     for task_id, spec in TASKS.items():
-        scheduler.add_job(spec["fn"], spec["trigger"], id=task_id, **spec["trigger_kwargs"])
+        scheduler.add_job(
+            wrap_job(task_id, spec["fn"]), spec["trigger"], id=task_id,
+            misfire_grace_time=3600 if spec["trigger"] == "cron" else 300,
+            coalesce=True, **spec["trigger_kwargs"],
+        )
+    _install_missed_listener(scheduler)
     scheduler.start()
     app.state.scheduler = scheduler
