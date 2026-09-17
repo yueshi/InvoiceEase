@@ -23,14 +23,26 @@ logger = logging.getLogger(__name__)
 # task_id → {"fn": Callable, "trigger": "interval" | "cron", "trigger_kwargs": dict}
 TASKS: dict[str, dict] = {}
 
+# 轮询 tick 粒度（秒）：interval 类任务的检查频率。tick 只是「有没有活」的轻量检查
+# （空转 ~20ms），真正的业务频率由数据门控决定（收信按每个邮箱的
+# poll_interval_seconds 默认 300s；预判只处理缺预判的发票）。取 300s 与默认收信
+# 间隔对齐，避免每分钟一条 task_runs 记录（1440 行/天/任务）。
+TICK_SECONDS = 300
+
 
 def register_task(task_id: str, fn, trigger: str = "interval", **trigger_kwargs) -> None:
     """注册班表任务（幂等覆盖）。trigger_kwargs 按 APScheduler 语义：
-    interval → seconds=60；cron → hour=9, day_of_week="mon" 等。"""
+    interval → seconds=TICK_SECONDS；cron → hour=9, day_of_week="mon" 等。"""
     TASKS[task_id] = {"fn": fn, "trigger": trigger, "trigger_kwargs": trigger_kwargs}
 
 
 def _due_mailboxes() -> list[int]:
+    """到期邮箱：距上次收取已达 poll_interval_seconds 的（按 tick 粒度取整）。
+
+    容差说明：last_polled_at 在收取完成后写入，若门控严格比较 >= 间隔，则 tick 与
+    配置间隔相等时每次都会差几十毫秒不达而漏拍、实际间隔翻倍。故按「本 tick 到点时
+    是否已该收」判定（间隔 - 一格 tick），保证 5 分钟配置仍是 5 分钟收一次。
+    """
     with SessionLocal() as db:
         mailboxes = db.query(Mailbox).filter(Mailbox.enabled.is_(True)).all()
         now = utcnow()
@@ -38,7 +50,8 @@ def _due_mailboxes() -> list[int]:
             mb.id
             for mb in mailboxes
             if mb.last_polled_at is None
-            or now - mb.last_polled_at >= timedelta(seconds=mb.poll_interval_seconds)
+            or now - mb.last_polled_at
+            >= timedelta(seconds=max(mb.poll_interval_seconds - TICK_SECONDS, 0))
         ]
         return due
 
@@ -65,7 +78,7 @@ async def _scheduled_poll() -> None:
     await asyncio.to_thread(_poll_due_mailboxes)
 
 
-register_task("mailbox_poll", _scheduled_poll, seconds=60)
+register_task("mailbox_poll", _scheduled_poll, seconds=TICK_SECONDS)
 
 
 def _generate_review_predictions() -> None:
@@ -91,7 +104,7 @@ def _generate_review_predictions() -> None:
         notify(f"🔴 班表任务异常：review_predict（{type(exc).__name__}）")
 
 
-register_task("review_predict", _generate_review_predictions, seconds=60)
+register_task("review_predict", _generate_review_predictions, seconds=TICK_SECONDS)
 
 
 def _monthly_health_report() -> None:

@@ -6,7 +6,8 @@ def test_task_registry_contains_mailbox_poll():
     assert "mailbox_poll" in sched_mod.TASKS
     spec = sched_mod.TASKS["mailbox_poll"]
     assert spec["trigger"] == "interval"
-    assert spec["trigger_kwargs"]["seconds"] == 60
+    # tick 粒度 = 默认收信间隔（300s）：tick 只是轻量检查，实际收信由 per-mailbox 门控
+    assert spec["trigger_kwargs"]["seconds"] == sched_mod.TICK_SECONDS == 300
 
 
 def test_register_task_supports_cron():
@@ -21,4 +22,4 @@ def test_register_task_supports_cron():
 def test_task_registry_contains_review_predict():
     assert "review_predict" in sched_mod.TASKS
     assert sched_mod.TASKS["review_predict"]["trigger"] == "interval"
-    assert sched_mod.TASKS["review_predict"]["trigger_kwargs"]["seconds"] == 60
+    assert sched_mod.TASKS["review_predict"]["trigger_kwargs"]["seconds"] == sched_mod.TICK_SECONDS
