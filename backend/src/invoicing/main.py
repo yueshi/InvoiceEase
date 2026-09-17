@@ -14,6 +14,14 @@ from invoicing.mcp.server import mcp
 async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         ensure_admin_user(db)
+    from invoicing.ops.checks import run_startup_checks
+
+    try:
+        run_startup_checks()
+    except RuntimeError:
+        logger = logging.getLogger("invoicing.startup")
+        logger.exception("启动自检 strict 阻断")
+        raise
     from invoicing import scheduler as scheduler_mod
 
     scheduler_mod.setup_scheduler(app)

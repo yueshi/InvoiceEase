@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     log_dir: str = "./logs"
     log_max_bytes: int = 10 * 1024 * 1024  # 单文件 10MB
     log_backup_count: int = 9              # 保留 9 个轮转文件
+    # 运维兜底：启动自检与备份（design/2026-09-16-运维兜底设计.md §5/§8）
+    startup_checks_strict: bool = False  # true 时自检 warn/fail 项升级为阻断启动
+    ops_backup_dir: str = "./data/backups"
+    ops_backup_retention: int = 7        # 备份保留份数
+    alert_cooldown_hours: int = 4        # 同 rule_key 冷却期（防抖）
     # 数字员工 P2：企微群机器人 webhook（空=不启用通知）
     notify_webhook_url: str = ""
     # 数字员工 P3：渐进自主阈值（0=观察期全人工；>0 时预判 approve 且 conf≥阈值自动通过；拦截永不自动）

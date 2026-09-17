@@ -1,0 +1,123 @@
+"""启动自检与深度自检（运维兜底）：同一套检查函数，lifespan 启动跑一次，
+/ops/status 随时重跑。level: ok / warn / fail / info。"""
+import base64
+import logging
+import shutil
+from pathlib import Path
+
+from invoicing.config import settings
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_SECRETS = {"jwt_secret": "change-me", "mcp_token": "change-me", "admin_password": "admin123"}
+
+
+def check_dirs_writable() -> tuple[str, str]:
+    for attr in ("storage_root", "log_dir", "ops_backup_dir"):
+        d = Path(getattr(settings, attr))
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            probe = d / ".write-probe"
+            probe.write_text("ok")
+            probe.unlink()
+        except Exception as exc:
+            return "fail", f"目录不可写 {d}（{type(exc).__name__}）"
+    return "ok", "存储/日志/备份目录可写"
+
+
+def check_fernet_key() -> tuple[str, str]:
+    try:
+        if len(base64.b64decode(settings.fernet_key, validate=True)) == 32:
+            return "ok", "fernet_key 有效"
+    except Exception:
+        pass
+    msg = "fernet_key 非法（需 32 字节 base64）：本次进程生成的加密数据重启后将无法解密（R1 探针）"
+    return ("fail" if settings.startup_checks_strict else "warn"), msg
+
+
+def check_default_secrets() -> tuple[str, str]:
+    hits = [k for k, v in _DEFAULT_SECRETS.items() if getattr(settings, k) == v]
+    if not hits:
+        return "ok", "安全配置已覆盖默认值"
+    msg = f"仍为默认值: {','.join(hits)}（生产必须覆盖）"
+    return ("fail" if settings.startup_checks_strict else "warn"), msg
+
+
+def check_db_migration() -> tuple[str, str]:
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import text
+
+    from invoicing.db import SessionLocal
+
+    try:
+        head = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+    except Exception:
+        return "warn", "无法读取迁移脚本（alembic.ini 不在当前目录），跳过版本比对"
+    try:
+        with SessionLocal() as db:
+            row = db.execute(text("SELECT version_num FROM alembic_version")).fetchone()
+    except Exception:
+        return "warn", "数据库无 alembic_version 表：请执行 alembic upgrade head"
+    current = row[0] if row else None
+    if current != head:
+        return "warn", f"迁移落后（db={current} head={head}）：请执行 alembic upgrade head"
+    return "ok", "迁移版本一致"
+
+
+def check_disk_free(min_percent: int = 10) -> tuple[str, str]:
+    anchor = Path(settings.storage_root).resolve().anchor or "/"
+    usage = shutil.disk_usage(anchor)
+    pct = 100 * usage.free / usage.total if usage.total else 100.0
+    if pct < min_percent:
+        return "warn", f"磁盘剩余 {pct:.1f}%（<{min_percent}%）"
+    return "ok", f"磁盘剩余 {pct:.1f}%"
+
+
+def check_engines() -> tuple[str, str]:
+    parts = [f"LLM={'on' if settings.llm_enabled else 'off'}"]
+    try:
+        from invoicing.parse.ocr import get_ocr_provider
+
+        parts.append(f"OCR={'on' if get_ocr_provider() else 'off'}")
+    except Exception:
+        parts.append("OCR=?")
+    return "info", "能力现状： " + " ".join(parts)
+
+
+_CHECKS = [
+    ("dirs_writable", check_dirs_writable),
+    ("fernet_key", check_fernet_key),
+    ("default_secrets", check_default_secrets),
+    ("db_migration", check_db_migration),
+    ("disk_free", check_disk_free),
+    ("engines", check_engines),
+]
+
+
+def run_all_checks() -> list[dict]:
+    return [{"name": name, "level": level, "message": msg}
+            for name, fn in _CHECKS for level, msg in [fn()]]
+
+
+def run_startup_checks() -> list[dict]:
+    """启动时执行：打日志 + fail 项写 critical 告警；strict 且有 fail 抛 RuntimeError。"""
+    from datetime import timedelta
+
+    from invoicing.db import SessionLocal
+    from invoicing.ops.alerts import record_alert
+
+    results = run_all_checks()
+    for r in results:
+        log = {"fail": logger.error, "warn": logger.warning}.get(r["level"], logger.info)
+        log("启动自检[%s] %s: %s", r["level"], r["name"], r["message"])
+        if r["level"] == "fail":
+            try:
+                with SessionLocal() as db:
+                    record_alert(db, f"startup.{r['name']}", "critical",
+                                 f"{r['name']}: {r['message']}", cooldown=timedelta(hours=12))
+            except Exception:
+                logger.exception("自检告警写入失败")
+    if settings.startup_checks_strict and any(r["level"] == "fail" for r in results):
+        raise RuntimeError("启动自检未通过（startup_checks_strict=true）：见自检日志")
+    return results
