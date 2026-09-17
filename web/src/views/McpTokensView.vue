@@ -12,6 +12,7 @@ import {
 } from "../api/mcpTokens";
 import { useAuthStore } from "../stores/auth";
 import { ROLE_LABELS, type McpTokenOut, type Role } from "../types";
+import PageHeader from "../components/PageHeader.vue";
 
 const auth = useAuthStore();
 const isAdmin = computed(() => auth.role === "admin");
@@ -145,19 +146,16 @@ onMounted(async () => {
 
 <template>
   <div>
-    <h3>我的令牌</h3>
-    <p style="color: #666; margin-bottom: 12px">
-      生成令牌后在 WorkBuddy 里按用户配置，Agent 的每次调用就会以你的身份执行，
-      <b>只能看到你自己的发票与报销单</b>。令牌明文只显示一次，请当场复制。
-    </p>
-
-    <a-space style="margin-bottom: 16px" wrap>
-      <a-button type="primary" @click="openIssue">签发新令牌</a-button>
-      <a-button @click="load">刷新</a-button>
-      <a-checkbox v-if="isAdmin" v-model:checked="allUsers" @change="load">
-        查看全部用户（管理员）
-      </a-checkbox>
-    </a-space>
+    <PageHeader
+      title="我的令牌"
+      desc="生成令牌后在 WorkBuddy 里按用户配置，Agent 的每次调用以你的身份执行、只能看到你自己的发票与报销单。令牌明文只显示一次，请当场复制。"
+    >
+      <template #extra>
+        <a-button type="primary" @click="openIssue">签发新令牌</a-button>
+        <a-button @click="load">刷新</a-button>
+        <a-checkbox v-if="isAdmin" v-model:checked="allUsers" @change="load">查看全部用户（管理员）</a-checkbox>
+      </template>
+    </PageHeader>
 
     <a-table :columns="columns" :data-source="rows" :loading="loading" row-key="id" :pagination="false">
       <template #bodyCell="{ column, record }">
@@ -166,7 +164,7 @@ onMounted(async () => {
           <code>{{ record.token_prefix }}…</code>
         </template>
         <template v-else-if="column.key === 'scopes'">
-          <a-tag v-for="s in record.scopes" :key="s" style="margin-bottom: 2px">{{ s }}</a-tag>
+          <a-tag v-for="s in record.scopes" :key="s" class="scope-tag">{{ s }}</a-tag>
         </template>
         <template v-else-if="column.key === 'state'">
           <a-tag :color="STATE_LABELS[record.state]?.color">
@@ -174,7 +172,7 @@ onMounted(async () => {
           </a-tag>
         </template>
         <template v-else-if="column.key === 'expires_at'">
-          <span :style="expiringSoon(record) ? 'color:#d97706' : ''">
+          <span :class="{ 'warn-text': expiringSoon(record) }">
             {{ record.expires_at ? fmt(record.expires_at) : "永久" }}
             <template v-if="expiringSoon(record)">（即将到期）</template>
           </span>
@@ -188,7 +186,7 @@ onMounted(async () => {
             cancel-text="取消"
             @confirm="onRevoke(record)"
           >
-            <a style="color: #cf1322">撤销</a>
+            <a class="danger-link">撤销</a>
           </a-popconfirm>
         </template>
       </template>
@@ -207,14 +205,14 @@ onMounted(async () => {
             <a-radio-button :value="180">180 天</a-radio-button>
             <a-radio-button :value="365">365 天</a-radio-button>
           </a-radio-group>
-          <a-checkbox v-model:checked="issueForm.never_expires" style="margin-left: 12px">
+          <a-checkbox v-model:checked="issueForm.never_expires" class="ml-3">
             永久（不推荐）
           </a-checkbox>
         </a-form-item>
         <a-form-item>
           <template #label>
             <span>权限（scope）</span>
-            <a v-if="canUsePreset" style="margin-left: 8px" @click="issueForm.scopes = [...roleDefaults[auth.role ?? '']]">
+            <a v-if="canUsePreset" class="ml-2" @click="issueForm.scopes = [...roleDefaults[auth.role ?? '']]">
               按我的角色（{{ ROLE_LABELS[(auth.role as Role) ?? "employee"] }}）填充
             </a>
           </template>
@@ -224,7 +222,7 @@ onMounted(async () => {
             placeholder="至少选一个"
             :options="scopes.map((s) => ({ value: s, label: s }))"
           />
-          <div style="color: #888; font-size: 12px; margin-top: 4px">
+          <div class="hint">
             权限是令牌的<b>能力上限</b>；能看哪些数据还取决于你的角色。默认按角色预设填充即可。
           </div>
         </a-form-item>
@@ -243,16 +241,52 @@ onMounted(async () => {
       <a-alert
         type="warning"
         show-icon
-        style="margin-bottom: 12px"
+        class="mb-3"
         message="明文只显示这一次"
         description="令牌以哈希存储，关闭本窗口后无法再次查看。若丢失，只能撤销后重新签发。"
       />
-      <p style="margin-bottom: 6px">「{{ issued?.name }}」</p>
-      <a-textarea :value="issued?.plaintext" :rows="3" readonly style="font-family: monospace" />
-      <a-space style="margin-top: 12px">
+      <p class="mb-2">「{{ issued?.name }}」</p>
+      <a-textarea :value="issued?.plaintext" :rows="3" readonly class="mono" />
+      <a-space class="mt-3">
         <a-button type="primary" @click="copyToken">复制令牌</a-button>
         <a-button @click="issued = null">我已复制，关闭</a-button>
       </a-space>
     </a-modal>
   </div>
 </template>
+
+<style scoped>
+.scope-tag {
+  margin-bottom: 2px;
+}
+.warn-text {
+  color: var(--c-warn);
+}
+.danger-link {
+  color: var(--c-danger);
+}
+.ml-2 {
+  margin-left: var(--space-2);
+}
+.ml-3 {
+  margin-left: var(--space-3);
+}
+.mb-2 {
+  margin-bottom: var(--space-2);
+}
+.mb-3 {
+  margin-bottom: var(--space-3);
+}
+.mt-3 {
+  margin-top: var(--space-3);
+}
+.hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--c-sub);
+}
+.mono {
+  font-family: monospace;
+}
+</style>
+
