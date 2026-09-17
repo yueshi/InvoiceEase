@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { message } from "ant-design-vue";
+import PageHeader from "../components/PageHeader.vue";
 import { errorMessage } from "../api/client";
 import { listCompanyInfos } from "../api/companyInfos";
 import { fetchOverview, fetchTrustStats } from "../api/stats";
@@ -52,30 +53,45 @@ onMounted(async () => {
 
 <template>
   <div>
-    <h3>工作台</h3>
+    <PageHeader title="工作台" desc="发票与报销的总体概览。" />
     <a-row :gutter="16">
-      <a-col :span="6"><a-card><a-statistic title="待复核" :value="stats?.pending_review ?? 0" /></a-card></a-col>
-      <a-col :span="6"><a-card><a-statistic title="待提交" :value="stats?.pending_submit ?? 0" /></a-card></a-col>
-      <a-col :span="6"><a-card><a-statistic title="今日新增" :value="stats?.today_new ?? 0" /></a-card></a-col>
-      <a-col :span="6"><a-card><a-statistic title="本月累计" :value="stats?.month_total ?? 0" /></a-card></a-col>
+      <a-col :xs="12" :md="6"><a-card><a-statistic title="待复核" :value="stats?.pending_review ?? 0" /></a-card></a-col>
+      <a-col :xs="12" :md="6"><a-card><a-statistic title="待提交" :value="stats?.pending_submit ?? 0" /></a-card></a-col>
+      <a-col :xs="12" :md="6"><a-card><a-statistic title="今日新增" :value="stats?.today_new ?? 0" /></a-card></a-col>
+      <a-col :xs="12" :md="6"><a-card><a-statistic title="本月累计" :value="stats?.month_total ?? 0" /></a-card></a-col>
     </a-row>
-    <a-card v-if="trust" title="数字员工信任（近 7 天）" size="small" style="margin-top: 16px">
+    <a-card v-if="trust" title="数字员工信任（近 7 天）" size="small" class="section-card">
       <a-row :gutter="16">
-        <a-col :span="6"><a-statistic title="自动处理" :value="trust.auto_count" /></a-col>
-        <a-col :span="6"><a-statistic title="人工复核" :value="trust.manual_count" /></a-col>
-        <a-col :span="6"><a-statistic title="人工改判" :value="trust.overturn_count" /></a-col>
-        <a-col :span="6">
+        <a-col :xs="12" :md="6"><a-statistic title="自动处理" :value="trust.auto_count" /></a-col>
+        <a-col :xs="12" :md="6"><a-statistic title="人工复核" :value="trust.manual_count" /></a-col>
+        <a-col :xs="12" :md="6"><a-statistic title="人工改判" :value="trust.overturn_count" /></a-col>
+        <a-col :xs="12" :md="6">
           <a-statistic title="改判率" :value="Math.round(trust.overturn_rate * 100)" suffix="%" />
         </a-col>
       </a-row>
     </a-card>
-    <a-card title="开票抬头" size="small" style="margin-top: 16px">
+    <a-card title="开票抬头" size="small" class="section-card">
       <template v-if="selfInfo">
-        <p style="margin: 0 0 8px">{{ selfInfo.name }}</p>
-        <p style="margin: 0 0 8px; color: #888">税号：{{ selfInfo.tax_id }}</p>
+        <p class="info-line">{{ selfInfo.name }}</p>
+        <p class="info-line sub">税号：{{ selfInfo.tax_id }}</p>
         <a-button size="small" @click="copyHeader">复制抬头</a-button>
       </template>
-      <p v-else style="margin: 0; color: #888">尚未配置开票抬头（请联系管理员在「公司信息」中设置）</p>
+      <p v-else class="info-line sub">尚未配置开票抬头（请联系管理员在「公司信息」中设置）</p>
     </a-card>
   </div>
 </template>
+
+<style scoped>
+.section-card {
+  margin-top: var(--space-4);
+}
+.info-line {
+  margin: 0 0 var(--space-2);
+}
+.info-line.sub {
+  color: var(--c-sub);
+}
+.info-line:last-child {
+  margin-bottom: 0;
+}
+</style>
