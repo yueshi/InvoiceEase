@@ -21,6 +21,7 @@ from invoicing.models.expense import (
 from invoicing.models.invoice import Invoice
 from invoicing.models.mailbox import Mailbox
 from invoicing.models.mcp_token import McpToken
+from invoicing.models.ops import OpsAlert, TaskRun
 from invoicing.models.receipt import BankReceipt, ReceiptUpload
 from invoicing.models.user import User, UserStatus
 
@@ -42,8 +43,10 @@ __all__ = [
     "InvoiceStatus",
     "Mailbox",
     "McpToken",
+    "OpsAlert",
     "ParseSource",
     "ReceiptUpload",
+    "TaskRun",
     "Role",
     "User",
     "UserStatus",
