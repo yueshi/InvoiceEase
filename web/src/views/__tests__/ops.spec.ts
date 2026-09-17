@@ -33,6 +33,14 @@ async function activateChecksTab(wrapper: ReturnType<typeof mount>) {
   await new Promise((r) => setTimeout(r, 0));
 }
 
+/** 切到任意 Tab（同懒渲染原因） */
+async function activateTab(wrapper: ReturnType<typeof mount>, label: string) {
+  const tab = wrapper.findAll(".ant-tabs-tab").find((t) => t.text().includes(label));
+  expect(tab).toBeTruthy();
+  await tab!.trigger("click");
+  await new Promise((r) => setTimeout(r, 0));
+}
+
 const fetchOpsStatus = vi.fn().mockResolvedValue({
   version: "0.1.0",
   uptime_seconds: 3600,
@@ -82,6 +90,36 @@ describe("OpsView", () => {
     await new Promise((r) => setTimeout(r, 0));
     await activateChecksTab(wrapper);
     expect(wrapper.html()).toContain("warn");
+  }, 20000);
+
+  it("自定义单元格列真实渲染（结果/级别/备份操作）——列插槽回归", async () => {
+    // 回归：a-table-column 内曾误用 #bodyCell（该插槽只在 a-table 上生效），
+    // 三个自定义列静默渲染空白——告警的「级别」、任务的「结果」、备份的「下载」全丢
+    listTaskRuns.mockResolvedValueOnce({
+      items: [{
+        id: 1, task_name: "mailbox_poll", trigger: "scheduler",
+        started_at: "2026-09-17T10:08:15", duration_ms: 6, outcome: "success", error: null,
+      }],
+      total: 1, page: 1, page_size: 20,
+    });
+    listOpsAlerts.mockResolvedValueOnce({
+      items: [{
+        id: 1, rule_key: "backup.missing", severity: "warning",
+        message: "超过 26 小时无新备份", fired_at: "2026-09-17T09:59:15",
+      }],
+      total: 1, page: 1, page_size: 20,
+    });
+    listBackups.mockResolvedValueOnce([
+      { name: "invoiceease-backup-20260917-021700.tar.gz", size_bytes: 2048, created_at: "2026-09-17T02:17:00" },
+    ]);
+    const wrapper = await mountWithAntd();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(wrapper.html()).toContain("成功"); // 任务表「结果」列 outcome → 中文标签
+    await activateTab(wrapper, "告警");
+    expect(wrapper.html()).toContain("警告"); // 告警表「级别」列 severity → 中文标签
+    await activateTab(wrapper, "备份");
+    expect(wrapper.html()).toContain("2 KB"); // 「大小」列 fmtBytes
+    expect(wrapper.html()).toContain("下载"); // 「操作」列下载按钮
   }, 20000);
 
   it("单个端点失败只隐藏对应 Tab，不整页白屏", async () => {

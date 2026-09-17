@@ -183,7 +183,7 @@ onMounted(load);
           <a-table-column title="开始时间" data-index="started_at" :width="170" />
           <a-table-column title="耗时(ms)" data-index="duration_ms" :width="90" />
           <a-table-column title="结果" key="outcome" :width="80">
-            <template #bodyCell="{ record }">
+            <template #default="{ record }">
               <a-tag :color="OUTCOME_META[record.outcome]?.color || 'default'">
                 {{ OUTCOME_META[record.outcome]?.text || record.outcome }}
               </a-tag>
@@ -198,7 +198,7 @@ onMounted(load);
         <div class="table-card">
         <a-table :data-source="alerts" :pagination="{ pageSize: 20 }" row-key="id" size="middle">
           <a-table-column title="级别" key="severity" :width="90">
-            <template #bodyCell="{ record }">
+            <template #default="{ record }">
               <a-tag :color="record.severity === 'critical' ? 'red' : 'orange'">
                 {{ record.severity === "critical" ? "严重" : "警告" }}
               </a-tag>
@@ -219,11 +219,11 @@ onMounted(load);
         <a-table :data-source="backups" :pagination="{ pageSize: 20 }" row-key="name" size="middle">
           <a-table-column title="文件" data-index="name" />
           <a-table-column title="大小" key="size" :width="110">
-            <template #bodyCell="{ record }">{{ fmtBytes(record.size_bytes) }}</template>
+            <template #default="{ record }">{{ fmtBytes(record.size_bytes) }}</template>
           </a-table-column>
           <a-table-column title="时间" data-index="created_at" :width="170" />
           <a-table-column title="操作" key="act" :width="90">
-            <template #bodyCell="{ record }">
+            <template #default="{ record }">
               <a-button type="link" size="small" @click="downloadBackup(record.name)">下载</a-button>
             </template>
           </a-table-column>
