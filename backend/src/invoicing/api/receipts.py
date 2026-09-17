@@ -247,6 +247,38 @@ def pair_receipt(
     return _receipt_out(r)
 
 
+@router.post("/{receipt_id}/confirm-review")
+def confirm_receipt_review(
+    receipt_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(*_FINANCE)),
+):
+    """核对无误：清「待核对」标记，出人工队列（解析期的 quality_issues 保留作记录）。
+
+    人工队列的闭环：解析给推断值时标待核对（needs_review），财务确认后点此收口；
+    谁在何时确认由审计日志留痕（RECEIPT_REVIEW）。
+    """
+    from invoicing.audit import write_audit
+
+    r = db.get(BankReceipt, receipt_id)
+    if r is None:
+        raise HTTPException(404, "回单不存在")
+    if not r.needs_review:
+        return _receipt_out(r)  # 幂等：已核对过的重复点击不再留痕
+    r.needs_review = False
+    write_audit(
+        db, action="RECEIPT_REVIEW", user_id=user.id, channel="web",
+        detail={
+            "receipt_id": r.id,
+            "counterparty_name": r.counterparty_name,
+            "amount": f"{r.amount:.2f}" if r.amount is not None else None,
+            "quality_issues": r.quality_issues,
+        },
+    )
+    db.commit()
+    return _receipt_out(r)
+
+
 @router.post("/{receipt_id}/auto-pair")
 def auto_pair_receipt(
     receipt_id: int,

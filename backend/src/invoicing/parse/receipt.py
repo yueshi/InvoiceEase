@@ -206,8 +206,9 @@ def parse_receipt_text(
 
     template：银行模板（未给则用通用兜底标签集与通用方向规则）。
     关键字段（金额+对方户名）缺一 → None（不产半成品），除非命中本司账户行
-    （手续费/利息等银行内部交易，本就没有对方户名——此时对方留空并记
-    no_counterparty，仍产出该笔以便入账）。
+    （手续费/利息等银行内部交易，本就没有对方户名——此时对方记「对应银行」
+    〔模板 name〕并标 self_account_row；无模板则留空标 no_counterparty。两种情况
+    都仍产出该笔，且都进人工待核对）。
 
     self_accounts：本司银行账号集合（账号判定比名称可靠）。
     """
@@ -229,7 +230,6 @@ def parse_receipt_text(
         if sp is not None:
             party_line = sp.group(1)
             party = None
-            issues.append("no_counterparty")
             hits_self_label = True
         else:
             party_line, party, hits_self_label = "", None, False
@@ -242,8 +242,10 @@ def parse_receipt_text(
         bool(self_accounts) and any(acc and acc in party_line for acc in self_accounts)
     )
     if hits_self:
-        party = None
-        issues.append("no_counterparty")
+        # 本司账户行（手续费/利息/内部调拨等）：对方即所在银行——识别到银行模板时记
+        # 「对应银行」；无模板不臆造，保持留空。两种情况都进人工队列（待核对）。
+        party = template.name if template is not None else None
+        issues.append("self_account_row" if party else "no_counterparty")
     elif party and _ACCOUNT_LIKE_RE.search(party_line):
         # 原始行含长数字账号（清洗后仍是裸名）→ 该行疑为账户持有人行，标记待核对
         issues.append("account_like_party")
@@ -537,15 +539,18 @@ def _llm_fill_fields(chunk: str, fields: dict, self_names: set[str] | None = Non
         if data_out.get("amount") and llm_party:
             try:
                 fields["amount"] = Decimal(str(data_out["amount"]))
-                fields["counterparty_name"] = llm_party
+                # 本司账户行的对方是规则判定的「对应银行」，不接受 LLM 覆盖
+                # （该场景块内本就没有其他对方标签，LLM 只可能回本司名或臆造）
+                if "self_account_row" not in (fields.get("quality_issues") or []):
+                    fields["counterparty_name"] = llm_party
                 fields["abstract"] = data_out.get("abstract") or fields.get("abstract")
                 raw_date = data_out.get("trade_date")
                 if raw_date:
                     fields["trade_date"] = date.fromisoformat(raw_date)
-                # LLM 有效产出 → 清除因缺字段产生的标记（保留 no_counterparty 等语义标记）
+                # LLM 有效产出 → 清除因缺字段产生的标记（保留语义标记）
                 fields["quality_issues"] = [
                     i for i in (fields.get("quality_issues") or [])
-                    if i in ("no_counterparty",)
+                    if i in ("no_counterparty", "self_account_row")
                 ]
                 if not fields["quality_issues"]:
                     fields.pop("quality_issues", None)

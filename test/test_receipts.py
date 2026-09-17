@@ -473,7 +473,7 @@ def test_party_capture_strips_trailing_labels():
 
 
 def test_self_account_line_marks_no_counterparty():
-    """P1 本司账户行：命中本司银行账号 → 对方户名留空（不臆造）+ 质量标记。"""
+    """P1 本司账户行（无银行模板）：对方留空（不臆造）+ no_counterparty 标记。"""
     parsed = parse_receipt_text(
         CCB_FEE_CHUNK, self_accounts={"61050174004100000779"}
     )
@@ -481,6 +481,27 @@ def test_self_account_line_marks_no_counterparty():
     assert parsed["counterparty_name"] is None  # 不把本司当对方
     assert "no_counterparty" in parsed["quality_issues"]
     assert parsed["direction"] == "付"  # 手续费=支出方
+
+
+def test_self_account_line_uses_bank_as_counterparty():
+    """本司账户行（识别到银行模板）：对方 = 对应银行，标 self_account_row。
+
+    手续费/利息是与开户行发生的交易；此前该场景对方留空，列表与凭证草稿
+    都看不出对方是谁。仍保留待核对（推断值 + 费用分类需人眼确认）。
+    """
+    from invoicing.parse.bank_templates import detect_bank
+
+    template = detect_bank(CCB_FEE_CHUNK)
+    assert template is not None and template.code == "ccb"
+
+    parsed = parse_receipt_text(
+        CCB_FEE_CHUNK, self_accounts={"61050174004100000779"}, template=template
+    )
+    assert parsed is not None
+    assert parsed["counterparty_name"] == "中国建设银行"  # 对应银行（模板名）
+    assert "self_account_row" in parsed["quality_issues"]
+    assert "no_counterparty" not in parsed["quality_issues"]
+    assert parsed["direction"] == "付"
 
 
 def test_self_account_line_without_config_marks_account_residue():
@@ -1084,6 +1105,44 @@ def test_unmatched_expense_excludes_incoming(client, db):
 
     probe = client.get("/api/v1/receipts/period-probe?unmatched=true", headers=auth).json()
     assert probe["total"] == 2  # 与列表页口径一致（收款不计入）
+
+
+def test_confirm_review_clears_flag_and_audits(client, db):
+    """核对无误：清待核对标记 + 审计留痕（RECEIPT_REVIEW）；重复点击幂等。"""
+    from invoicing.models import AuditLog
+
+    auth = _seed_login(client, db)
+    r = BankReceipt(
+        file_url="fee.pdf", file_type="PDF", trade_date=date(2026, 8, 6),
+        counterparty_name="中国建设银行", amount=Decimal("15.00"), abstract="手续费",
+        direction="付", status="unmatched", needs_review=True, quality_issues=["self_account_row"],
+    )
+    db.add(r)
+    db.commit()
+
+    resp = client.post(f"/api/v1/receipts/{r.id}/confirm-review", headers=auth)
+    assert resp.status_code == 200
+    assert resp.json()["needs_review"] is False
+    # 解析期标记保留（作为历史记录），仅出人工队列
+    assert resp.json()["quality_issues"] == ["self_account_row"]
+
+    logs = db.query(AuditLog).filter(AuditLog.action == "RECEIPT_REVIEW").all()
+    assert len(logs) == 1 and logs[0].detail["receipt_id"] == r.id
+
+    # 幂等：已核对的重复点击不再写审计/不报错
+    assert client.post(f"/api/v1/receipts/{r.id}/confirm-review", headers=auth).status_code == 200
+    assert db.query(AuditLog).filter(AuditLog.action == "RECEIPT_REVIEW").count() == 1
+
+
+def test_confirm_review_requires_finance(client, db):
+    """核对操作仅财务角色可用（员工 403）。"""
+    from invoicing.models import Role as R
+
+    auth_emp = _seed_login(client, db, username="emp_r", role=R.employee.value)
+    r = BankReceipt(file_url="x.pdf", file_type="PDF", needs_review=True, status="unmatched")
+    db.add(r)
+    db.commit()
+    assert client.post(f"/api/v1/receipts/{r.id}/confirm-review", headers=auth_emp).status_code == 403
 
 
 def test_classify_receipt_table():
