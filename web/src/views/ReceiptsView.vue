@@ -15,6 +15,8 @@ import {
   uploadReceipt,
 } from "../api/receipts";
 import { BANK_LABELS, type ReceiptOut } from "../types";
+import PageHeader from "../components/PageHeader.vue";
+import { formatMoney } from "../utils/format";
 import ReceiptDetailDrawer from "../components/ReceiptDetailDrawer.vue";
 import ReceiptLocatePanel from "../components/ReceiptLocatePanel.vue";
 
@@ -44,10 +46,10 @@ function periodParam(): { month?: string; quarter?: string; year?: string } {
 
 // 质量问题不占列（细节收进详情抽屉），状态列的「待核对」标签 + 只看待核对筛选足够暴露
 const columns = [
-  { title: "交易日期", dataIndex: "trade_date", key: "trade_date" },
+  { title: "交易日期", dataIndex: "trade_date", key: "trade_date", width: 110 },
   { title: "银行", dataIndex: "bank_code", key: "bank_code", width: 90 },
   { title: "对方户名", dataIndex: "counterparty_name", key: "counterparty_name" },
-  { title: "金额", dataIndex: "amount", key: "amount" },
+  { title: "金额", dataIndex: "amount", key: "amount", width: 110, align: "right" as const },
   { title: "收付", dataIndex: "direction", key: "direction", width: 60 },
   { title: "摘要", dataIndex: "abstract", key: "abstract" },
   { title: "发票配对", dataIndex: "paired_invoice_id", key: "paired_invoice_id" },
@@ -197,8 +199,16 @@ onMounted(load);
 
 <template>
   <div>
-    <h3>银行回单</h3>
-    <a-space style="margin-bottom: 16px" wrap>
+    <PageHeader title="银行回单" desc="回单上传、解析与发票配对；支持凭证草稿导出。">
+      <template #extra>
+        <a-upload :before-upload="onBeforeUpload" :show-upload-list="false" accept=".pdf,.png,.jpg,.jpeg">
+          <a-button type="primary">上传回单</a-button>
+        </a-upload>
+        <a-button @click="onExport">导出凭证草稿</a-button>
+        <a-button @click="load">刷新</a-button>
+      </template>
+    </PageHeader>
+    <div class="filter-toolbar">
       <a-radio-group v-model:value="periodType" button-style="solid" @change="load">
         <a-radio-button value="all">全部</a-radio-button>
         <a-radio-button value="month">按月</a-radio-button>
@@ -216,12 +226,7 @@ onMounted(load);
       <a-date-picker v-else v-model:value="year" picker="year" :allow-clear="false" @change="load" />
       <a-checkbox v-model:checked="unmatchedOnly" @change="load">只看无票支出</a-checkbox>
       <a-checkbox v-model:checked="reviewOnly">只看待核对</a-checkbox>
-      <a-button @click="load">刷新</a-button>
-      <a-button @click="onExport">导出凭证草稿</a-button>
-      <a-upload :before-upload="onBeforeUpload" :show-upload-list="false" accept=".pdf,.png,.jpg,.jpeg">
-        <a-button type="primary">上传回单</a-button>
-      </a-upload>
-    </a-space>
+    </div>
     <a-alert
       v-if="!loading && rows.length === 0 && outsidePeriodCount > 0"
       type="info"
@@ -234,12 +239,8 @@ onMounted(load);
         <a @click="showAllPeriods">查看全部时间</a>
       </template>
     </a-alert>
-    <p v-else-if="!loading && rows.length === 0" style="color: #888; margin-bottom: 8px">
-      当前筛选无回单；可切换周期或选「全部」（不做日期过滤）。
-    </p>
-    <p v-else-if="!loading && displayRows.length === 0" style="color: #888; margin-bottom: 8px">
-      当前周期有 {{ rows.length }} 条回单，但都被「只看待核对」筛掉了。
-    </p>
+    <a-empty v-else-if="!loading && rows.length === 0" description="当前筛选无回单；可切换周期或选「全部」（不做日期过滤）。" />
+    <a-empty v-else-if="!loading && displayRows.length === 0" :description="`当前周期有 ${rows.length} 条回单，但都被「只看待核对」筛掉了。`" />
     <a-table
       :columns="columns"
       :data-source="displayRows"
@@ -255,6 +256,9 @@ onMounted(load);
         <template v-if="column.key === 'direction'">
           {{ { 收: '收', 付: '付' }[record.direction as '收' | '付'] || '—' }}
         </template>
+        <template v-if="column.key === 'amount'">
+          <span class="num">{{ formatMoney(record.amount) }}</span>
+        </template>
         <template v-if="column.key === 'status'">
           <a-tag :color="record.status === 'paired' ? 'green' : record.status === 'unmatched' ? 'orange' : 'blue'">
             {{ { paired: '已配对', unmatched: '无票', pending: '待处理' }[record.status as 'paired' | 'unmatched' | 'pending'] || record.status }}
@@ -265,11 +269,9 @@ onMounted(load);
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
-            <a-button size="small" @click="onDetail(record)">详情</a-button>
-            <a-button size="small" type="primary" ghost @click="onLocate(record)">
-              定位{{ record.page_no ? ` P${record.page_no}` : "" }}
-            </a-button>
-            <a-button size="small" @click="onAutoPair(record)">自动配对</a-button>
+            <a @click="onDetail(record)">详情</a>
+            <a @click="onLocate(record)">定位{{ record.page_no ? ` P${record.page_no}` : "" }}</a>
+            <a @click="onAutoPair(record)">自动配对</a>
           </a-space>
         </template>
       </template>
@@ -310,8 +312,8 @@ onMounted(load);
 
 <style scoped>
 
-/* 待核对行高亮（浅色主题下淡红底） */
+/* 待核对行高亮（--c-danger 浅底） */
 :deep(.receipt-review-row) > td {
-  background: #fff1f0;
+  background: #fef2f2;
 }
 </style>
