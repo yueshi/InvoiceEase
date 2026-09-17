@@ -67,6 +67,8 @@ def create_backup(target_dir: str | None = None) -> Path:
     try:
         snap = work / "invoicing.db"
         src = sqlite3.connect(str(db_path))
+        # 业务持锁时（如夜间长事务）等待而非立即 transient 失败
+        src.execute("PRAGMA busy_timeout=5000")
         try:
             dst = sqlite3.connect(str(snap))
             try:
@@ -112,7 +114,14 @@ def list_backups(out_dir: str | None = None) -> list[dict]:
     items = []
     for tar in sorted(d.glob("invoiceease-backup-*.tar.gz"), reverse=True):
         meta_path = Path(str(tar).removesuffix(".tar.gz") + ".meta.json")
-        meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else None
+        meta = None
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                # sidecar 损坏/缺失：降级 meta=None，列表照常返回，不抛异常
+                logger.warning("备份 sidecar 解析失败，降级 meta=None: %s", meta_path.name,
+                               exc_info=True)
         stat = tar.stat()
         items.append({
             "name": tar.name,

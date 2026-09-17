@@ -61,6 +61,21 @@ def test_create_backup_roundtrip(db, tmp_path, monkeypatch):
     assert "table_counts" in json.loads((work / "meta.json").read_text(encoding="utf-8"))
 
 
+def test_list_backups_sidecar_corrupt_degrades_meta_none(tmp_path, monkeypatch):
+    """修3：sidecar meta 损坏（写坏 JSON）时列表照常返回，meta 降级为 None 不抛异常。"""
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    (backups / "invoiceease-backup-20260917-000000.tar.gz").write_bytes(b"x")
+    (backups / "invoiceease-backup-20260917-000000.meta.json").write_text(
+        "{not valid json", encoding="utf-8")
+    (backups / "invoiceease-backup-20260917-000001.tar.gz").write_bytes(b"y")  # 无 sidecar
+    monkeypatch.setattr(settings, "ops_backup_dir", str(backups))
+
+    items = list_backups()  # 不应抛异常
+    assert len(items) == 2
+    assert all(item["meta"] is None for item in items)
+
+
 def test_rotate_keeps_latest(db, tmp_path, monkeypatch):
     _seed_originals(tmp_path, monkeypatch)
     monkeypatch.setattr(settings, "ops_backup_retention", 2)

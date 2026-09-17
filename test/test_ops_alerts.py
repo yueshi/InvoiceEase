@@ -10,6 +10,7 @@ from invoicing.models import Invoice, Mailbox, OpsAlert, TaskRun
 from invoicing.models.fields import utcnow
 from invoicing.ops import alerts
 from invoicing.ops.alerts import (
+    _rule_backup_failed,
     _rule_backup_missing,
     _rule_disk_low,
     _rule_mailbox_stalled,
@@ -58,6 +59,48 @@ def test_rule_task_failed_window(db):
     db.commit()
     fired = _rule_task_failed(db)
     assert "task_failed.parse" in fired
+
+
+def test_rule_task_failed_excludes_daily_cron_tasks(db):
+    """修4：每日/每月 cron 任务（结构上不可能 1h 内 ≥3 次）剔除出 task_failed 集合；
+    interval 高频任务仍在集合内且照常计数触发。"""
+    assert set(alerts._TASK_FAILED_NAMES) == {
+        "mailbox_poll", "review_predict", "parse", "verify", "receipt_parse", "ops_check",
+    }
+    now = utcnow()
+    for name in ("ops_backup", "audit_retention", "monthly_health"):
+        for i in range(3):
+            db.add(TaskRun(task_name=name, trigger="scheduler",
+                           started_at=now - timedelta(minutes=i),
+                           outcome="error", error="x"))
+    db.commit()
+    fired = _rule_task_failed(db)
+    assert not any(k.startswith("task_failed.") for k in fired)
+    for i in range(3):
+        db.add(TaskRun(task_name="mailbox_poll", trigger="scheduler",
+                       started_at=now - timedelta(minutes=i),
+                       outcome="error", error="x"))
+    db.commit()
+    assert "task_failed.mailbox_poll" in _rule_task_failed(db)
+
+
+def test_rule_backup_failed_fires(db):
+    """修4：近 24h 内 ops_backup 存在 error 行 → 触发 backup.failed（critical）。"""
+    now = utcnow()
+    db.add(TaskRun(task_name="ops_backup", trigger="scheduler",
+                   started_at=now - timedelta(hours=2), outcome="error",
+                   error="IOError: disk full"))
+    db.commit()
+    assert "backup.failed" in _rule_backup_failed(db)
+
+
+def test_rule_backup_failed_silent(db):
+    """修4：无 error 行（成功/空）不触发。"""
+    assert _rule_backup_failed(db) == []
+    db.add(TaskRun(task_name="ops_backup", trigger="scheduler",
+                   started_at=utcnow(), outcome="success"))
+    db.commit()
+    assert _rule_backup_failed(db) == []
 
 
 def test_rule_review_backlog(db):
