@@ -37,7 +37,7 @@ const failuresOnly = ref(true);
 // 业务视图：「仅看异常」（拦截/失败/系统错误）——审计的核心用例是找异常
 const abnormalOnly = ref(false);
 
-const BUSINESS_ACTIONS = ["FETCH", "PARSE", "VERIFY", "REVIEW", "REJECT_REPLY", "CONFIG_CHANGE", "REVERIFY", "INGEST", "INVOICE_UPDATE", "INVOICE_DELETE", "UNBLOCK"];
+const BUSINESS_ACTIONS = ["FETCH", "PARSE", "VERIFY", "REVIEW", "RECEIPT_REVIEW", "REJECT_REPLY", "CONFIG_CHANGE", "REVERIFY", "INGEST", "INVOICE_UPDATE", "INVOICE_DELETE", "UNBLOCK"];
 const SECURITY_ACTIONS = ["LOGIN", "LOGIN_FAILED", "LOGOUT"];
 
 function onCategoryChange() {

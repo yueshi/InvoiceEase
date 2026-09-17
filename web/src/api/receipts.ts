@@ -50,6 +50,12 @@ export async function autoPairReceipt(receiptId: number): Promise<ReceiptOut> {
   return data;
 }
 
+/** 核对无误：清「待核对」标记出人工队列（解析期质量标记保留；审计留痕） */
+export async function confirmReceiptReview(receiptId: number): Promise<ReceiptOut> {
+  const { data } = await api.post<ReceiptOut>(`/receipts/${receiptId}/confirm-review`);
+  return data;
+}
+
 export async function exportReceipts(period: ReceiptPeriod): Promise<void> {
   const key = period.quarter ?? period.month ?? period.year ?? "all";
   const query = period.quarter

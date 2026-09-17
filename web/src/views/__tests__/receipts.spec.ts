@@ -9,6 +9,7 @@ vi.mock("../../api/receipts", () => ({
   listReceiptUploads: vi.fn().mockResolvedValue([]),
   uploadReceipt: vi.fn(),
   autoPairReceipt: vi.fn(),
+  confirmReceiptReview: vi.fn().mockResolvedValue({}),
   exportReceipts: vi.fn(),
   fetchReceiptFileUrl: vi.fn(),
   fetchReceiptPageUrl: vi.fn(),
@@ -76,6 +77,29 @@ describe("ReceiptsView", () => {
     // 「全部」不做日期过滤：periodParam() 为空对象
     expect(vi.mocked(api.listReceipts)).toHaveBeenLastCalledWith({}, false);
   }, 20000); // 注册全量 Antd 后并行跑会超默认 5s
+
+  it("待核对行有「核对无误」入口，点击调接口并刷新", async () => {
+    const api = await import("../../api/receipts");
+    vi.mocked(api.listReceipts).mockResolvedValue([
+      {
+        id: 7, file_url: "f.pdf", file_type: "PDF", trade_date: "2026-08-06",
+        counterparty_name: "中国建设银行", amount: "15.00", abstract: "手续费",
+        direction: "付", needs_review: true, quality_issues: ["self_account_row"],
+        bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: null,
+        status: "unmatched", created_at: "2026-08-06T10:00:00",
+      },
+    ]);
+    vi.mocked(api.probeReceiptsPeriod).mockResolvedValue(0);
+
+    const wrapper = await mountWithAntd();
+    await flushPromises();
+
+    const link = wrapper.findAll("a").filter((a) => a.text().includes("核对无误"));
+    expect(link).toHaveLength(1);
+    await link[0].trigger("click");
+    await flushPromises();
+    expect(vi.mocked(api.confirmReceiptReview)).toHaveBeenCalledWith(7);
+  }, 20000);
 
   it("其他周期也没有数据 → 不显示误导性提示", async () => {
     const api = await import("../../api/receipts");

@@ -7,7 +7,8 @@ const props = defineProps<{ open: boolean; receipt: ReceiptOut | null }>();
 const emit = defineEmits<{ "update:open": [boolean]; viewFile: [ReceiptOut]; viewPage: [ReceiptOut]; locate: [ReceiptOut] }>();
 
 const REVIEW_ISSUE_LABELS: Record<string, string> = {
-  no_counterparty: "无对方户名（本司账户行）",
+  self_account_row: "本司账户行（对方已记为开户银行）",
+  no_counterparty: "无对方户名（本司账户行，未识别到银行）",
   account_like_party: "户名疑为账户持有人",
   no_trade_date: "缺交易日期",
 };

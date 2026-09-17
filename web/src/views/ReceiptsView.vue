@@ -6,6 +6,7 @@ import { message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
 import {
   autoPairReceipt,
+  confirmReceiptReview,
   exportReceipts,
   fetchReceiptFileUrl,
   fetchReceiptPageUrl,
@@ -180,6 +181,16 @@ async function onBeforeUpload(file: File) {
   return false;
 }
 
+async function onConfirmReview(r: ReceiptOut) {
+  try {
+    await confirmReceiptReview(r.id);
+    message.success("已标记核对无误，移出待核对队列");
+    await load();
+  } catch (e) {
+    errorMessage(e, "核对操作失败");
+  }
+}
+
 async function onAutoPair(r: ReceiptOut) {
   try {
     const updated = await autoPairReceipt(r.id);
@@ -273,6 +284,7 @@ onMounted(load);
             <a @click="onDetail(record)">详情</a>
             <a @click="onLocate(record)">定位{{ record.page_no ? ` P${record.page_no}` : "" }}</a>
             <a @click="onAutoPair(record)">自动配对</a>
+            <a v-if="record.needs_review" class="warn-text" @click="onConfirmReview(record)">核对无误</a>
           </a-space>
         </template>
       </template>
@@ -325,6 +337,9 @@ onMounted(load);
 }
 .mt-3 {
   margin-top: var(--space-3);
+}
+.warn-text {
+  color: var(--c-warn); /* 待核对操作入口与行高亮同色系，扫视时成组 */
 }
 
 /* 待核对行高亮（--c-danger 浅底） */
