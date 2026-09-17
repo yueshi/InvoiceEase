@@ -1178,3 +1178,11 @@ def test_classify_receipt_table():
         assert cat == want_cat, f"{kwargs} → {cat}，期望 {want_cat}"
         assert src == "rule"
         assert requirement_of(cat) == want_req, f"{want_cat} 的发票要求应为 {want_req}"
+
+
+def test_category_column_fits_all_values():
+    """列宽必须装得下最长类别取值（SQLite 不校验长度，PG 会炸——见 T1 审查 Important-1）。"""
+    from invoicing.models import BankReceipt
+    from invoicing.workflow.receipts import CATEGORY_META
+
+    assert BankReceipt.__table__.c.category.type.length >= max(len(c) for c in CATEGORY_META)

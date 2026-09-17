@@ -15,7 +15,7 @@ depends_on = None
 
 def upgrade() -> None:
     with op.batch_alter_table("bank_receipts") as batch:
-        batch.add_column(sa.Column("category", sa.String(length=16), nullable=False, server_default="unknown"))
+        batch.add_column(sa.Column("category", sa.String(length=24), nullable=False, server_default="unknown"))
         batch.add_column(sa.Column("category_source", sa.String(length=8), nullable=False, server_default="rule"))
     op.create_index("ix_bank_receipts_category", "bank_receipts", ["category"])
 

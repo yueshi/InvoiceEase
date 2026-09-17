@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, String, func, text
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from invoicing.db import Base
@@ -12,6 +12,7 @@ class BankReceipt(Base):
     """银行回单（数字员工 P3/R1）：支出凭证，与发票配对建议（不接银行 API）。"""
 
     __tablename__ = "bank_receipts"
+    __table_args__ = (Index("ix_bank_receipts_category", "category"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
@@ -38,7 +39,8 @@ class BankReceipt(Base):
     quality_issues: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # 交易性质（2026-09-17 分类体系）：tax/social/bank_fee/salary/internal_transfer/
     # sales_collection/treasury_in/purchase/unknown——决定「是否需要发票」与凭证类型建议
-    category: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    # 宽度 24：最长取值 internal_transfer=17（SQLite 不校验长度，PG 会 DataError）
+    category: Mapped[str] = mapped_column(String(24), nullable=False, default="unknown")
     # 分类来源：rule（规则判定/重分类）或 manual（人工覆盖；重分类默认跳过）
     category_source: Mapped[str] = mapped_column(String(8), nullable=False, default="rule")
 

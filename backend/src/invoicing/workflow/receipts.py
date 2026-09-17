@@ -8,12 +8,12 @@ from invoicing.models import BankReceipt
 CATEGORY_META: dict[str, dict] = {
     "tax": {"label": "税费缴款", "requirement": "none", "voucher_type": "tax_receipt"},
     "social": {"label": "社保/公积金", "requirement": "none", "voucher_type": "tax_receipt"},
-    "bank_fee": {"label": "银行费用", "requirement": "none", "voucher_type": "bank_receipt"},
+    "bank_fee": {"label": "银行内部费用", "requirement": "none", "voucher_type": "bank_receipt"},
     "salary": {"label": "工资代发", "requirement": "none", "voucher_type": "internal"},
     "internal_transfer": {"label": "本司账户调拨", "requirement": "none", "voucher_type": "internal"},
     "sales_collection": {"label": "客户回款", "requirement": "issue", "voucher_type": "bank_receipt"},
-    "treasury_in": {"label": "财政/补贴收入", "requirement": "none", "voucher_type": "bank_receipt"},
-    "purchase": {"label": "对外采购", "requirement": "fetch", "voucher_type": "bank_receipt"},
+    "treasury_in": {"label": "财政/补贴/利息收入", "requirement": "none", "voucher_type": "bank_receipt"},
+    "purchase": {"label": "对外采购/服务支出", "requirement": "fetch", "voucher_type": "bank_receipt"},
     "unknown": {"label": "待定", "requirement": "fetch", "voucher_type": "bank_receipt"},
 }
 
