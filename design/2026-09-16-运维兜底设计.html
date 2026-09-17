@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · 运维兜底子系统设计</title>
+<style>
+  :root {
+    --ink: #1f2937; --sub: #6b7280; --line: #e5e7eb;
+    --blue: #2563eb; --blue-bg: #eff6ff; --green: #059669; --green-bg: #ecfdf5;
+    --amber: #d97706; --amber-bg: #fffbeb; --red: #dc2626; --red-bg: #fef2f2;
+    --card-bg: #ffffff; --page-bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--page-bg); color: var(--ink); line-height: 1.65; padding: 32px 16px 64px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff;
+           border-radius: 14px; padding: 32px 36px; margin-bottom: 24px; }
+  header h1 { font-size: 26px; font-weight: 700; }
+  header .meta { margin-top: 10px; font-size: 13px; opacity: .92; }
+  header .meta span { display: inline-block; background: rgba(255,255,255,.18);
+                      border-radius: 999px; padding: 2px 12px; margin-right: 8px; margin-top: 6px; }
+  h2 { font-size: 19px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid var(--blue); }
+  h3 { font-size: 15.5px; margin: 18px 0 8px; color: #111827; }
+  .card { background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 24px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; white-space: nowrap; }
+  code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-size: 12.5px;
+         font-family: "SF Mono", Menlo, monospace; color: #111827; }
+  pre { background: #f3f4f6; border: 1px solid var(--line); border-radius: 10px;
+        padding: 14px 18px; font-size: 13px; font-family: "SF Mono", Menlo, monospace;
+        overflow-x: auto; line-height: 1.7; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tag.blue { background: var(--blue-bg); color: var(--blue); }
+  .tag.green { background: var(--green-bg); color: var(--green); }
+  .tag.amber { background: var(--amber-bg); color: var(--amber); }
+  .tag.red { background: var(--red-bg); color: var(--red); }
+  .tag.gray { background: #f3f4f6; color: var(--sub); }
+  .note { background: var(--blue-bg); border-left: 3px solid var(--blue); border-radius: 8px;
+          padding: 12px 16px; font-size: 13.5px; margin: 12px 0; }
+  .warn { background: var(--amber-bg); border-left: 3px solid var(--amber); }
+  .danger { background: var(--red-bg); border-left: 3px solid var(--red); }
+  .ok { background: var(--green-bg); border-left: 3px solid var(--green); }
+  .cols { display: flex; gap: 16px; flex-wrap: wrap; }
+  .cols .card { flex: 1 1 300px; }
+  .toc { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .toc a { display: inline-block; background: var(--card-bg); border: 1px solid var(--line);
+           border-radius: 999px; padding: 3px 14px; font-size: 12.5px; color: var(--ink);
+           text-decoration: none; }
+  .toc a:hover { border-color: var(--blue); color: var(--blue); }
+  ol.steps { padding-left: 22px; font-size: 13.5px; }
+  ol.steps li { margin: 7px 0; }
+  footer { margin-top: 40px; text-align: center; color: var(--sub); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 · 运维兜底子系统设计</h1>
+  <div class="meta">
+    <span>V1.0 · 2026-09-16</span>
+    <span>状态：设计已确认（四节逐节过审），待实施</span>
+    <span>部署口径：单机内网私有化</span>
+    <span>完整文档：design/2026-09-16-运维兜底设计.md</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#s1">1 目标</a><a href="#s2">2 总体架构</a><a href="#s3">3 数据模型</a><a href="#s4">4 日志落盘</a>
+  <a href="#s5">5 启动自检</a><a href="#s6">6 任务可观测</a><a href="#s7">7 告警规则</a><a href="#s8">8 备份恢复</a>
+  <a href="#s9">9 REST API</a><a href="#s10">10 Web 运维页</a><a href="#s11">11 配置项</a><a href="#s12">12 错误处理</a>
+  <a href="#s13">13 测试策略</a><a href="#s14">14 实施顺序</a>
+</nav>
+
+<h2 id="s1">1. 目标与非目标</h2>
+<div class="cols">
+  <div class="card">
+    <h3><span class="tag green">目标</span></h3>
+    <p style="font-size:13.5px">让「单机内网私有化」形态下的系统具备四项兜底能力，全部<b>零新增外部依赖</b>，客户 IT 管理员在 Web 后台完成日常运维：</p>
+    <ul style="margin-top:8px">
+      <li><b>失败可见</b>——日志落盘轮转、任务执行记录、深度自检</li>
+      <li><b>异常可达</b>——企微告警带冷却防抖</li>
+      <li><b>可恢复</b>——数据库 + 原件的定时备份与恢复脚本</li>
+      <li><b>容量可视</b>——磁盘 / 存储用量与阈值告警</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3><span class="tag gray">非目标（YAGNI）</span></h3>
+    <ul>
+      <li>不做 Prometheus / Grafana / Loki 标准栈</li>
+      <li>不做调度器拆独立 worker 进程</li>
+      <li>不做告警恢复推送（v1 页面状态可见即闭环）</li>
+      <li>不做 JSON 结构化日志</li>
+      <li>不通过 MCP 暴露任何运维能力</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="s2">2. 总体架构</h2>
+<div class="card">
+  <p style="font-size:13.5px">新增包 <code>backend/src/invoicing/ops/</code>，6 个单元各司其职：</p>
+<pre>ops/
+├── logging_setup.py     # dictConfig + 按大小轮转落盘
+├── checks.py            # 启动自检 + /ops/status 深度自检（同一套检查函数）
+├── instrumentation.py   # 任务埋点装饰器 + APScheduler 事件监听 → task_runs
+├── metrics.py           # 指标 = 现场聚合查询（无新表、无内存快照）
+├── alerts.py            # 告警规则评估（班表任务）+ 冷却防抖 + 复用 notify()
+└── backup.py            # SQLite 快照 + 原件打包 + 保留轮转</pre>
+  <div class="note">
+    <b>指标设计取舍</b>：单机私有化数据量小，<code>invoices</code> / <code>audit_logs</code> / <code>task_runs</code> 即事实来源，
+    <code>/ops/status</code> 与告警评估共用 <code>metrics.py</code> 聚合查询现场计算；uptime 等无库信息存进程内存变量。
+    避免指标表与事实表双写的状态不一致。
+  </div>
+  <div class="note warn">
+    <b>调度器单点立场</b>：班表留在 API 进程内（现状），以「可见 + 可恢复」代替进程拆分——
+    全任务埋点、<code>EVENT_JOB_MISSED</code> 监听记 missed、<code>misfire_grace_time</code> / <code>coalesce</code> 补跑、
+    连续失败告警、运维页手动触发。API 进程重启后 APScheduler 由 lifespan 自动恢复。
+  </div>
+</div>
+
+<h2 id="s3">3. 数据模型（1 个 alembic 迁移，两张新表）</h2>
+<div class="card">
+  <h3>task_runs —— 任务执行记录</h3>
+  <table>
+    <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+    <tr><td><code>id</code></td><td>PK</td><td></td></tr>
+    <tr><td><code>task_name</code></td><td>str</td><td>任务名（mailbox_poll / review_predict / monthly_health / audit_retention / ops_check / ops_backup / parse / verify / receipt_parse）</td></tr>
+    <tr><td><code>trigger</code></td><td>str</td><td>scheduler / manual / enqueue</td></tr>
+    <tr><td><code>started_at</code> / <code>finished_at</code></td><td>datetime</td><td>naive-UTC，全库既有约定</td></tr>
+    <tr><td><code>duration_ms</code></td><td>int nullable</td><td>missed 无耗时，为 NULL</td></tr>
+    <tr><td><code>outcome</code></td><td>str</td><td>success / failed / error / missed</td></tr>
+    <tr><td><code>error</code></td><td>text nullable</td><td>异常摘要（类型名 + 消息，不泄敏感值）</td></tr>
+    <tr><td><code>detail</code></td><td>JSON nullable</td><td>任务自定义上下文（如邮箱 id、发票 id）</td></tr>
+  </table>
+  <p style="font-size:13px; margin-top:8px">索引：<code>(task_name, started_at)</code>。outcome 语义：<b>success</b>=正常完成（邮箱轮询 0 新邮件也算 success）；<b>failed</b>=业务性未达预期（如备份校验失败）；<b>error</b>=异常抛出；<b>missed</b>=调度器判定错过未执行。</p>
+
+  <h3 style="margin-top:22px">ops_alerts —— 告警历史</h3>
+  <table>
+    <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+    <tr><td><code>id</code></td><td>PK</td><td></td></tr>
+    <tr><td><code>rule_key</code></td><td>str</td><td>规则标识（如 <code>task_failed.mailbox_poll</code>、<code>backup.missing</code>）</td></tr>
+    <tr><td><code>severity</code></td><td>str</td><td><span class="tag red">critical</span> / <span class="tag amber">warning</span></td></tr>
+    <tr><td><code>message</code></td><td>str</td><td>人读文本（含企微推送原文）</td></tr>
+    <tr><td><code>detail</code></td><td>JSON nullable</td><td>触发现场数据</td></tr>
+    <tr><td><code>fired_at</code></td><td>datetime</td><td></td></tr>
+    <tr><td><code>cooldown_until</code></td><td>datetime</td><td>该规则下次允许再推送的时间</td></tr>
+  </table>
+  <p style="font-size:13px; margin-top:8px">索引：<code>(rule_key, fired_at)</code>。</p>
+
+  <div class="note ok" style="margin-top:14px">
+    <b>备份不落表</b>：文件系统即事实源——<code>{ops_backup_dir}/invoiceease-backup-YYYYMMDD-HHMMSS.tar.gz</code> +
+    同名 <code>.meta.json</code>（备份时间、alembic 版本、关键表计数）。列表页扫目录，杜绝表与文件不一致。
+  </div>
+</div>
+
+<h2 id="s4">4. 日志落盘（logging_setup.py）</h2>
+<div class="card">
+  <ul>
+    <li><code>dictConfig</code> 在 <code>create_app()</code> 最早期执行；root logger → 控制台 + <code>RotatingFileHandler</code>（<code>{log_dir}/invoicing.log</code>，默认 10MB × 9 份）。</li>
+    <li><b><code>INVOICING_LOG_LEVEL</code> 首次被消费</b>（现状：config.py 定义了但全仓无引用）；uvicorn、apscheduler logger 汇入同一文件。</li>
+    <li><b>脱敏 Filter</b>：对消息与 extra 中 <code>password</code> / <code>token</code> / <code>secret</code> / <code>key</code> 字样的值打码为 <code>***</code>；uvicorn access log 不记请求头，Authorization 不落盘。</li>
+    <li>不做 JSON 格式开关。</li>
+  </ul>
+</div>
+
+<h2 id="s5">5. 启动自检（checks.py）</h2>
+<div class="card">
+  <p style="font-size:13.5px">lifespan 启动时执行一次；同一套检查函数供 <code>/ops/status</code> 随时重跑。结果<b>三处可见</b>：日志、<code>ops_alerts</code>（critical 级）、运维页首屏。</p>
+  <table style="margin-top:10px">
+    <tr><th>检查项</th><th>处置</th></tr>
+    <tr><td>Fernet key 非法（≠44 字节 base64）</td><td><span class="tag amber">warn</span> + 显式日志「加密数据重启后将无法解密」（R1 探针；strict 下阻断）</td></tr>
+    <tr><td>jwt_secret / mcp_token / admin_password 仍为默认值</td><td><span class="tag amber">warn</span>（strict 下 fail-fast）</td></tr>
+    <tr><td>存储目录 / 日志目录 / 备份目录可写</td><td><span class="tag red">失败即阻断启动</span>（硬前提）</td></tr>
+    <tr><td>DB 连接 + alembic 版本 vs 代码迁移 head</td><td><span class="tag amber">warn</span>「需执行 alembic upgrade head」</td></tr>
+    <tr><td>磁盘剩余 &lt; 10%</td><td><span class="tag amber">warn</span></td></tr>
+    <tr><td>OCR / LLM 配置状态</td><td><span class="tag gray">info</span> 级展示（能力现状，非故障）</td></tr>
+  </table>
+  <p style="font-size:13.5px; margin-top:10px">新配置：<code>startup_checks_strict</code>（默认 false）、<code>ops_backup_dir</code>（默认 <code>./data/backups</code>）。</p>
+  <div class="note warn">
+    <b>与 M1 安全基线的边界</b>：本轮只做探针 + 告警；fernet key 无效时拒绝加密落库（根治 R1）属 M1 安全修复，不在本设计内。
+  </div>
+</div>
+
+<h2 id="s6">6. 任务可观测（instrumentation.py）</h2>
+<div class="card">
+  <ul>
+    <li><b>班表任务</b>：<code>setup_scheduler</code> 统一包埋点（trigger=scheduler），记录 task_runs；APScheduler 事件监听器捕获 <code>EVENT_JOB_ERROR</code> / <code>EVENT_JOB_MISSED</code> → outcome=error / missed；<code>misfire_grace_time</code> + <code>coalesce</code> 配置补跑。</li>
+    <li><b>队列任务</b>：<code>workers/tasks.py</code> 三个任务（parse / verify / receipt_parse）出入口埋点（trigger=enqueue），local 与 redis 两模式均覆盖。</li>
+    <li><b>手动触发</b>：trigger=manual。</li>
+    <li><b>埋点装饰器自身永不抛异常</b>：任务崩溃时埋点必须存活并记录（try/except 包裹记录动作本身）。</li>
+  </ul>
+</div>
+
+<h2 id="s7">7. 告警规则（alerts.py）</h2>
+<div class="card">
+  <p style="font-size:13.5px">班表任务 <code>ops_check</code> 每 5 分钟评估全部规则：</p>
+  <table style="margin-top:10px">
+    <tr><th>#</th><th>规则</th><th>rule_key</th><th>阈值（可配）</th><th>级别</th></tr>
+    <tr><td>1</td><td>班表任务连续失败</td><td><code>task_failed.{name}</code></td><td>同任务 ≥3 次</td><td><span class="tag red">critical</span></td></tr>
+    <tr><td>2</td><td>收取通道疑似瘫痪</td><td><code>mailbox.stalled</code></td><td>enabled 邮箱的 <code>last_polled_at</code> 超过 2×poll_interval_seconds 未更新</td><td><span class="tag red">critical</span></td></tr>
+    <tr><td>3</td><td>备份缺失 / 失败</td><td><code>backup.missing</code> / <code>backup.failed</code></td><td>过备份时刻 2h 无今日备份 / 备份任务失败</td><td><span class="tag red">critical</span></td></tr>
+    <tr><td>4</td><td>磁盘将满</td><td><code>disk.low</code></td><td>剩余 &lt;10%</td><td><span class="tag amber">warning</span></td></tr>
+    <tr><td>5</td><td>待复核积压</td><td><code>review.backlog</code></td><td>&gt;50 持续 2h</td><td><span class="tag amber">warning</span></td></tr>
+    <tr><td>6</td><td>解析异常率</td><td><code>parse.error_rate</code></td><td>近 1h error 占比 &gt;20% 且 ≥5 张</td><td><span class="tag amber">warning</span></td></tr>
+  </table>
+  <ul style="margin-top:12px">
+    <li><b>防抖</b>：每规则独立 <code>cooldown_until</code>（默认 4h），冷却期内只落库不推送。</li>
+    <li><b>送达</b>：复用 <code>notify()</code>（企微 markdown，含 severity 前缀与系统标识）；发送失败仅日志不阻断。</li>
+    <li><b>恢复不推送</b>（v1）：规则恢复正常即不再触发，运维页当前状态可见即闭环。</li>
+    <li>规则 5 / 6 为业务健康告警，如需收窄为纯系统告警可直接删除，不影响其余规则。</li>
+  </ul>
+</div>
+
+<h2 id="s8">8. 备份恢复（backup.py）</h2>
+<div class="card">
+  <ul>
+    <li><b>内容</b>：SQLite 一致性快照（<code>sqlite3.Connection.backup()</code>，不阻塞业务写入）+ <code>data/originals/</code> 打包 + <code>.meta.json</code>，合并为一个 tar.gz。</li>
+    <li><b>时机</b>：班表任务 <code>ops_backup</code> 每日 02:17（错开 audit_retention 03:17）；运维页手动触发。</li>
+    <li><b>保留</b>：默认 7 份（<code>ops_backup_retention</code> 可配），超出删最旧；手册建议客户将 <code>ops_backup_dir</code> 指向第二块数据盘或网络盘。</li>
+    <li><b>恢复</b>：<code>backend/scripts/restore_backup.py</code>——停服 → 解包 → 替换 DB 与原件目录 → <code>alembic upgrade head</code> 校验版本 → 起服。操作手册按用户约定写入 <code>docs/</code>（HTML，浅色主题）。</li>
+  </ul>
+  <div class="note ok"><b>验收标准</b>：备份 → 恢复 roundtrip 自动化测试，恢复后 invoices 计数与原件文件数一致。</div>
+</div>
+
+<h2 id="s9">9. REST API（api/ops.py，prefix /ops，全部 require_role(admin)）</h2>
+<div class="card">
+  <table>
+    <tr><th>端点</th><th>方法</th><th>功能</th></tr>
+    <tr><td><code>/ops/status</code></td><td>GET</td><td>深度自检全项结果 + 指标聚合（版本 / uptime / DB 体积 / 原件体积 / 磁盘 / 最近备份 / 近 24h 业务量）</td></tr>
+    <tr><td><code>/ops/tasks</code></td><td>GET</td><td>task_runs 列表（按 task_name / outcome / 时间过滤 + 分页）</td></tr>
+    <tr><td><code>/ops/tasks/{name}/run</code></td><td>POST</td><td>手动触发白名单班表任务（mailbox_poll / review_predict / monthly_health / audit_retention / ops_check / ops_backup）</td></tr>
+    <tr><td><code>/ops/alerts</code></td><td>GET</td><td>告警历史（severity / 时间过滤 + 分页）</td></tr>
+    <tr><td><code>/ops/backups</code></td><td>GET</td><td>备份目录扫描列表（含 meta）</td></tr>
+    <tr><td><code>/ops/backups/run</code></td><td>POST</td><td>手动备份</td></tr>
+    <tr><td><code>/ops/backups/{name}/download</code></td><td>GET</td><td>备份下载（流式，鉴权）</td></tr>
+    <tr><td><code>/ops/logs/tail</code></td><td>GET</td><td>日志尾部（行数参数，默认 200 行，上限 2000）</td></tr>
+    <tr><td><code>/ops/logs/download</code></td><td>GET</td><td>当前日志文件下载（流式）</td></tr>
+  </table>
+  <p style="font-size:13.5px; margin-top:10px">MCP 面不新增任何 ops 工具。审计：手动触发 / 备份 / 下载等运维动作记审计日志（action 前缀 <code>OPS_</code>）。</p>
+</div>
+
+<h2 id="s10">10. Web 运维页（/ops，adminOnly）</h2>
+<div class="card">
+  <ul>
+    <li>路由挂 <code>adminOnly: true</code>（复用现有守卫模式）；新增 <code>web/src/api/ops.ts</code> + <code>views/OpsView.vue</code>。</li>
+    <li><b>顶部状态卡片行</b>：版本 / uptime / DB 体积 / 原件体积 / 磁盘剩余 / 最近备份时间。</li>
+    <li><b>四个 Tab</b>：任务（runs 列表 + 失败详情抽屉 + 白名单任务手动触发按钮）、告警（历史列表）、备份（列表 + 手动备份 + 下载）、自检（status 全项 + 日志尾部查看 / 下载）。</li>
+    <li>组件测试沿用现有 Vitest + @vue/test-utils 模式。</li>
+  </ul>
+</div>
+
+<h2 id="s11">11. 配置项汇总（均环境变量可覆盖）</h2>
+<div class="card">
+  <table>
+    <tr><th>配置</th><th>默认值</th><th>说明</th></tr>
+    <tr><td><code>log_dir</code></td><td><code>./logs</code></td><td>日志目录</td></tr>
+    <tr><td><code>log_max_bytes</code></td><td><code>10485760</code></td><td>单文件上限</td></tr>
+    <tr><td><code>log_backup_count</code></td><td><code>9</code></td><td>轮转份数</td></tr>
+    <tr><td><code>ops_backup_dir</code></td><td><code>./data/backups</code></td><td>备份目录</td></tr>
+    <tr><td><code>ops_backup_retention</code></td><td><code>7</code></td><td>备份保留份数</td></tr>
+    <tr><td><code>startup_checks_strict</code></td><td><code>false</code></td><td>true 时自检 warn 项升级为阻断</td></tr>
+    <tr><td>告警阈值组</td><td>§7 表列值</td><td>cooldown / 积压阈值 / 磁盘阈值等</td></tr>
+  </table>
+</div>
+
+<h2 id="s12">12. 错误处理原则</h2>
+<div class="card">
+  <ul>
+    <li>埋点记录动作自身 try/except，永不传染任务。</li>
+    <li>告警推送失败仅日志（与现有 <code>notify()</code> 语义一致）。</li>
+    <li>备份任务失败 → task_runs outcome=failed/error + 触发 <code>backup.failed</code> 告警。</li>
+    <li>ops 端点异常返回标准 HTTPException，无全局处理器依赖（与现状一致）。</li>
+    <li>下载端点流式响应，整文件不读入内存（吸取 S3 分支「整文件读内存」的教训）。</li>
+  </ul>
+</div>
+
+<h2 id="s13">13. 测试策略（test/ 目录，串行单进程约束不变）</h2>
+<div class="card">
+  <table>
+    <tr><th>域</th><th>用例</th></tr>
+    <tr><td>埋点</td><td>成功 / 异常 / missed 三路记录；装饰器吞异常；duration 计算</td></tr>
+    <tr><td>自检</td><td>坏 fernet key / 默认密钥 / 只读目录 → warn 与 strict 阻断；alembic 版本不一致告警</td></tr>
+    <tr><td>告警</td><td>阈值触发、冷却防抖、恢复后不再触发；mock notify 断言企微 payload</td></tr>
+    <tr><td>备份</td><td>创建 → 恢复 roundtrip（临时目录）；保留轮转删最旧；meta 内容校验</td></tr>
+    <tr><td>REST</td><td>非 admin 403；task_runs / alerts / backups 列表分页与过滤；手动触发白名单外 400</td></tr>
+    <tr><td>前端</td><td>OpsView：状态卡片渲染、Tab 加载、备份触发交互、adminOnly 守卫</td></tr>
+  </table>
+</div>
+
+<h2 id="s14">14. 实施顺序建议（供 writing-plans 参考）</h2>
+<div class="card">
+  <ol class="steps">
+    <li><b>迁移 + 两张表 + instrumentation</b>（班表与队列埋点）——其他一切的地基</li>
+    <li><b>logging_setup + checks</b>（启动自检）</li>
+    <li><b>backup</b>（含 roundtrip 测试）+ restore 脚本</li>
+    <li><b>alerts</b>（规则 + 防抖 + notify 接线）</li>
+    <li><b>REST api/ops.py</b> + 审计</li>
+    <li><b>前端 OpsView</b> + api/ops.ts</li>
+    <li><b>docs/ 运维手册</b>（HTML）</li>
+  </ol>
+</div>
+
+<footer>
+  发票易 InvoiceEase · 运维兜底子系统设计 · 2026-09-16 · 与 design/2026-09-16-运维兜底设计.md 同源
+</footer>
+
+</div>
+</body>
+</html>

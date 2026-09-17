@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · WebUI 布局与样式优化设计</title>
+<style>
+  :root {
+    --ink: #1f2937; --sub: #6b7280; --line: #e5e7eb;
+    --blue: #2563eb; --blue-bg: #eff6ff; --green: #059669; --green-bg: #ecfdf5;
+    --amber: #d97706; --amber-bg: #fffbeb; --red: #dc2626; --red-bg: #fef2f2;
+    --card-bg: #ffffff; --page-bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--page-bg); color: var(--ink); line-height: 1.65; padding: 32px 16px 64px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff;
+           border-radius: 14px; padding: 32px 36px; margin-bottom: 24px; }
+  header h1 { font-size: 26px; font-weight: 700; }
+  header .meta { margin-top: 10px; font-size: 13px; opacity: .92; }
+  header .meta span { display: inline-block; background: rgba(255,255,255,.18);
+                      border-radius: 999px; padding: 2px 12px; margin-right: 8px; margin-top: 6px; }
+  h2 { font-size: 19px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid var(--blue); }
+  h3 { font-size: 15.5px; margin: 18px 0 8px; }
+  .card { background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 24px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; white-space: nowrap; }
+  code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-size: 12.5px;
+         font-family: "SF Mono", Menlo, monospace; color: #111827; }
+  pre { background: #f3f4f6; border: 1px solid var(--line); border-radius: 10px;
+        padding: 14px 18px; font-size: 12.5px; font-family: "SF Mono", Menlo, monospace;
+        overflow-x: auto; line-height: 1.7; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+  .tag.blue { background: var(--blue-bg); color: var(--blue); }
+  .tag.green { background: var(--green-bg); color: var(--green); }
+  .tag.amber { background: var(--amber-bg); color: var(--amber); }
+  .note { background: var(--blue-bg); border-left: 3px solid var(--blue); border-radius: 8px;
+          padding: 12px 16px; font-size: 13.5px; margin: 12px 0; }
+  .warn { background: var(--amber-bg); border-left: 3px solid var(--amber); }
+  ol.steps, ul { padding-left: 22px; font-size: 13.5px; }
+  ol.steps li, ul li { margin: 6px 0; }
+  .skeleton { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 12px; }
+  .skeleton .cell { padding: 8px 12px; }
+  footer { margin-top: 40px; text-align: center; color: var(--sub); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 · WebUI 布局与样式优化设计</h1>
+  <div class="meta">
+    <span>V1.0 · 2026-09-16</span>
+    <span>状态：设计已确认，待实施</span>
+    <span>视觉方向：B 亮侧栏轻盈现代</span>
+    <span>主色：科技蓝 #2563EB</span>
+    <span>路线：antd token + 全局 CSS · 零新依赖</span>
+  </div>
+</header>
+
+<h2>1. 现状诊断（设计依据）</h2>
+<div class="card">
+  <ul>
+    <li><b>布局</b>：暗色侧栏零定制、顶栏仅用户名+两按钮、内容区无 max-width（宽屏表格拉伸折行）、页面标题为裸 <code>&lt;h3&gt;</code>、筛选工具栏每页各自为政、工作台卡片写死 <code>span=6</code></li>
+    <li><b>样式</b>：全项目仅 antd reset.css，<b>无设计 token / 全局 CSS</b>；未用 ConfigProvider 主题；约 100 处行内 style 散布 15 个文件，仅 3 个文件有 <code>&lt;style&gt;</code> 块；金额无千分位、列宽未约束</li>
+  </ul>
+  <div class="note">决策过程存档：<code>.superpowers/brainstorm/15452-1789569174/</code>（三方向布局 mockup + 三主色对比，浏览器点选定稿）</div>
+</div>
+
+<h2>2. 设计 Token 层（一处定义，全局生效）</h2>
+<div class="card">
+  <h3>ConfigProvider（App.vue 根部包裹）</h3>
+  <table>
+    <tr><th>Token</th><th>值</th><th>说明</th></tr>
+    <tr><td><code>colorPrimary</code></td><td><code>#2563EB</code></td><td>品牌主色，全组件联动（按钮/链接/焦点/选中态）</td></tr>
+    <tr><td><code>borderRadius</code></td><td><code>8</code></td><td>按钮/输入框/卡片圆角</td></tr>
+    <tr><td><code>colorBgLayout</code></td><td><code>#F6F7F9</code></td><td>内容区底色</td></tr>
+    <tr><td>menu token</td><td><code>itemSelectedBg #EFF6FF</code> 等</td><td>亮色菜单替代 <code>theme="dark"</code>，选中项蓝字浅蓝底圆角 6</td></tr>
+  </table>
+
+  <h3 style="margin-top:20px">全局样式 <code>src/styles/global.css</code>（新增）</h3>
+  <ul>
+    <li><b>CSS 变量</b>：语义色 <code>--c-warn #D97706</code> / <code>--c-danger #DC2626</code> / <code>--c-success #059669</code>；间距刻度 <code>--space-1..6</code>；卡片阴影 <code>--shadow-card</code></li>
+    <li><b>页面模式类</b>：<code>.page</code>（<b>max-width 1280px 居中</b>，根治宽屏拉伸）、<code>.page-header</code>（标题 20px + 描述 + 动作区）、<code>.filter-toolbar</code> / <code>.table-card</code>（白卡容器）、<code>.num</code>（<b>金额列 tabular-nums</b>）</li>
+    <li><b>归位规则</b>：静态视觉进 scoped style 或全局类，行内 style 仅允许动态值（本轮为执行约定，不改 ui-conventions.spec）</li>
+  </ul>
+</div>
+
+<h2>3. 布局骨架（App.vue 重构）</h2>
+<div class="card">
+<pre>┌────────────┬──────────────────────────────────────────┐
+│ 品牌区      │ 顶栏 56px：页面标题(meta.title)   用户名 ▾ │
+│ logo+发票易 ├──────────────────────────────────────────┤
+│ 亮色菜单    │  .page 容器（max-width 1280）             │
+│ (角色收敛)  │    PageHeader(title/desc/extra)          │
+│            │    filter-toolbar → table-card → ...      │
+└────────────┴──────────────────────────────────────────┘</pre>
+  <ul>
+    <li>侧栏：白底 + 细分隔线，宽 208；品牌区 = 蓝色渐变圆角方块内白色「发」字 +「发票易」</li>
+    <li>顶栏：左侧当前页面标题（router <code>meta.title</code> 新增）；右侧 a-dropdown（首字头像 + 修改密码/退出登录），两颗常驻按钮移除</li>
+    <li>菜单角色收敛逻辑保持现有 computed 不变；不做侧栏折叠（YAGNI）</li>
+    <li>新组件仅 <code>PageHeader.vue</code>：props title/desc + slot extra，10 页统一套用</li>
+  </ul>
+</div>
+
+<h2>4. 逐页改造清单</h2>
+<div class="card">
+  <table>
+    <tr><th>页面/组件</th><th>改造内容</th></tr>
+    <tr><td>App.vue</td><td>骨架重构（§3）</td></tr>
+    <tr><td>LoginView</td><td>品牌化：淡色背景 + 居中白卡 + logo + 产品名 + 一句话说明</td></tr>
+    <tr><td>DashboardView</td><td>统计卡 <code>:xs=12 :md=6</code> 响应式；信任/抬头卡套模式；页头补描述</td></tr>
+    <tr><td>InvoiceListView</td><td>动作收进页头 extra；筛选行规整；<b>日期列定宽、金额千分位右对齐、表头防断字</b></td></tr>
+    <tr><td>ReceiptsView</td><td>工具栏拆分：筛选留 toolbar、动作进 extra；「待核对」高亮改类实现</td></tr>
+    <tr><td>ExpensesView</td><td>页头 + extra 动作；行内样式归位（575 行，改造量最大）</td></tr>
+    <tr><td>McpTokensView</td><td>页头 + 签发动作进 extra；tag 色统一语义变量</td></tr>
+    <tr><td>Settings / Audit / AsyncTasks / ChangePassword</td><td>页头 + 行内样式归位（Settings 四 tab 结构不动）</td></tr>
+    <tr><td>4 个 Drawer/Modal 组件</td><td>宽度/间距/标签对齐 token 化，无结构改动</td></tr>
+  </table>
+  <div class="note" style="margin-top:12px"><b>效率专项</b>：金额 formatter（<code>formatMoney</code> 千分位，新增 <code>utils/format.ts</code>）、列定宽不折行、表格 <code>size="middle"</code>、操作列统一 link 按钮、空状态统一 <code>a-empty</code>、1280px 容器。</div>
+</div>
+
+<h2>5. 测试与验收策略</h2>
+<div class="card">
+  <ul>
+    <li>每页改完跑全量 <code>npm run test</code>（66s）；断言随新 DOM 同步修，<b>不删用例</b></li>
+    <li>新增 spec：<code>PageHeader</code> 组件（title/desc/extra 渲染）</li>
+    <li><code>npm run build</code>（vue-tsc 类型检查）必须通过</li>
+    <li>手工验收：5173 全页面 + 抽屉/弹窗，与 mockup 对照</li>
+    <li><span class="tag amber">硬约束</span> 浅色主题不变；不改任何 API 层与业务逻辑（纯表现层）</li>
+  </ul>
+</div>
+
+<h2>6. 文件清单</h2>
+<div class="card">
+  <table>
+    <tr><th>类型</th><th>文件</th></tr>
+    <tr><td>新增 4</td><td><code>src/styles/global.css</code>、<code>src/components/PageHeader.vue</code>、<code>src/utils/format.ts</code>、<code>src/components/__tests__/page-header.spec.ts</code></td></tr>
+    <tr><td>修改 18</td><td><code>main.ts</code>、<code>App.vue</code>、<code>router/index.ts</code>、10 views、4 components、<code>types.ts</code></td></tr>
+  </table>
+</div>
+
+<h2>7. 实施顺序建议（供 writing-plans 参考）</h2>
+<div class="card">
+  <ol class="steps">
+    <li><b>基座</b>：global.css + ConfigProvider + PageHeader + formatMoney（先立标准）</li>
+    <li><b>骨架</b>：App.vue + router meta.title + LoginView</li>
+    <li><b>高频财务页</b>：InvoiceListView → ReceiptsView → DashboardView</li>
+    <li><b>报销与令牌</b>：ExpensesView → McpTokensView</li>
+    <li><b>管理页</b>：SettingsView → AuditView → AsyncTasksView → ChangePasswordView</li>
+    <li><b>收尾</b>：Drawer/Modal 四组件</li>
+    <li><b>回归</b>：前端 39 spec + build + 手工验收</li>
+  </ol>
+</div>
+
+<footer>
+  发票易 InvoiceEase · WebUI 布局与样式优化设计 · 2026-09-16 · 与 design/2026-09-16-WebUI布局与样式优化设计.md 同源
+</footer>
+
+</div>
+</body>
+</html>
