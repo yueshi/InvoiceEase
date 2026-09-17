@@ -107,6 +107,19 @@ def _generate_review_predictions() -> None:
 register_task("review_predict", _generate_review_predictions, seconds=TICK_SECONDS)
 
 
+def _run_receipt_classify() -> None:
+    """回单交易性质重分类（手动）：规则升级后回填历史，跳过人工覆盖行。"""
+    from invoicing.workflow.receipts import reclassify_receipts
+
+    with SessionLocal() as db:
+        changed = reclassify_receipts(db)
+    logger.info("回单性质重分类：更新 %s 行", changed)
+
+
+# 仅手动触发（运维页「手动执行」）：解析已即时分类，只有规则升级回填历史才需要跑
+register_task("receipt_classify", _run_receipt_classify, trigger="manual")
+
+
 def _monthly_health_report() -> None:
     """每月 1 日生成健康报告（P3/R3）：首次启用 cron 结构。
 
@@ -209,6 +222,8 @@ def setup_scheduler(app: FastAPI) -> None:
 
     scheduler = AsyncIOScheduler()
     for task_id, spec in TASKS.items():
+        if spec["trigger"] == "manual":
+            continue  # 仅手动触发（运维页「手动执行」），不进 APScheduler
         scheduler.add_job(
             wrap_job(task_id, spec["fn"]), spec["trigger"], id=task_id,
             misfire_grace_time=3600 if spec["trigger"] == "cron" else 300,

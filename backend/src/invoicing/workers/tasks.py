@@ -328,9 +328,10 @@ def _parse_receipt_upload(upload_id: int) -> None:
             return
         data = get_storage().get(up.file_url)
         # P1：本司账号/名称集合——判定「本司账户行」与过滤 LLM 误填本司名
+        names = self_name_set(db)
         rows = parse_receipts_bytes(
             data, up.file_type,
-            self_accounts=self_account_set(db), self_names=self_name_set(db),
+            self_accounts=self_account_set(db), self_names=names,
         )
         if not rows:
             up.status = "failed"
@@ -359,6 +360,10 @@ def _parse_receipt_upload(upload_id: int) -> None:
                 anchor=fields.get("anchor"),
                 status="pending",
             )
+            # 落库即分类（设计 §4）：新回单零延迟带性质，无需等重分类任务
+            from invoicing.workflow.receipts import classify_receipt
+
+            r.category, r.category_source = classify_receipt(r, names)
             db.add(r)
             db.flush()
             suggested = suggest_pair(db, r.id)

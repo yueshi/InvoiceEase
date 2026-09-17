@@ -23,3 +23,8 @@ def test_task_registry_contains_review_predict():
     assert "review_predict" in sched_mod.TASKS
     assert sched_mod.TASKS["review_predict"]["trigger"] == "interval"
     assert sched_mod.TASKS["review_predict"]["trigger_kwargs"]["seconds"] == sched_mod.TICK_SECONDS
+
+
+def test_receipt_classify_is_manual_only():
+    """重分类是手动任务：注册为 manual 触发（不设定时，避免每日空跑）。"""
+    assert sched_mod.TASKS["receipt_classify"]["trigger"] == "manual"

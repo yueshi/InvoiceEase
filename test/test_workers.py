@@ -424,3 +424,33 @@ def test_parse_invoice_validation_error_keeps_fields(db, storage):
     assert inv.total_amount is not None
     assert inv.seller_name == "示例出行科技有限公司"
     assert inv.buyer_name == "测试采购有限公司"
+
+
+def test_worker_classifies_receipt_on_ingest(db, storage, monkeypatch):
+    """解析入库即分类：税费行落 category=tax（无需发票），无需人工/重分类介入。
+
+    语料同 test_receipts 的建行税票块（脱敏）：parse_receipts_bytes 直解出
+    收款国库/征收机关为对方户名（付款人全称是本司，不能当对方户名）。
+    """
+    from datetime import date
+    from decimal import Decimal
+
+    from invoicing.models import BankReceipt
+    from invoicing.workers.tasks import _parse_receipt_upload
+
+    monkeypatch.setattr("invoicing.workers.tasks.get_storage", lambda: storage)
+    monkeypatch.setattr(
+        "invoicing.parse.receipt.parse_receipts_bytes",
+        lambda data, kind, **kw: [
+            {"amount": Decimal("1116.00"), "counterparty_name": "国家金库陕西省西咸新区支库",
+             "trade_date": date(2026, 4, 20), "abstract": None,
+             "direction": "付", "quality_issues": []},
+        ],
+    )
+    up = _make_receipt_upload(db, storage, file_hash="h-tax")
+    _parse_receipt_upload(up.id)
+    db.refresh(up)
+    assert up.status == "parsed"
+    r = db.query(BankReceipt).one()
+    assert r.category == "tax"
+    assert r.category_source == "rule"

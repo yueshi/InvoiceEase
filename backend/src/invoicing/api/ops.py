@@ -27,7 +27,7 @@ router = APIRouter(prefix="/ops", tags=["ops"])
 
 # 设计 §9：手动触发白名单（班表任务全集）
 _RUNNABLE = {"mailbox_poll", "review_predict", "monthly_health", "audit_retention",
-             "ops_check", "ops_backup"}
+             "ops_check", "ops_backup", "receipt_classify"}
 _VERSION = "0.1.0"  # 与 main.health 保持一致
 
 

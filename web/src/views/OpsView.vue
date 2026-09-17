@@ -29,7 +29,7 @@ const tasksFailed = ref(false);
 const alertsFailed = ref(false);
 const backupsFailed = ref(false);
 
-const RUNNABLE = ["mailbox_poll", "review_predict", "monthly_health", "audit_retention", "ops_check", "ops_backup"];
+const RUNNABLE = ["mailbox_poll", "review_predict", "monthly_health", "audit_retention", "ops_check", "ops_backup", "receipt_classify"];
 
 const OUTCOME_META: Record<string, { text: string; color: string }> = {
   success: { text: "成功", color: "green" },
