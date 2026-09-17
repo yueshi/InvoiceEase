@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # 启动时后台预热 OCR 引擎（模型首次加载 10-30s；未装 ocr extra 时为空转）
     ocr_preload: bool = True
     log_level: str = "INFO"
+    # 运维兜底：日志落盘轮转（log_level 首次被消费，见 ops/logging_setup.py）
+    log_dir: str = "./logs"
+    log_max_bytes: int = 10 * 1024 * 1024  # 单文件 10MB
+    log_backup_count: int = 9              # 保留 9 个轮转文件
     # 数字员工 P2：企微群机器人 webhook（空=不启用通知）
     notify_webhook_url: str = ""
     # 数字员工 P3：渐进自主阈值（0=观察期全人工；>0 时预判 approve 且 conf≥阈值自动通过；拦截永不自动）
