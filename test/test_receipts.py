@@ -1084,3 +1084,35 @@ def test_unmatched_expense_excludes_incoming(client, db):
 
     probe = client.get("/api/v1/receipts/period-probe?unmatched=true", headers=auth).json()
     assert probe["total"] == 2  # 与列表页口径一致（收款不计入）
+
+
+def test_classify_receipt_table():
+    """判定表：每类语料 → (category, requirement)；含误判边界（税务师事务所=采购）。"""
+    from invoicing.models import BankReceipt
+    from invoicing.workflow.receipts import classify_receipt, requirement_of
+
+    SELF = {"西安启智合创科技有限公司"}
+    cases = [
+        (dict(counterparty_name="国家金库陕西省西咸新区支库", direction="付"), "tax", "none"),
+        (dict(counterparty_name="国家税务总局西咸新区税务局", direction="付"), "tax", "none"),
+        (dict(counterparty_name="国家税务总局西咸新区税务局", direction="付", abstract="企业职工基本养老保险费"), "social", "none"),
+        (dict(counterparty_name="西安住房公积金管理中心", direction="付"), "social", "none"),
+        (dict(counterparty_name="中国建设银行", direction="付", abstract="手续费",
+              quality_issues=["self_account_row"]), "bank_fee", "none"),
+        (dict(counterparty_name="某某公司", direction="付", abstract="代发工资"), "salary", "none"),
+        (dict(counterparty_name="中国建设银行", direction="付",
+              quality_issues=["self_account_row"]), "internal_transfer", "none"),
+        (dict(counterparty_name="西安启智合创科技有限公司", direction="付"), "internal_transfer", "none"),
+        (dict(counterparty_name="客户甲公司", direction="收"), "sales_collection", "issue"),
+        (dict(counterparty_name="西安市财政局", direction="收"), "treasury_in", "none"),
+        (dict(counterparty_name="供应商甲", direction="付"), "purchase", "fetch"),
+        (dict(counterparty_name=None, direction=None), "unknown", "fetch"),
+        # 误判边界：含「税务」二字的服务商是正常采购，必须继续催票
+        (dict(counterparty_name="陕西税务师事务所有限公司", direction="付"), "purchase", "fetch"),
+    ]
+    for kwargs, want_cat, want_req in cases:
+        r = BankReceipt(file_url="t.pdf", file_type="PDF", status="unmatched", **kwargs)
+        cat, src = classify_receipt(r, SELF)
+        assert cat == want_cat, f"{kwargs} → {cat}，期望 {want_cat}"
+        assert src == "rule"
+        assert requirement_of(cat) == want_req, f"{want_cat} 的发票要求应为 {want_req}"

@@ -36,6 +36,11 @@ class BankReceipt(Base):
     # 质量校验（P0）：命中问题项需人工核对（空户名/账号残留/本司账户行/金额缺失等）
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     quality_issues: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # 交易性质（2026-09-17 分类体系）：tax/social/bank_fee/salary/internal_transfer/
+    # sales_collection/treasury_in/purchase/unknown——决定「是否需要发票」与凭证类型建议
+    category: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    # 分类来源：rule（规则判定/重分类）或 manual（人工覆盖；重分类默认跳过）
+    category_source: Mapped[str] = mapped_column(String(8), nullable=False, default="rule")
 
     paired_invoice_id: Mapped[int | None] = mapped_column(
         ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True
