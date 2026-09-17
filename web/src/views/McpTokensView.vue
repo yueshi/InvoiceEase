@@ -157,6 +157,7 @@ onMounted(async () => {
       </template>
     </PageHeader>
 
+    <div class="table-card">
     <a-table :columns="columns" :data-source="rows" :loading="loading" row-key="id" :pagination="false">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'owner_username'">{{ record.owner_username || "—" }}</template>
@@ -191,6 +192,7 @@ onMounted(async () => {
         </template>
       </template>
     </a-table>
+    </div>
 
     <!-- 签发 -->
     <a-modal v-model:open="issueOpen" title="签发 MCP 令牌" :confirm-loading="issuing" @ok="onIssue">

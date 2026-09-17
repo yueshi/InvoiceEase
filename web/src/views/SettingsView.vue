@@ -333,6 +333,7 @@ const companyColumns = [
     <PageHeader title="系统配置" desc="邮箱收取、用户与角色、常用公司税号与银行账号。" />
     <a-tabs v-model:active-key="activeTab">
       <a-tab-pane key="mailboxes" tab="邮箱配置">
+        <div class="table-card">
         <a-button type="primary" class="pane-action" @click="editingMailbox = null; Object.assign(mailboxForm, { name: '', mailbox_type: 'imap', imap_host: '', username: '', password: '', imap_port: undefined, keywords: '发票,Invoice', agently_workspace: '', agently_token: '' }); mailboxModalOpen = true">新建邮箱</a-button>
         <a-table :columns="mailboxColumns" :data-source="mailboxes" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
@@ -345,8 +346,10 @@ const companyColumns = [
             </template>
           </template>
         </a-table>
+        </div>
       </a-tab-pane>
       <a-tab-pane key="users" tab="用户管理">
+        <div class="table-card">
         <a-button type="primary" class="pane-action" @click="editingUser = null; Object.assign(userForm, { username: '', password: '', role: 'employee' }); userModalOpen = true">新建用户</a-button>
         <a-table :columns="userColumns" :data-source="users" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
@@ -378,8 +381,10 @@ const companyColumns = [
             </template>
           </template>
         </a-table>
+        </div>
       </a-tab-pane>
       <a-tab-pane key="company" tab="常用税号/公司">
+        <div class="table-card">
         <a-button type="primary" class="pane-action" @click="openCompanyModal(null)">新建公司</a-button>
         <a-table :columns="companyColumns" :data-source="companyInfos" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
@@ -393,8 +398,10 @@ const companyColumns = [
             </template>
           </template>
         </a-table>
+        </div>
       </a-tab-pane>
       <a-tab-pane key="bank" tab="常用银行账号">
+        <div class="table-card">
         <p class="sub mb-3">
           本司银行账号：回单解析用它判定「本司账户行」（命中时对方户名留空并标记待核对）。
           账号是可靠依据——户名可能与本司全名不一致；停用的账号不参与判定。
@@ -418,6 +425,7 @@ const companyColumns = [
             </template>
           </template>
         </a-table>
+        </div>
       </a-tab-pane>
     </a-tabs>
 

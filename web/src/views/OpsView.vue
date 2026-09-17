@@ -170,6 +170,7 @@ onMounted(load);
 
     <a-tabs v-model:activeKey="activeTab">
       <a-tab-pane key="tasks" tab="任务" v-if="!tasksFailed">
+        <div class="table-card">
         <a-space class="mb-3" wrap>
           <a-button v-for="name in RUNNABLE" :key="name" size="small" :disabled="busy" @click="onRunTask(name)">
             手动执行 {{ name }}
@@ -190,9 +191,11 @@ onMounted(load);
           </a-table-column>
           <a-table-column title="错误" data-index="error" ellipsis />
         </a-table>
+        </div>
       </a-tab-pane>
 
       <a-tab-pane key="alerts" tab="告警" v-if="!alertsFailed">
+        <div class="table-card">
         <a-table :data-source="alerts" :pagination="{ pageSize: 20 }" row-key="id" size="middle">
           <a-table-column title="级别" key="severity" :width="90">
             <template #bodyCell="{ record }">
@@ -205,9 +208,11 @@ onMounted(load);
           <a-table-column title="内容" data-index="message" />
           <a-table-column title="触发时间" data-index="fired_at" :width="170" />
         </a-table>
+        </div>
       </a-tab-pane>
 
       <a-tab-pane key="backups" tab="备份" v-if="!backupsFailed">
+        <div class="table-card">
         <a-space class="mb-3">
           <a-button type="primary" :disabled="busy" @click="onBackup">立即备份</a-button>
         </a-space>
@@ -223,9 +228,11 @@ onMounted(load);
             </template>
           </a-table-column>
         </a-table>
+        </div>
       </a-tab-pane>
 
       <a-tab-pane key="checks" tab="自检">
+        <div class="table-card">
         <a-list :data-source="(status?.checks || []) as OpsCheckOut[]" size="small" bordered>
           <template #renderItem="{ item }">
             <a-list-item>
@@ -240,6 +247,7 @@ onMounted(load);
           <a-button size="small" @click="loadLog">查看日志尾部</a-button>
         </a-space>
         <pre v-if="logLines.length" class="log-view">{{ logLines.join("") }}</pre>
+        </div>
       </a-tab-pane>
     </a-tabs>
   </div>

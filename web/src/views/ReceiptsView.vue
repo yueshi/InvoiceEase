@@ -241,6 +241,7 @@ onMounted(load);
     </a-alert>
     <a-empty v-else-if="!loading && rows.length === 0" description="当前筛选无回单；可切换周期或选「全部」（不做日期过滤）。" />
     <a-empty v-else-if="!loading && displayRows.length === 0" :description="`当前周期有 ${rows.length} 条回单，但都被「只看待核对」筛掉了。`" />
+    <div class="table-card">
     <a-table
       :columns="columns"
       :data-source="displayRows"
@@ -276,6 +277,7 @@ onMounted(load);
         </template>
       </template>
     </a-table>
+    </div>
     <ReceiptDetailDrawer
       v-model:open="detailOpen"
       :receipt="detailRecord"
