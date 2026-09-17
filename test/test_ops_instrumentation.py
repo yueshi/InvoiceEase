@@ -38,6 +38,20 @@ def test_record_failure_never_raises(db, monkeypatch):
     record_failure("parse", ValueError("boom"))  # 不应抛出
 
 
+def test_record_failure_default_trigger_scheduler(db):
+    """默认 trigger=scheduler（班表补记入口）；显式 trigger 分流（队列入口）。"""
+    record_failure("parse", ValueError("boom"))
+    assert db.query(TaskRun).one().trigger == "scheduler"
+
+
+def test_record_failure_trigger_param(db):
+    """queue.py 调用传 trigger='queue' → 错误行 trigger 分流为 queue。"""
+    record_failure("parse", ValueError("boom"), trigger="queue")
+    row = db.query(TaskRun).one()
+    assert row.trigger == "queue"
+    assert row.outcome == "error"
+
+
 def test_wrap_job_records(db):
     asyncio.run(wrap_job("t_job", lambda: 7)())
     assert db.query(TaskRun).one().outcome == "success"

@@ -40,14 +40,14 @@ async def enqueue_receipt_parse(upload_id: int) -> None:
 def enqueue_parse_sync(invoice_id: int) -> None:
     if settings.queue_backend == "local":
         # 本地模式：同步内联执行（开发确定性优先；生产 redis 模式走 arq worker）
+        # record_run 统一记 success/error（trigger=queue），埋点自身失败绝不阻断业务
         try:
+            from invoicing.ops.instrumentation import record_run
             from invoicing.workers.tasks import _parse_invoice
 
-            _parse_invoice(invoice_id)
-        except Exception as exc:
-            from invoicing.ops.instrumentation import record_failure
-
-            record_failure("parse", exc, {"invoice_id": invoice_id})
+            record_run("parse", "queue", _parse_invoice, invoice_id,
+                       detail={"invoice_id": invoice_id})
+        except Exception:
             logger.exception("内联解析执行失败 invoice_id=%s", invoice_id)
         return
     try:
@@ -62,10 +62,16 @@ def enqueue_receipt_parse_sync(upload_id: int) -> None:
     if settings.queue_backend == "local":
         import threading
 
+        from invoicing.ops.instrumentation import record_run
         from invoicing.workers.tasks import _parse_receipt_upload
 
+        # 埋点在后台线程内落行（成功/异常都记），主流程不等待不阻塞
+        def _run_with_instrumentation():
+            record_run("receipt_parse", "queue", _parse_receipt_upload, upload_id,
+                       detail={"upload_id": upload_id})
+
         thread = threading.Thread(
-            target=_parse_receipt_upload, args=(upload_id,), daemon=True,
+            target=_run_with_instrumentation, args=(), daemon=True,
             name=f"receipt-parse-{upload_id}",
         )
         thread.start()
@@ -75,21 +81,21 @@ def enqueue_receipt_parse_sync(upload_id: int) -> None:
     except Exception as exc:
         from invoicing.ops.instrumentation import record_failure
 
-        record_failure("receipt_parse", exc, {"upload_id": upload_id})
+        record_failure("receipt_parse", exc, {"upload_id": upload_id}, trigger="queue")
         logger.exception("入队回单解析任务失败 upload_id=%s", upload_id)
 
 
 def enqueue_verify_sync(invoice_id: int) -> None:
     if settings.queue_backend == "local":
         # 本地模式：同步内联执行（开发确定性优先；生产 redis 模式走 arq worker）
+        # record_run 统一记 success/error（trigger=queue），埋点自身失败绝不阻断业务
         try:
+            from invoicing.ops.instrumentation import record_run
             from invoicing.workers.tasks import _verify_invoice
 
-            _verify_invoice(invoice_id)
-        except Exception as exc:
-            from invoicing.ops.instrumentation import record_failure
-
-            record_failure("verify", exc, {"invoice_id": invoice_id})
+            record_run("verify", "queue", _verify_invoice, invoice_id,
+                       detail={"invoice_id": invoice_id})
+        except Exception:
             logger.exception("内联验真执行失败 invoice_id=%s", invoice_id)
         return
     try:

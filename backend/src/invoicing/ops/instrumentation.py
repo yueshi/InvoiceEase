@@ -69,9 +69,12 @@ async def record_run_async(task_name, trigger, fn, *args, is_success=None, detai
                    int((time.monotonic() - started) * 1000), outcome, error, detail)
 
 
-def record_failure(task_name, exc, detail=None):
-    """吞异常场景的补记入口：只写一条 error 行，绝不抛出。"""
-    _write_row(task_name, "scheduler", utcnow(), None, "error",
+def record_failure(task_name, exc, detail=None, trigger: str = "scheduler"):
+    """吞异常场景的补记入口：只写一条 error 行，绝不抛出。
+
+    trigger 默认 scheduler（班表补记），queue.py 等队列入口显式传 trigger="queue" 分流。
+    """
+    _write_row(task_name, trigger, utcnow(), None, "error",
                f"{type(exc).__name__}: {exc}", detail)
 
 
