@@ -9,6 +9,7 @@ from invoicing.api import (
     invoices,
     mailboxes,
     mcp_tokens,
+    ops,
     receipts,
     reports,
     stats,
@@ -28,3 +29,4 @@ api_router.include_router(bank_accounts.router)
 api_router.include_router(expenses.router)
 api_router.include_router(reports.router)
 api_router.include_router(receipts.router)
+api_router.include_router(ops.router)
