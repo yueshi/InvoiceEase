@@ -344,11 +344,11 @@ const columns = [
       v-if="unlinkedRed.length"
       type="warning"
       show-icon
-      style="margin-bottom: 12px"
+      class="mb-3"
       :message="`有 ${unlinkedRed.length} 张红字票未关联原蓝票（销项退款对账需要）`"
     >
       <template #description>
-        <span v-for="r in unlinkedRed.slice(0, 5)" :key="r.id" style="margin-right: 12px">
+        <span v-for="r in unlinkedRed.slice(0, 5)" :key="r.id" class="mr-3">
           #{{ r.id }} {{ r.invoice_number || "无号码" }} {{ r.total_amount || "" }}
           <a @click="onLinkRed(r)">关联原蓝票</a>
         </span>
@@ -358,7 +358,7 @@ const columns = [
       v-if="!loading && data.total === 0 && outsidePeriodCount > 0"
       type="info"
       show-icon
-      style="margin-bottom: 12px"
+      class="mb-3"
       :message="`当前周期（${periodType === 'month' ? month.format('YYYY-MM') : periodType === 'quarter' ? quarter.format('YYYY-[Q]Q') : year.format('YYYY')}）内无匹配，但其他周期有 ${outsidePeriodCount} 条`"
     >
       <template #description>
@@ -377,15 +377,15 @@ const columns = [
             {{ INVOICE_STATUS_LABELS[record.status] || record.status }}
           </a-tag>
           <!-- 报销维度（与业务状态正交）：已报销 / 报销中 -->
-          <a-tag v-if="record.reimbursement_status === 'claimed'" color="green" style="margin-left: 4px">已报销</a-tag>
-          <a-tag v-else-if="record.reimbursement_status === 'pending'" color="gold" style="margin-left: 4px">报销中</a-tag>
+          <a-tag v-if="record.reimbursement_status === 'claimed'" color="green" class="gap-tag">已报销</a-tag>
+          <a-tag v-else-if="record.reimbursement_status === 'pending'" color="gold" class="gap-tag">报销中</a-tag>
         </template>
         <template v-else-if="column.key === 'invoice_direction'">
           <a-tag :color="record.invoice_direction === 'output' ? 'geekblue' : 'green'">
             {{ record.invoice_direction === "output" ? "销项" : "进项" }}
           </a-tag>
           <a-tooltip v-if="record.red_flag" :title="record.original_invoice_id ? `已关联原蓝票 #${record.original_invoice_id}` : '红字票未关联原蓝票'">
-            <a-tag :color="record.original_invoice_id ? 'red' : 'volcano'" style="margin-left: 4px">
+            <a-tag :color="record.original_invoice_id ? 'red' : 'volcano'" class="gap-tag">
               红字{{ record.original_invoice_id ? "" : "?" }}
             </a-tag>
           </a-tooltip>
@@ -394,7 +394,7 @@ const columns = [
           <a-dropdown :trigger="['click']">
             <a-tag
               :color="EXPENSE_TYPE_COLORS[record.expense_type as string] || 'default'"
-              style="cursor: pointer"
+              class="clickable"
               @click="typeTarget = record"
             >
               {{ record.expense_type ? (EXPENSE_TYPE_LABELS[record.expense_type] || record.expense_type) : "未归类" }}
@@ -434,3 +434,19 @@ const columns = [
     <PreviewModal v-model:open="previewOpen" :invoice="previewTarget" />
   </div>
 </template>
+
+<style scoped>
+/* 行内静态样式归位（值一一对应，零视觉变化）：间距走全局刻度令牌 */
+.mb-3 {
+  margin-bottom: var(--space-3);
+}
+.mr-3 {
+  margin-right: var(--space-3);
+}
+.gap-tag {
+  margin-left: var(--space-1);
+}
+.clickable {
+  cursor: pointer;
+}
+</style>

@@ -18,10 +18,11 @@ const themeConfig = {
   },
   components: {
     Menu: {
-      itemColor: "#5B6472",
-      itemSelectedColor: "#2563EB",
-      itemSelectedBg: "#EFF6FF",
-      itemBorderRadius: 6,
+      // 注意：antdv 4 的 Menu token 是 colorItemText/... 命名（v5 的 itemColor* 在此版本静默无效）
+      colorItemText: "#5B6472",
+      colorItemTextSelected: "#2563EB",
+      colorItemBgSelected: "#EFF6FF",
+      radiusItem: 6,
     },
   },
 };
@@ -64,7 +65,7 @@ function onMenuClick(info: { key: string }) {
       <a-layout>
         <a-layout-header class="app-header">
           <span class="app-header-title">{{ pageTitle }}</span>
-          <a-dropdown>
+          <a-dropdown :trigger="['click']">
             <span class="user-chip">
               <span class="user-avatar">{{ (auth.user?.username || "?").slice(0, 1) }}</span>
               <span>{{ auth.user?.username }}</span>

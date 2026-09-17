@@ -231,7 +231,7 @@ onMounted(load);
       v-if="!loading && rows.length === 0 && outsidePeriodCount > 0"
       type="info"
       show-icon
-      style="margin-bottom: 12px"
+      class="mb-3"
       :message="`当前周期（${periodLabel}）内无回单，但其他周期有 ${outsidePeriodCount} 条`"
     >
       <template #description>
@@ -264,7 +264,7 @@ onMounted(load);
             {{ { paired: '已配对', unmatched: '无票', pending: '待处理' }[record.status as 'paired' | 'unmatched' | 'pending'] || record.status }}
           </a-tag>
           <a-tooltip v-if="record.needs_review" title="解析质量存疑，请核对原件">
-            <a-tag color="red" style="margin-left: 4px">待核对</a-tag>
+            <a-tag color="red" class="gap-tag">待核对</a-tag>
           </a-tooltip>
         </template>
         <template v-if="column.key === 'action'">
@@ -299,10 +299,10 @@ onMounted(load);
           v-if="locateRecord && !locateRecord.anchor?.bbox"
           type="info"
           show-icon
-          style="margin-top: 8px"
+          class="mt-2"
           message="本张回单未能定位到页内精确区域（仅定位到页码），请在本页人工核对。"
         />
-        <a-space style="margin-top: 12px">
+        <a-space class="mt-3">
           <a-button @click="locateRecord && onViewFileAtPage(locateRecord)">打开原 PDF 该页</a-button>
         </a-space>
       </a-spin>
@@ -311,6 +311,19 @@ onMounted(load);
 </template>
 
 <style scoped>
+/* 行内静态样式归位（值一一对应，零视觉变化）：间距走全局刻度令牌 */
+.mb-3 {
+  margin-bottom: var(--space-3);
+}
+.gap-tag {
+  margin-left: var(--space-1);
+}
+.mt-2 {
+  margin-top: var(--space-2);
+}
+.mt-3 {
+  margin-top: var(--space-3);
+}
 
 /* 待核对行高亮（--c-danger 浅底） */
 :deep(.receipt-review-row) > td {
