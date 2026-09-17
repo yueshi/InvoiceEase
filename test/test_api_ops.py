@@ -70,3 +70,48 @@ def test_backups_list_empty_ok(client, db, tmp_path, monkeypatch):
     token = _login(client, db, "admin2", Role.admin.value)
     resp = client.get("/api/v1/ops/backups", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200 and resp.json() == []
+
+
+def test_backups_download_rejects_path_traversal(client, db, tmp_path, monkeypatch):
+    monkeypatch.setattr("invoicing.config.settings.ops_backup_dir", str(tmp_path / "bk"))
+    token = _login(client, db, "admin2", Role.admin.value)
+    h = {"Authorization": f"Bearer {token}"}
+    for name in ("../../etc/passwd", "..%2F..%2Fetc%2Fpasswd",
+                 "invoiceease-backup-20260917-120000.tar.gz"):
+        resp = client.get(f"/api/v1/ops/backups/{name}/download", headers=h)
+        assert resp.status_code in (400, 404), name
+        assert "passwd" not in resp.text  # 不泄路径
+    assert list(tmp_path.glob("bk/*")) == []  # 不落盘
+
+
+def test_run_task_failure_writes_audit(client, db, monkeypatch):
+    from invoicing.models import AuditLog
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("invoicing.ops.instrumentation.run_manual", _boom)
+    token = _login(client, db, "admin2", Role.admin.value)
+    resp = client.post("/api/v1/ops/tasks/ops_backup/run",
+                       headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 500
+    logs = db.query(AuditLog).filter(AuditLog.action == "OPS_TASK_RUN").all()
+    assert len(logs) == 1
+    assert logs[0].detail["outcome"] == "error"
+    assert logs[0].detail["error"] == "RuntimeError"
+
+
+def test_run_backup_failure_writes_audit(client, db, monkeypatch):
+    from invoicing.models import AuditLog
+
+    def _boom():
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr("invoicing.ops.backup.create_backup", _boom)
+    token = _login(client, db, "admin2", Role.admin.value)
+    resp = client.post("/api/v1/ops/backups/run", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 500
+    logs = db.query(AuditLog).filter(AuditLog.action == "OPS_BACKUP_RUN").all()
+    assert len(logs) == 1
+    assert logs[0].detail["outcome"] == "error"
+    assert logs[0].detail["error"] == "RuntimeError"

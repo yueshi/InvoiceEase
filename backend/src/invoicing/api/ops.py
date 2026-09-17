@@ -1,5 +1,5 @@
 """运维端点（运维兜底，设计 §9）：全部 admin-only；MCP 面不暴露任何 ops 工具。"""
-from datetime import timedelta
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -21,12 +21,23 @@ from invoicing.schemas.ops import (
     TaskRunOut,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/ops", tags=["ops"])
 
 # 设计 §9：手动触发白名单（班表任务全集）
 _RUNNABLE = {"mailbox_poll", "review_predict", "monthly_health", "audit_retention",
              "ops_check", "ops_backup"}
 _VERSION = "0.1.0"  # 与 main.health 保持一致
+
+
+def _write_ops_audit(db: Session, action: str, user_id: int, detail: dict) -> None:
+    """失败路径审计：审计自身失败只记日志，绝不吞掉主流程异常。"""
+    try:
+        write_audit(db, action, user_id=user_id, detail=detail)
+        db.commit()
+    except Exception:
+        logger.exception("运维审计写入失败 action=%s", action)
 
 
 @router.get("/status", response_model=OpsStatusOut)
@@ -73,7 +84,13 @@ def run_task(name: str, db: Session = Depends(get_db), user: User = Depends(requ
         raise HTTPException(status_code=400, detail=f"不支持手动触发: {name}")
     from invoicing.ops.instrumentation import run_manual
 
-    run_manual(name)  # 同步阻塞执行；结果由 task_runs 记录
+    try:
+        run_manual(name)  # 同步阻塞执行；结果由 task_runs 记录
+    except Exception as exc:
+        # 失败也落审计（FRD 审计完整可追溯）；审计自身失败只记日志，不吞原异常
+        _write_ops_audit(db, "OPS_TASK_RUN", user.id,
+                         {"task": name, "outcome": "error", "error": type(exc).__name__})
+        raise HTTPException(status_code=500, detail=f"任务执行失败: {type(exc).__name__}") from exc
     write_audit(db, "OPS_TASK_RUN", user_id=user.id, detail={"task": name})
     db.commit()
     return {"task": name, "status": "done"}
@@ -109,6 +126,9 @@ def run_backup(db: Session = Depends(get_db), user: User = Depends(require_role(
     try:
         tar_path = create_backup()
     except Exception as exc:
+        # 失败也落审计（FRD 审计完整可追溯）；审计自身失败只记日志，不吞原异常
+        _write_ops_audit(db, "OPS_BACKUP_RUN", user.id,
+                         {"outcome": "error", "error": type(exc).__name__})
         raise HTTPException(status_code=500, detail=f"备份失败: {type(exc).__name__}") from exc
     write_audit(db, "OPS_BACKUP_RUN", user_id=user.id, detail={"file": tar_path.name})
     db.commit()
