@@ -851,3 +851,13 @@ def test_add_receipt_suggests_voucher_type_by_category(db, users):
     buy_item = svc.add_receipt(db, users["emp"], claim.id, buy_r.id, entry.id,
                                expense_type="office", note="采购")
     assert buy_item.voucher_type == "bank_receipt"
+
+    # 工资/内部调拨的建议值是 internal（非本端点凭证类型）→ 收敛为银行回单，不得报错
+    salary_r = BankReceipt(file_url="salary.pdf", file_type="PDF", counterparty_name="某某公司",
+                           amount=Decimal("5000.00"), trade_date=date(2026, 5, 14), status="unmatched",
+                           direction="付", abstract="代发工资", category="salary")
+    db.add(salary_r)
+    db.commit()
+    salary_item = svc.add_receipt(db, users["emp"], claim.id, salary_r.id, entry.id,
+                                  expense_type="office", note="代发工资")
+    assert salary_item.voucher_type == "bank_receipt"

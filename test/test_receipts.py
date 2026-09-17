@@ -1278,6 +1278,7 @@ def test_receipt_category_manual_override_and_auto_restore(client, db):
     # auto：还原规则判定
     resp = client.post(f"/api/v1/receipts/{r.id}/category", json={"category": "auto"}, headers=auth)
     assert resp.json()["category"] == "purchase" and resp.json()["category_source"] == "rule"
+    assert resp.json()["invoice_requirement"] == "fetch"  # 派生随类别走（采购 → 需催票）
 
     # 非法值 422
     assert client.post(f"/api/v1/receipts/{r.id}/category", json={"category": "nope"},
