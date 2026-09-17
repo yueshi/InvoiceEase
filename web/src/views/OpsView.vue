@@ -152,7 +152,7 @@ onMounted(load);
 
 <template>
   <div>
-    <PageHeader title="运维" desc="系统状态、任务班表执行记录、告警历史、备份与自检（仅管理员）。" />
+    <PageHeader title="运维管理" desc="系统状态、任务班表执行记录、告警历史、备份与自检（仅管理员）。" />
 
     <a-row v-if="status && !statusFailed" :gutter="12" class="status-row">
       <a-col :xs="12" :md="4"><a-card size="small"><a-statistic title="版本" :value="status.version" /></a-card></a-col>

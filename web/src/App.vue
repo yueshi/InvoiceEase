@@ -39,7 +39,7 @@ const menuItems = computed(() => [
   { key: "/mcp-tokens", label: "我的令牌" },
   ...(isFinance() ? [{ key: "/receipts", label: "银行回单" }] : []),
   ...(isFinance() ? [{ key: "/tasks", label: "异步任务" }] : []),
-  ...(auth.isAdmin ? [{ key: "/audit", label: "审计日志" }, { key: "/ops", label: "运维" }, { key: "/settings", label: "系统配置" }] : []),
+  ...(auth.isAdmin ? [{ key: "/audit", label: "审计日志" }, { key: "/ops", label: "运维管理" }, { key: "/settings", label: "系统配置" }] : []),
 ]);
 
 function onLogout() {
