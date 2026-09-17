@@ -5,6 +5,7 @@ import { computed } from "vue";
 import { message } from "ant-design-vue";
 import { setReceiptCategory } from "../api/receipts";
 import { BANK_LABELS, RECEIPT_CATEGORY_LABELS, type ReceiptOut } from "../types";
+import { receiptStatusColor, receiptStatusText } from "../utils/format";
 
 const props = defineProps<{ open: boolean; receipt: ReceiptOut | null }>();
 const emit = defineEmits<{
@@ -54,12 +55,6 @@ const REVIEW_ISSUE_LABELS: Record<string, string> = {
   no_trade_date: "缺交易日期",
 };
 
-const STATUS_META: Record<string, { text: string; color: string }> = {
-  paired: { text: "已配对", color: "green" },
-  unmatched: { text: "无票", color: "orange" },
-  pending: { text: "待处理", color: "blue" },
-};
-
 function issueText(r: ReceiptOut | null): string {
   const issues = r?.quality_issues || [];
   if (!issues.length) return "—";
@@ -86,9 +81,7 @@ function issueText(r: ReceiptOut | null): string {
         <a-descriptions-item label="金额">{{ props.receipt.amount || "—" }}</a-descriptions-item>
         <a-descriptions-item label="摘要">{{ props.receipt.abstract || "—" }}</a-descriptions-item>
         <a-descriptions-item label="状态">
-          <a-tag :color="STATUS_META[props.receipt.status]?.color || 'default'">
-            {{ STATUS_META[props.receipt.status]?.text || props.receipt.status }}
-          </a-tag>
+          <a-tag :color="receiptStatusColor(props.receipt)">{{ receiptStatusText(props.receipt) }}</a-tag>
           <a-tag v-if="props.receipt.needs_review" color="red" class="gap-tag">待核对</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="交易性质">

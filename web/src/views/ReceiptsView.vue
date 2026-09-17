@@ -17,7 +17,7 @@ import {
 } from "../api/receipts";
 import { BANK_LABELS, type ReceiptOut } from "../types";
 import PageHeader from "../components/PageHeader.vue";
-import { formatMoney } from "../utils/format";
+import { formatMoney, receiptStatusColor, receiptStatusText } from "../utils/format";
 import ReceiptDetailDrawer from "../components/ReceiptDetailDrawer.vue";
 import ReceiptLocatePanel from "../components/ReceiptLocatePanel.vue";
 
@@ -57,22 +57,6 @@ const columns = [
   { title: "状态", dataIndex: "status", key: "status" },
   { title: "操作", key: "action" },
 ];
-
-/** 状态文案/配色：未配对行按发票要求三分（2026-09-17 T5 审查更正：issue 不能并入「无需发票」） */
-function statusText(r: ReceiptOut): string {
-  if (r.status === "paired") return "已配对";
-  if (r.status !== "unmatched") return "待处理";
-  if (r.invoice_requirement === "fetch") return "无票"; // 需追发票
-  if (r.invoice_requirement === "issue") return "待开票"; // 我方需开销项票（客户回款）
-  return "无需发票"; // 税费/社保/银行费用等
-}
-function statusColor(r: ReceiptOut): string {
-  if (r.status === "paired") return "green";
-  if (r.status !== "unmatched") return "blue";
-  if (r.invoice_requirement === "fetch") return "orange";
-  if (r.invoice_requirement === "issue") return "blue";
-  return "default";
-}
 
 // 详情抽屉
 const detailOpen = ref(false);
@@ -288,7 +272,7 @@ onMounted(load);
           <span class="num">{{ formatMoney(record.amount) }}</span>
         </template>
         <template v-if="column.key === 'status'">
-          <a-tag :color="statusColor(record)">{{ statusText(record) }}</a-tag>
+          <a-tag :color="receiptStatusColor(record)">{{ receiptStatusText(record) }}</a-tag>
           <a-tooltip v-if="record.needs_review" title="解析质量存疑，请核对原件">
             <a-tag color="red" class="gap-tag">待核对</a-tag>
           </a-tooltip>

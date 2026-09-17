@@ -199,6 +199,11 @@ describe("ReceiptsView", () => {
     await flushPromises();
     expect(document.body.textContent).toContain("客户回款：我方需开具销项发票");
 
+    // 抽屉状态与列表同口径：必须查抽屉自己的 DOM（body 全域会被列表自身的标签满足 → 假绿）
+    const drawerText = document.querySelector(".ant-drawer-body")?.textContent ?? "";
+    expect(drawerText).toContain("待开票");
+    expect(drawerText).not.toContain("无票"); // 旧 STATUS_META 对 unmatched 一律「无票」
+
     // 改性质 → 调接口（回单 id、选项值）+ 抽屉 refresh 事件真接线到列表 load()
     const select = wrapper.findComponent({ name: "ASelect" });
     expect(select.exists()).toBe(true);
