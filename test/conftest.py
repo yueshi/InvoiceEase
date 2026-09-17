@@ -10,6 +10,7 @@ os.environ.setdefault("INVOICING_PASSWORD_HASH_ROUNDS", "4")  # bcrypt 降 cost�
 os.environ.setdefault("INVOICING_LLM_ENABLED", "false")  # 测试环境禁用 LLM（防 .env 真实配置污染）
 os.environ.setdefault("INVOICING_JWT_SECRET", "test-secret-0123456789-0123456789-0123456789")
 os.environ.setdefault("INVOICING_ADMIN_PASSWORD", "admin123")
+os.environ.setdefault("INVOICING_FERNET_KEY", "cZgtiPVTynDwwW2jxBUMpBv47QDU4Rmbx_SZSNEpNww=")  # 测试专用固定 key：加密接口拒绝未配置 key（见 fetch/crypto.py）
 
 import pytest
 from sqlalchemy import create_engine

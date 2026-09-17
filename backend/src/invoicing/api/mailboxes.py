@@ -2,13 +2,24 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from invoicing.db import get_db
-from invoicing.fetch.crypto import encrypt_secret
+from invoicing.fetch.crypto import encrypt_secret, fernet_configured
 from invoicing.fetch.service import PollResult, poll_mailbox
 from invoicing.models import Mailbox, User
 from invoicing.schemas.mailbox import MailboxCreate, MailboxOut, MailboxUpdate, PollResultOut
 from invoicing.security import require_role
 
 router = APIRouter(prefix="/mailboxes", tags=["mailboxes"])
+
+
+def _ensure_fernet() -> None:
+    """凭据写入前守卫：key 未配置时拒绝（crypto 已二次兜底），给用户可操作的 400。"""
+    if not fernet_configured():
+        raise HTTPException(
+            400,
+            "INVOICING_FERNET_KEY 未配置或非法，无法加密邮箱凭据。"
+            '生成：python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"，'
+            "写入 backend/.env 后重启（详见 docs/运维手册.html）",
+        )
 
 
 @router.get("", response_model=list[MailboxOut])
@@ -18,6 +29,7 @@ def list_mailboxes(db: Session = Depends(get_db), _: User = Depends(require_role
 
 @router.post("", response_model=MailboxOut)
 def create_mailbox(body: MailboxCreate, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    _ensure_fernet()
     if body.mailbox_type == "imap":
         if not (body.imap_host and body.username and body.password):
             raise HTTPException(422, "IMAP 类型邮箱必须提供 imap_host/username/password")
@@ -61,6 +73,15 @@ def update_mailbox(
     mb = db.get(Mailbox, mailbox_id)
     if mb is None:
         raise HTTPException(404, "邮箱配置不存在")
+    if any(
+        field in body.model_dump(exclude_unset=True) and value
+        for field, value in (
+            ("password", body.password),
+            ("smtp_password", body.smtp_password),
+            ("agently_token", body.agently_token),
+        )
+    ):
+        _ensure_fernet()
     for field, value in body.model_dump(exclude_unset=True).items():
         if field == "password":
             # 非空才加密写入；null/空串表示「不修改」，避免写 None 触发 NOT NULL 约束

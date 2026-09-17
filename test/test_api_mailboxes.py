@@ -172,3 +172,26 @@ def test_test_connection_agently(client, db, monkeypatch):
     resp2 = client.post(f"/api/v1/mailboxes/{mailbox_id}/test", headers=_h(token))
     assert resp2.status_code == 200
     assert resp2.json()["ok"] is True
+
+
+def test_create_mailbox_rejects_when_fernet_unconfigured(client, db, monkeypatch):
+    """key 未配置时拒绝写凭据（400 + 可操作提示），而不是落库一份重启即失效的密文。"""
+    from invoicing.config import settings
+
+    token = _admin_token(client, db)
+    monkeypatch.setattr(settings, "fernet_key", "placeholder")
+    resp = client.post(
+        "/api/v1/mailboxes",
+        json={
+            "name": "企业邮箱",
+            "imap_host": "imap.example.com",
+            "imap_port": 993,
+            "use_ssl": True,
+            "username": "inv@example.com",
+            "password": "secret123",
+            "keywords": "发票,Invoice",
+        },
+        headers=_h(token),
+    )
+    assert resp.status_code == 400
+    assert "INVOICING_FERNET_KEY" in resp.json()["detail"]

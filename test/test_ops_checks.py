@@ -56,3 +56,16 @@ def test_run_startup_checks_strict_raises(monkeypatch):
     monkeypatch.setattr(settings, "fernet_key", "short")
     with pytest.raises(RuntimeError):
         run_startup_checks()
+
+
+def test_check_fernet_key_fail_when_ciphertexts_exist(monkeypatch, db):
+    """坏 key + 库里已有凭据密文 → 升级 fail（与 strict 无关）：密文已无法解密。"""
+    from invoicing.models import Mailbox
+
+    monkeypatch.setattr(settings, "fernet_key", "short")
+    db.add(Mailbox(name="旧邮箱", mailbox_type="imap", password_encrypted="gAAAAABmdead"))
+    db.commit()
+    level, msg = check_fernet_key()
+    assert level == "fail"
+    assert "reencrypt_secrets" in msg
+    assert "1 条" in msg

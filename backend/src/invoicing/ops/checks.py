@@ -1,6 +1,5 @@
 """启动自检与深度自检（运维兜底）：同一套检查函数，lifespan 启动跑一次，
 /ops/status 随时重跑。level: ok / warn / fail / info。"""
-import base64
 import logging
 import shutil
 from pathlib import Path
@@ -26,12 +25,38 @@ def check_dirs_writable() -> tuple[str, str]:
 
 
 def check_fernet_key() -> tuple[str, str]:
+    from sqlalchemy import or_
+
+    from invoicing.db import SessionLocal
+    from invoicing.fetch.crypto import fernet_configured
+    from invoicing.models import Mailbox
+
+    if fernet_configured():
+        return "ok", "fernet_key 有效"
+    # 未配置/非法：查库里是否已有凭据密文——有则这些密文已无法解密（或重启即失效），
+    # 升级为 fail（无论 strict）；无则只是「无法新增凭据」，维持 warn（开发环境友好）。
+    ciphertext_hint = "凭据加密已拒绝，邮箱登录不可用"
     try:
-        if len(base64.b64decode(settings.fernet_key, validate=True)) == 32:
-            return "ok", "fernet_key 有效"
+        with SessionLocal() as db:
+            n = (
+                db.query(Mailbox)
+                .filter(
+                    or_(
+                        Mailbox.password_encrypted.isnot(None),
+                        Mailbox.smtp_password_encrypted.isnot(None),
+                        Mailbox.agently_token_encrypted.isnot(None),
+                    )
+                )
+                .count()
+            )
+        if n:
+            return "fail", (
+                f"fernet_key 未配置/非法：库中已有 {n} 条邮箱凭据密文无法解密——"
+                "用 scripts/reencrypt_secrets.py 从旧 key 迁移，或重新录入凭据"
+            )
     except Exception:
-        pass
-    msg = "fernet_key 非法（需 32 字节 base64）：本次进程生成的加密数据重启后将无法解密（R1 探针）"
+        logger.exception("fernet_key 自检查询密文失败，退回 warn 评估")
+    msg = f"fernet_key 未配置/非法（需 44 字符 urlsafe base64 / 32 字节）：{ciphertext_hint}"
     return ("fail" if settings.startup_checks_strict else "warn"), msg
 
 
