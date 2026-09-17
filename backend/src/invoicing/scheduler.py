@@ -155,6 +155,16 @@ def _scheduled_audit_retention() -> None:
 register_task("audit_retention", _scheduled_audit_retention, trigger="cron", hour=3, minute=17)
 
 
+def _scheduled_backup() -> None:
+    from invoicing.ops.backup import create_backup
+
+    create_backup()  # 失败由 wrap_job 记 error；backup.missing 告警由 ops_check 兜底
+
+
+# 每日 02:17（错开 audit_retention 03:17）
+register_task("ops_backup", _scheduled_backup, trigger="cron", hour=2, minute=17)
+
+
 def _install_missed_listener(scheduler) -> None:
     """EVENT_JOB_MISSED → task_runs outcome=missed。"""
     from apscheduler.events import EVENT_JOB_MISSED
