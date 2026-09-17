@@ -5,7 +5,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from invoicing.audit import write_audit
-from invoicing.models import AuditLog, Invoice, InvoiceStatus, Role, User
+from invoicing.models import AuditLog, BankReceipt, Invoice, InvoiceStatus, Role, User
 from invoicing.models.fields import utcnow
 from invoicing.schemas.invoice import InvoiceListResponse
 from invoicing.storage import get_storage
@@ -390,14 +390,20 @@ def unblock_invoice(db: Session, current_user: User | None, invoice_id: int, *, 
         enqueue_verify_sync(inv.id)
     return inv
 
-def _cleanup_dependents_of(db: Session, invoice_id: int) -> int:
-    """清理指向 `invoice_id` 的悬空重复引用（C1 根因修复）。
+def _cleanup_dependents_of(db: Session, invoice_id: int, *, unlink_receipts: bool = False) -> int:
+    """清理指向 `invoice_id` 的悬空引用（C1 根因修复；终审 1a 补回单）。
 
     删除/重复拦截前必须先调本函数——否则删掉原票后，依赖票的 duplicate_of_id
     仍指向不存在的 id，前端显示「重复：是」但跳转 404。
 
+    回单同理（`unlink_receipts=True` 时）：调用方即将物理删除该发票，而 FK
+    `ON DELETE SET NULL` 只清 paired_invoice_id，status 会停在 "paired"
+    → 回单在催票队列（未配对）里却顶着「已配对」标签，前后自相矛盾。
+    **发票保留的调用方（重复拦截里清 surviving 原票）不要传 True**——
+    那会把仍然有效的配对静默拆掉。
+
     Returns:
-        清理的依赖票行数（affected dependents）。
+        清理的依赖票行数（affected dependents，不含回单）。
     """
     dependents = db.query(Invoice).filter(Invoice.duplicate_of_id == invoice_id).all()
     for dep in dependents:
@@ -405,6 +411,11 @@ def _cleanup_dependents_of(db: Session, invoice_id: int) -> int:
         dep.duplicate_of_id = None
         if dep.status == InvoiceStatus.blocked.value:
             transition(dep, InvoiceStatus.pending_review.value)
+    if unlink_receipts:
+        receipts = db.query(BankReceipt).filter(BankReceipt.paired_invoice_id == invoice_id).all()
+        for r in receipts:
+            r.paired_invoice_id = None
+            r.status = "unmatched"
     return len(dependents)
 
 
@@ -429,8 +440,8 @@ def delete_invoice(db: Session, current_user: User | None, invoice_id: int, *, c
         invoice_id=inv.id, channel=effective_channel,
         detail={"snapshot": snapshot},
     )
-    # 悬空引用清理：先清 dependents 再删本记录（FK CASCADE 兜底，本函数保证应用层一致）
-    _cleanup_dependents_of(db, invoice_id)
+    # 悬空引用清理：先清 dependents/回单再删本记录（FK CASCADE 兜底，本函数保证应用层一致）
+    _cleanup_dependents_of(db, invoice_id, unlink_receipts=True)
     storage = get_storage()
     for key in (inv.file_url, inv.xml_url):
         if not key:

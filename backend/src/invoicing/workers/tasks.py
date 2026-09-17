@@ -86,7 +86,7 @@ def _parse_invoice(invoice_id: int) -> None:
                     "discarded_invoice_id": invoice_id,
                 },
             )
-            _cleanup_dependents_of(db, inv.id)
+            _cleanup_dependents_of(db, inv.id, unlink_receipts=True)  # 本记录即将物理删除
             for key in (inv.file_url, inv.xml_url):
                 if not key:
                     continue

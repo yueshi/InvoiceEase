@@ -1295,3 +1295,32 @@ def test_receipt_out_exposes_category_fields(client, db):
     row = client.get("/api/v1/receipts?month=2026-08", headers=auth).json()[0]
     assert row["category"] == "tax" and row["category_source"] == "rule"
     assert row["invoice_requirement"] == "none"
+
+
+def test_reclassify_skips_manual_and_is_idempotent(db):
+    """重分类默认跳过人工覆盖行（设计 §5 契约）：运维误点一次不得静默改写人工判断。
+
+    人工行故意判成规则会判成别的类（国库行规则判 tax，人工判 purchase）——
+    若跳过被删，该行会被重算成 tax，本用例必红。
+    """
+    from invoicing.workflow.receipts import reclassify_receipts
+
+    man = BankReceipt(
+        file_url="m.pdf", file_type="PDF", trade_date=date(2026, 8, 7),
+        counterparty_name="国家金库陕西省西咸新区支库", amount=Decimal("1116.00"),
+        status="unmatched", direction="付", category="purchase", category_source="manual",
+    )
+    rule = BankReceipt(
+        file_url="r.pdf", file_type="PDF", trade_date=date(2026, 8, 8),
+        counterparty_name="供应商甲", amount=Decimal("800.00"),
+        status="unmatched", direction="付", category="unknown", category_source="rule",
+    )
+    db.add_all([man, rule])
+    db.commit()
+
+    assert reclassify_receipts(db) == 1  # 仅 rule 行被重算
+    db.refresh(man)
+    db.refresh(rule)
+    assert (man.category, man.category_source) == ("purchase", "manual")  # 人工判断原样
+    assert (rule.category, rule.category_source) == ("purchase", "rule")  # 规则行重算
+    assert reclassify_receipts(db) == 0  # 幂等：再跑一次零变更

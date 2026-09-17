@@ -2,6 +2,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ReceiptsView from "../ReceiptsView.vue";
+import type { ReceiptOut } from "../../types";
 
 vi.mock("../../api/receipts", () => ({
   listReceipts: vi.fn().mockResolvedValue([]),
@@ -151,7 +152,7 @@ describe("ReceiptsView", () => {
 
   it("详情抽屉标注交易性质来源（人工/规则）", async () => {
     const api = await import("../../api/receipts");
-    vi.mocked(api.listReceipts).mockResolvedValue([
+    const rows: ReceiptOut[] = [
       {
         id: 11, file_url: "a.pdf", file_type: "PDF", trade_date: "2026-08-10",
         counterparty_name: "供应商甲", amount: "800.00", abstract: "货款",
@@ -176,7 +177,17 @@ describe("ReceiptsView", () => {
         bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: null,
         status: "unmatched", created_at: "2026-08-06T10:00:00",
       },
-    ]);
+    ];
+    // 改性质后的第二次拉取（refresh）：13 号已改为 social（人工）
+    const refreshed: ReceiptOut[] = rows.map((r) =>
+      r.id === 13
+        ? { ...r, category: "social", category_source: "manual", invoice_requirement: "none" }
+        : r,
+    );
+    vi.mocked(api.listReceipts)
+      .mockResolvedValueOnce(rows)
+      .mockResolvedValueOnce(refreshed)
+      .mockResolvedValue(refreshed);
     vi.mocked(api.probeReceiptsPeriod).mockResolvedValue(0);
 
     const wrapper = await mountWithAntd(true); // 真渲染抽屉（内容 teleport 到 document.body）
@@ -214,6 +225,42 @@ describe("ReceiptsView", () => {
     await flushPromises();
     expect(vi.mocked(api.setReceiptCategory)).toHaveBeenCalledWith(13, "social");
     expect(vi.mocked(api.listReceipts)).toHaveBeenCalledTimes(2); // 挂载 1 次 + refresh 1 次
+
+    // 刷新后抽屉必须显示新性质（终审 2）：detailRecord 持旧行则仍是「客户回款」旧值
+    const afterRefresh = document.querySelector(".ant-drawer-body")?.textContent ?? "";
+    expect(afterRefresh).toContain("社保/公积金");
+    expect(afterRefresh).toContain("该性质无需发票");
+    expect(afterRefresh).not.toContain("客户回款：我方需开具销项发票");
+  }, 20000);
+
+  it("状态列以 paired_invoice_id 为门：status 滞后为 paired 时不得显示「已配对」（终审 1b）", async () => {
+    const api = await import("../../api/receipts");
+    vi.mocked(api.listReceipts).mockResolvedValue([
+      {
+        // 删票后 FK SET NULL 的漏网行：paired_invoice_id 空却在催票队列
+        id: 31, file_url: "a.pdf", file_type: "PDF", trade_date: "2026-08-10",
+        counterparty_name: "供应商甲", amount: "800.00", abstract: "货款",
+        direction: "付", needs_review: false, quality_issues: null,
+        category: "purchase", category_source: "rule", invoice_requirement: "fetch",
+        bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: null,
+        status: "paired", created_at: "2026-08-10T10:00:00",
+      },
+      {
+        id: 32, file_url: "b.pdf", file_type: "PDF", trade_date: "2026-08-09",
+        counterparty_name: "供应商乙", amount: "900.00", abstract: "货款",
+        direction: "付", needs_review: false, quality_issues: null,
+        category: "purchase", category_source: "rule", invoice_requirement: "fetch",
+        bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: 7,
+        status: "paired", created_at: "2026-08-09T10:00:00",
+      },
+    ]);
+    vi.mocked(api.probeReceiptsPeriod).mockResolvedValue(0);
+
+    const wrapper = await mountWithAntd();
+    await flushPromises();
+    const tags = wrapper.findAll(".ant-tag").map((t) => t.text());
+    expect(tags[0]).not.toBe("已配对"); // 门不同源的老症状：绿标签与队列自相矛盾
+    expect(tags[1]).toBe("已配对");
   }, 20000);
 
   it("其他周期也没有数据 → 不显示误导性提示", async () => {

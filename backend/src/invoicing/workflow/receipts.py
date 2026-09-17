@@ -96,16 +96,21 @@ def reclassify_receipts(db, include_manual: bool = False) -> int:
     return changed
 
 
-def is_unmatched_expense(receipt: BankReceipt) -> bool:
-    """无票支出 = 未配对 + 非收方向（兜底未重分类的历史行）+ 该交易性质需要取得发票。
+def is_unpaired_outflow(receipt: BankReceipt) -> bool:
+    """未配对 + 非收方向——「未配对队列」的谓词本体（一处判定，多方共用）。
 
     支出方向：direction 为 "付" 或未识别（None）——与凭证导出同口径
     （reports.receipts_to_csv：仅 "收" 走借银行/贷收入，其余按费用处理）。
-    收款（"收"）未配对属「收款未开票」，不是无票支出，不计入。
+    收款（"收"）未配对属「收款未开票」，不是支出，不计入。
+    无票支出（is_unmatched_expense）与月报「无需发票」行（reports.monthly_health）
+    必须共用本函数——此前月报逐字重抄，谓词一改就漂移。
+    """
+    return receipt.paired_invoice_id is None and receipt.direction != "收"
+
+
+def is_unmatched_expense(receipt: BankReceipt) -> bool:
+    """无票支出 = 未配对 + 非收方向（兜底未重分类的历史行）+ 该交易性质需要取得发票。
+
     税费/社保/银行费用/工资/内部调拨等 requirement=none 的类别不计入（设计 §6）。
     """
-    return (
-        receipt.paired_invoice_id is None
-        and receipt.direction != "收"
-        and requirement_of(receipt.category) == "fetch"
-    )
+    return is_unpaired_outflow(receipt) and requirement_of(receipt.category) == "fetch"

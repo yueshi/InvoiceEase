@@ -367,6 +367,52 @@ def test_delete_clears_dangling_duplicate_refs(client, db):
     assert dep.status == "pending_review"  # 被拦截的依赖票转待复核
 
 
+def test_delete_resets_paired_receipts_to_unmatched(client, db):
+    """删票必须复位指向它的回单（终审 1a）。
+
+    回归：FK `ON DELETE SET NULL` 只清 paired_invoice_id，status 停在 "paired"
+    → 回单进了催票队列（未配对）却顶着绿色「已配对」，同屏自相矛盾。
+    """
+    from invoicing.models import BankReceipt
+    from invoicing.workflow.receipts import is_unmatched_expense
+
+    _seed(db, "zhuguan4", Role.finance_manager.value)
+    inv = _invoice(db)
+    r = BankReceipt(
+        file_url="r.pdf", file_type="PDF", trade_date=date(2026, 8, 5),
+        counterparty_name="供应商甲", amount=Decimal("800.00"),
+        direction="付", category="purchase", category_source="rule",
+        paired_invoice_id=inv.id, status="paired",
+    )
+    db.add(r)
+    db.flush()
+    token = _login(client, "zhuguan4")
+    resp = client.delete(f"/api/v1/invoices/{inv.id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    db.flush()
+    db.refresh(r)
+    assert r.paired_invoice_id is None
+    assert r.status == "unmatched"
+    assert is_unmatched_expense(r) is True  # 回归催票队列，且状态不再自相矛盾
+
+
+def test_cleanup_dependents_keeps_receipts_of_surviving_invoice(db):
+    """发票保留的清理（重复拦截路径）不得拆有效配对——unlink_receipts 只在删除前传。"""
+    from invoicing.models import BankReceipt
+    from invoicing.workflow.services import _cleanup_dependents_of
+
+    inv = _invoice(db)
+    r = BankReceipt(
+        file_url="r.pdf", file_type="PDF", counterparty_name="供应商甲",
+        amount=Decimal("800.00"), direction="付", category="purchase",
+        paired_invoice_id=inv.id, status="paired",
+    )
+    db.add(r)
+    db.flush()
+    assert _cleanup_dependents_of(db, inv.id) == 0
+    assert (r.paired_invoice_id, r.status) == (inv.id, "paired")
+
+
 def test_put_amount_fields_recalculates_validation_errors(client, db):
     """回归：用户修正大写金额后 validation_errors 重算，CN_MISMATCH 告警消除（飞猪票事故）。"""
     _seed(db, "caiwu9", Role.finance_staff.value)

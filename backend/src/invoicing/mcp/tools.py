@@ -227,7 +227,7 @@ def ingest_invoice(file_path: str) -> InvoiceOut:
                 db, action="PARSE", invoice_id=inv.id,
                 detail={"result": "not_invoice", "rejected_by": "mcp_ingest", "file_type": kind},
             )
-            _cleanup_dependents_of(db, inv.id)
+            _cleanup_dependents_of(db, inv.id, unlink_receipts=True)  # 本记录即将物理删除
             db.delete(inv)
             db.commit()
             raise ValueError(reason)
@@ -821,8 +821,14 @@ def receipt_upload_status(upload_id: int) -> dict:
 
 @requires("receipt:read")
 def receipt_list(month: str) -> list[dict]:
-    """回单清单（P3/R1）：month=YYYY-MM。"""
+    """回单清单（P3/R1）：month=YYYY-MM。
+
+    带 `category` / `invoice_requirement`（终审 7，与 API `_receipt_out` 同源派生）：
+    Agent 侧不能只靠 status 推「无需发票 / 待开票」——status 是配对面孔，
+    发票要求由交易性质派生。
+    """
     from invoicing.reports import receipts_in_month
+    from invoicing.workflow.receipts import requirement_of
 
     with SessionLocal() as db:
         rows = receipts_in_month(db, month)
@@ -838,6 +844,8 @@ def receipt_list(month: str) -> list[dict]:
                 "quality_issues": r.quality_issues,
                 "bank_code": r.bank_code,
                 "page_no": r.page_no,
+                "category": r.category,
+                "invoice_requirement": requirement_of(r.category),
                 "paired_invoice_id": r.paired_invoice_id,
                 "status": r.status,
             }

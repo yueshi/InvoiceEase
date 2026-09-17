@@ -100,6 +100,30 @@ def test_receipt_report_excludes_invoice_exempt(db, mcp_admin_auth):
     assert "国家金库" not in text
 
 
+def test_receipt_list_exposes_category_and_requirement(db, mcp_admin_auth):
+    """MCP 清单带交易性质与发票要求（终审 7）：Agent 侧不能只靠 status 猜「要不要票」。"""
+    from invoicing.mcp.tools import receipt_list
+    from invoicing.models import BankReceipt
+
+    _seed(db)
+    db.add_all([
+        BankReceipt(file_url="t.pdf", file_type="PDF", trade_date=date(2026, 8, 7),
+                    counterparty_name="国家金库陕西省西咸新区支库", amount=Decimal("1116.00"),
+                    status="unmatched", direction="付", category="tax"),
+        BankReceipt(file_url="b.pdf", file_type="PDF", trade_date=date(2026, 8, 8),
+                    counterparty_name="供应商甲", amount=Decimal("800.00"),
+                    status="unmatched", direction="付", category="purchase"),
+    ])
+    db.commit()
+
+    by_name = {r["counterparty_name"]: r for r in receipt_list(month="2026-08")}
+    tax, purchase = by_name["国家金库陕西省西咸新区支库"], by_name["供应商甲"]
+    assert (tax["category"], tax["invoice_requirement"]) == ("tax", "none")   # 无需发票
+    assert (purchase["category"], purchase["invoice_requirement"]) == ("purchase", "fetch")
+    # 既有字段不得改动（WorkBuddy 契约）
+    assert {"id", "trade_date", "amount", "direction", "status", "paired_invoice_id"} <= set(purchase)
+
+
 @pytest.mark.asyncio
 async def test_in_memory_client_lists_tools():
     async with Client(mcp, raise_exceptions=True) as client:

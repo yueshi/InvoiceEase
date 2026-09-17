@@ -100,6 +100,9 @@ async function load() {
   loading.value = true;
   try {
     rows.value = await listReceipts(periodParam(), unmatchedOnly.value);
+    // 抽屉持有旧行对象：整体替换 rows 后按 id 回填，否则改完性质抽屉还显示旧值（终审 2）
+    const fresh = detailRecord.value && rows.value.find((r) => r.id === detailRecord.value!.id);
+    if (fresh) detailRecord.value = fresh;
   } catch (e) {
     errorMessage(e, "回单加载失败");
   } finally {
