@@ -64,6 +64,16 @@
   box-shadow: var(--shadow-card);
 }
 
+/* 通用换行行（按钮行/标签行）：替代 <a-space wrap>——后者给根节点打内联
+   margin-bottom:-8px，而 items 的 8px 补偿在支持 flex-gap 的浏览器里不加，
+   会把紧随其后的元素上提 8px 压住本行（表头遮按钮下沿）。 */
+.wrap-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 /* 表格白卡容器 */
 .table-card {
   padding: var(--space-4);

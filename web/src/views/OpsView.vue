@@ -171,12 +171,12 @@ onMounted(load);
     <a-tabs v-model:activeKey="activeTab">
       <a-tab-pane key="tasks" tab="任务" v-if="!tasksFailed">
         <div class="table-card">
-        <a-space class="mb-3" wrap>
+        <div class="wrap-row mb-3">
           <a-button v-for="name in RUNNABLE" :key="name" size="small" :disabled="busy" @click="onRunTask(name)">
             手动执行 {{ name }}
           </a-button>
           <a-button size="small" @click="load">刷新</a-button>
-        </a-space>
+        </div>
         <a-table :data-source="runs" :pagination="{ total: runsTotal, pageSize: 20 }" row-key="id" size="middle">
           <a-table-column title="任务" data-index="task_name" :width="140" />
           <a-table-column title="触发" data-index="trigger" :width="90" />

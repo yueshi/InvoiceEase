@@ -23,4 +23,18 @@ describe("UI 约定", () => {
     });
     expect(offenders).toEqual([]);
   });
+
+  it("不得用 <a-space wrap>：其内联负边距会让后续元素上提 8px 压住本行（用 .wrap-row）", () => {
+    // antdv Space 在 wrap 时给根节点打内联 margin-bottom:-8px，而 items 的 8px
+    // 补偿只在「不支持 flex-gap」的浏览器里加——支持 flex-gap 的现代浏览器里两边
+    // 不对称，紧随其后的元素（如表头）会上提压住按钮下沿。实测见 2026-09-17 修复。
+    const files = walk(join(__dirname, "..")).filter((f) => !f.endsWith(".spec.ts"));
+    const offenders = files.filter((f) => {
+      const src = readFileSync(f, "utf-8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "");
+      return /<a-space\b[^>]*\bwrap\b/.test(src);
+    });
+    expect(offenders).toEqual([]);
+  });
 });

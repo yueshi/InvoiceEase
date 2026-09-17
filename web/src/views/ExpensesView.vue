@@ -405,7 +405,7 @@ onMounted(() => {
       @close="detailOpen = false"
     >
       <template v-if="detail">
-        <a-space class="mb-3" wrap>
+        <div class="wrap-row mb-3">
           <a-tag :color="EXPENSE_TYPE_COLORS[detail.claim.claim_type as string] || 'default'">
             {{ EXPENSE_TYPE_LABELS[detail.claim.claim_type as string] || detail.claim.claim_type }}
           </a-tag>
@@ -419,7 +419,7 @@ onMounted(() => {
             <a-button size="small" type="primary" @click="onApprove(detail.claim)">通过</a-button>
             <a-button size="small" danger @click="onReject(detail.claim)">驳回</a-button>
           </template>
-        </a-space>
+        </div>
         <a-alert
           v-if="detail.claim.rejected_reason"
           type="error"

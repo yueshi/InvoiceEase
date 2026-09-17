@@ -70,13 +70,13 @@ function issueText(r: ReceiptOut | null): string {
         </a-descriptions-item>
       </a-descriptions>
 
-      <a-space class="mt-4" wrap>
+      <div class="wrap-row mt-4">
         <a-button type="primary" @click="emit('viewFile', props.receipt!)">查看原件</a-button>
         <a-button @click="emit('locate', props.receipt!)">定位高亮</a-button>
         <a-button @click="emit('viewPage', props.receipt!)">
           打开原 PDF{{ props.receipt.page_no ? `第 ${props.receipt.page_no} 页` : "" }}
         </a-button>
-      </a-space>
+      </div>
     </template>
   </a-drawer>
 </template>
