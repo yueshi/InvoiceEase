@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 InvoiceEase · 运维手册</title>
+<style>
+  :root {
+    --ink: #1f2937; --sub: #6b7280; --line: #e5e7eb;
+    --blue: #2563eb; --blue-bg: #eff6ff; --green: #059669; --green-bg: #ecfdf5;
+    --amber: #d97706; --amber-bg: #fffbeb; --red: #dc2626; --red-bg: #fef2f2;
+    --card-bg: #ffffff; --page-bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--page-bg); color: var(--ink); line-height: 1.65; padding: 32px 16px 64px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff;
+           border-radius: 14px; padding: 32px 36px; margin-bottom: 24px; }
+  header h1 { font-size: 26px; font-weight: 700; }
+  header .meta { margin-top: 10px; font-size: 13px; opacity: .92; }
+  header .meta span { display: inline-block; background: rgba(255,255,255,.18);
+                      border-radius: 999px; padding: 2px 12px; margin-right: 8px; margin-top: 6px; }
+  h2 { font-size: 19px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid var(--blue); }
+  h3 { font-size: 15.5px; margin: 18px 0 8px; color: #111827; }
+  .card { background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 24px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; white-space: nowrap; }
+  code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-size: 12.5px;
+         font-family: "SF Mono", Menlo, monospace; color: #111827; }
+  pre { background: #f3f4f6; border: 1px solid var(--line); border-radius: 10px;
+        padding: 14px 18px; font-size: 13px; font-family: "SF Mono", Menlo, monospace;
+        overflow-x: auto; line-height: 1.7; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tag.red { background: var(--red-bg); color: var(--red); }
+  .tag.amber { background: var(--amber-bg); color: var(--amber); }
+  .tag.green { background: var(--green-bg); color: var(--green); }
+  .tag.gray { background: #f3f4f6; color: var(--sub); }
+  .note { background: var(--blue-bg); border-left: 3px solid var(--blue); border-radius: 8px;
+          padding: 12px 16px; font-size: 13.5px; margin: 12px 0; }
+  .warn { background: var(--amber-bg); border-left: 3px solid var(--amber); }
+  .danger { background: var(--red-bg); border-left: 3px solid var(--red); }
+  .ok { background: var(--green-bg); border-left: 3px solid var(--green); }
+  .cols { display: flex; gap: 16px; flex-wrap: wrap; }
+  .cols .card { flex: 1 1 300px; }
+  .toc { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .toc a { display: inline-block; background: var(--card-bg); border: 1px solid var(--line);
+           border-radius: 999px; padding: 3px 14px; font-size: 12.5px; color: var(--ink);
+           text-decoration: none; }
+  .toc a:hover { border-color: var(--blue); color: var(--blue); }
+  ol.steps { padding-left: 22px; font-size: 13.5px; }
+  ol.steps li { margin: 7px 0; }
+  ul.plain { font-size: 13.5px; padding-left: 20px; }
+  ul.plain li { margin: 5px 0; }
+  footer { margin-top: 40px; text-align: center; color: var(--sub); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 InvoiceEase · 运维手册</h1>
+  <div class="meta">
+    <span>V1.0 · 2026-09-17</span>
+    <span>面向：客户 IT 运维</span>
+    <span>部署口径：单机内网私有化</span>
+    <span>后台路径：/ops（仅系统管理员）</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#s1">1 日常巡检</a><a href="#s2">2 告警处置</a><a href="#s3">3 备份与恢复</a>
+  <a href="#s4">4 日志</a><a href="#s5">5 启动自检</a><a href="#s6">6 常见问题</a>
+</nav>
+
+<div class="card">
+  <p style="font-size:13.5px">发票易已内置运维兜底子系统：任务执行全程记录、告警企微推送、数据库与原件每日备份、
+  日志落盘轮转、启动自检。日常运维<b>只需登录 Web 管理后台的「运维」页（/ops）</b>即可完成巡检与处置；
+  恢复与深度排障在服务器命令行完成。全部运维能力<b>仅系统管理员可见</b>，普通用户访问 /ops 会被自动弹回首页。</p>
+</div>
+
+<h2 id="s1">1. 日常巡检（Web 后台）</h2>
+<div class="card">
+  <p style="font-size:13.5px">登录后台 → 左侧进入「运维」（仅系统管理员）。页首为状态卡片（版本 / 运行时长 / 数据库体积 / 原件体积 /
+  磁盘剩余 / 最近备份时间），下方四个 Tab 各看重点：</p>
+  <table>
+    <tr><th>Tab</th><th>看什么</th><th>重点关注</th></tr>
+    <tr><td><b>任务</b></td><td>班表任务与队列任务的执行记录（触发方式 / 开始时间 / 耗时 / 结果 / 错误列）</td>
+        <td><span class="tag red">异常</span> 与 <span class="tag amber">失败</span> 行——点错误列查看原因；顶栏可手动执行白名单任务</td></tr>
+    <tr><td><b>告警</b></td><td>告警历史列表（级别 / 规则 / 内容 / 触发时间）</td>
+        <td>有无 <span class="tag red">严重</span> 级告警，按第 2 节处置表逐条处理</td></tr>
+    <tr><td><b>备份</b></td><td>备份文件列表（大小 / 时间）+ 下载</td>
+        <td>最近备份时间是否距今 24 小时内；必要时「立即备份」</td></tr>
+    <tr><td><b>自检</b></td><td>深度自检全项（fernet_key / 默认密钥 / 迁移版本 / 磁盘 / 目录可写 / 引擎能力）</td>
+        <td><span class="tag amber">warn</span> / <span class="tag red">fail</span> 项——按第 5 节处置；可「刷新自检」「查看日志尾部」</td></tr>
+  </table>
+  <div class="note"><b>巡检建议</b>：每日上班后花 1 分钟看一遍——任务 Tab 无红色、告警 Tab 无严重、备份 Tab 最近备份为今天、
+  自检 Tab 无 warn/fail。全部正常即可。</div>
+</div>
+
+<h2 id="s2">2. 告警处置</h2>
+<div class="card">
+  <p style="font-size:13.5px">告警由后台每 5 分钟评估一次规则自动产生，写入「告警」Tab 并推送企微机器人
+  （同一规则 4 小时内不重复推送）。收到推送后按下表处置：</p>
+  <table>
+    <tr><th>rule_key</th><th>含义</th><th>级别</th><th>首要动作</th></tr>
+    <tr><td><code>task_failed.*</code></td><td>某任务近 1 小时失败 ≥3 次（* 为任务名）</td>
+        <td><span class="tag red">严重</span></td>
+        <td>运维页「任务」Tab 找到该任务的失败/异常行看错误列，再配合日志尾部定位；修复后「手动执行」验证</td></tr>
+    <tr><td><code>mailbox.stalled</code></td><td>收取邮箱超过 2 倍轮询间隔未更新，收取通道疑似瘫痪</td>
+        <td><span class="tag red">严重</span></td>
+        <td>「设置」页找到对应邮箱点「测试连接」；检查邮箱密码是否过期、服务器是否可达、账号是否被锁</td></tr>
+    <tr><td><code>backup.missing</code></td><td>超过 26 小时未产生新备份（当日备份失败或未执行）</td>
+        <td><span class="tag red">严重</span></td>
+        <td>运维页「备份」Tab「立即备份」手动补一份；再查磁盘剩余与备份目录是否可写</td></tr>
+    <tr><td><code>disk.low</code></td><td>磁盘剩余低于 10%</td>
+        <td><span class="tag amber">警告</span></td>
+        <td>扩容磁盘或清理旧日志/临时文件，释放空间后自检确认磁盘剩余回升</td></tr>
+    <tr><td><code>review.backlog</code></td><td>待复核发票积压超过 50 张</td>
+        <td><span class="tag amber">警告</span></td>
+        <td>进入「待复核」清单催办财务处理积压；属业务健康告警，处理即可</td></tr>
+    <tr><td><code>parse.error_rate</code></td><td>近 1 小时解析异常率超过 20%（样本 ≥5 张）</td>
+        <td><span class="tag amber">警告</span></td>
+        <td>运维页「任务」Tab 过滤 task_name=parse，看 error 列样本与日志尾部，定位异常发票原件</td></tr>
+  </table>
+  <div class="note"><b>冷却与恢复</b>：同一规则触发后 4 小时内不重复推送（防刷屏）；规则恢复正常即自动停止触发，
+  运维页当前状态可见即闭环，无单独的「恢复推送」。</div>
+</div>
+
+<h2 id="s3">3. 备份与恢复</h2>
+<div class="card">
+  <h3>备份机制</h3>
+  <ul class="plain">
+    <li><b>内容</b>：SQLite 数据库一致性快照 + 发票/回单原件目录，合并为一个 tar.gz（内含 meta 信息：备份时间、数据库迁移版本、关键表计数）。</li>
+    <li><b>时机</b>：每天 <code>02:17</code> 自动备份（后台进程需保持运行）；也可在运维页「备份」Tab「立即备份」随时手动备份。</li>
+    <li><b>保留</b>：默认保留最近 <b>7 份</b>（<code>INVOICING_OPS_BACKUP_RETENTION</code> 可配），超出自动删除最旧。</li>
+    <li><b>位置</b>：<code>INVOICING_OPS_BACKUP_DIR</code>（默认 <code>./data/backups</code>）。</li>
+  </ul>
+  <div class="danger"><b>保密要求</b>：备份文件等同于数据库，内含发票与账号等敏感数据，<b>需与数据库同等保密</b>——
+  建议将 <code>INVOICING_OPS_BACKUP_DIR</code> 指向第二块数据盘或网络盘，防止与系统同盘同时故障。</div>
+
+  <h3>恢复（服务器命令行）</h3>
+  <p style="font-size:13.5px">在 <code>backend</code> 目录下按序执行。恢复会将当前数据库替换为目标备份，<b>必须先停服</b>：</p>
+<pre># 1) 停服（先停 uvicorn 与 arq worker）
+# 2) 执行恢复（&lt;文件&gt; 换成备份 tar.gz 路径；不加 --yes 只预览不动手）
+uv run python scripts/restore_backup.py data/backups/invoiceease-backup-20260917-021700.tar.gz --yes
+# 3) 校验数据库迁移版本与代码一致
+uv run alembic upgrade head
+# 4) 重启服务
+uv run uvicorn invoicing.main:app --reload</pre>
+  <div class="note ok"><b>安全网</b>：恢复执行时会把当前数据库另存为 <code>&lt;db&gt;.pre-restore</code> 后再替换，误恢复可找回。
+  恢复完成后建议立即做一次「立即备份」产生新基线。</div>
+</div>
+
+<h2 id="s4">4. 日志</h2>
+<div class="card">
+  <ul class="plain">
+    <li><b>位置</b>：<code>INVOICING_LOG_DIR/invoicing.log</code>（默认 <code>./logs/invoicing.log</code>），后台、调度器、uvicorn 日志汇入同一文件。</li>
+    <li><b>轮转</b>：单文件上限 <code>10MB</code>（<code>INVOICING_LOG_MAX_BYTES</code>），超出滚动保留 <code>9</code> 个历史文件
+      （<code>INVOICING_LOG_BACKUP_COUNT</code>），无需手工清理。</li>
+    <li><b>脱敏</b>：日志自动对消息中的 <code>password</code> / <code>token</code> / <code>secret</code> / <code>key</code> 等敏感键值打码为
+      <code>***</code>；请求头不落盘，授权令牌不写入日志。</li>
+    <li><b>查看</b>：运维页「自检」Tab「查看日志尾部」实时看最近 200 行，日常排查以此为准；
+      如需完整日志文件，可在服务器上直接查看 <code>INVOICING_LOG_DIR/invoicing.log</code>，
+      或经管理员接口 <code>GET /api/v1/ops/logs/download</code> 下载当前日志文件。</li>
+  </ul>
+  <div class="note"><b>级别</b>：日志级别由 <code>INVOICING_LOG_LEVEL</code> 控制（默认 INFO），修改后重启进程生效。</div>
+</div>
+
+<h2 id="s5">5. 启动自检</h2>
+<div class="card">
+  <p style="font-size:13.5px">服务每次启动时自动执行一次深度自检，结果同时写入日志、严重项落告警，并可在运维页「自检」Tab随时重跑。
+  <code>INVOICING_STARTUP_CHECKS_STRICT</code> 默认为 <code>false</code>——自检 warn/fail 项<b>只告警不阻断启动</b>；
+  设为 <code>true</code> 时 warn/fail 项将<b>阻断启动</b>（fail-fast，适合生产严格要求）。</p>
+  <table>
+    <tr><th>检查项</th><th>级别</th><th>处置</th></tr>
+    <tr><td>fernet_key 非法（非 32 字节 base64）</td>
+        <td><span class="tag amber">warn</span>（strict 下阻断）</td>
+        <td>生成合法密钥并在 <code>backend/.env</code> 覆盖：<br>
+<pre style="margin:6px 0">python -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"</pre>
+        将输出填入 <code>INVOICING_FERNET_KEY=</code> 后重启。注意：<b>更换密钥后此前加密的邮箱密码将无法解密</b>，见第 6 节。</td></tr>
+    <tr><td>jwt_secret / mcp_token / admin_password 仍为默认值</td>
+        <td><span class="tag amber">warn</span>（strict 下阻断）</td>
+        <td>在 <code>backend/.env</code> 覆盖全部默认值：<code>INVOICING_JWT_SECRET</code>、<code>INVOICING_MCP_TOKEN</code>、
+            <code>INVOICING_ADMIN_PASSWORD</code>（勿用 <code>change-me</code> / <code>admin123</code>），重启生效</td></tr>
+    <tr><td>存储 / 日志 / 备份目录不可写</td>
+        <td><span class="tag red">fail</span>（硬前提，一律阻断）</td>
+        <td>为三个目录授权写权限（<code>storage_root</code> / <code>log_dir</code> / <code>ops_backup_dir</code>）</td></tr>
+    <tr><td>数据库迁移版本落后</td>
+        <td><span class="tag amber">warn</span></td>
+        <td>在 <code>backend</code> 目录执行 <code>uv run alembic upgrade head</code> 后重启</td></tr>
+    <tr><td>磁盘剩余 &lt; 10%</td>
+        <td><span class="tag amber">warn</span></td>
+        <td>按第 2 节 <code>disk.low</code> 处置（扩容 / 清理）</td></tr>
+    <tr><td>OCR / LLM 能力状态</td>
+        <td><span class="tag gray">info</span></td>
+        <td>能力现状展示，非故障，无需处置</td></tr>
+  </table>
+</div>
+
+<h2 id="s6">6. 常见问题</h2>
+<div class="card">
+  <h3>Q1：自检提示「迁移落后（db=… head=…）」</h3>
+  <p style="font-size:13.5px">数据库版本落后于代码迁移。在 <code>backend</code> 目录执行 <code>uv run alembic upgrade head</code>，
+  再在运维页「自检」Tab 点「刷新自检」确认恢复 <span class="tag green">ok</span>。</p>
+
+  <h3>Q2：邮件解密失败 / 收取报「无法解密邮箱密码」</h3>
+  <p style="font-size:13.5px">邮箱密码用 <code>INVOICING_FERNET_KEY</code> 加密存储。若此前该密钥曾为非法占位值、或更换过密钥，
+  历史邮箱密码将无法解密（自检会给出「加密数据重启后将无法解密」提示）。处置：在「设置」页对受影响邮箱<b>重新录入密码保存</b>即可，
+  无需重启；更换密钥前先确保所有邮箱密码已用新密钥重新录入。</p>
+
+  <h3>Q3：备份为什么没有出现？</h3>
+  <p style="font-size:13.5px">每日备份由后台进程内的调度器触发（02:17），进程需保持运行。若进程夜间重启过或长期未运行，
+  直接运维页「备份」Tab「立即备份」补一份即可。</p>
+
+  <h3>Q4：如何确认系统仍在正常工作？</h3>
+  <p style="font-size:13.5px">三处一键确认：运维页「任务」Tab 看 mailbox_poll 最近记录为 <span class="tag green">成功</span>、
+  「告警」Tab 无严重告警、「自检」Tab 全 <span class="tag green">ok</span>。</p>
+</div>
+
+<footer>
+  发票易 InvoiceEase · 运维手册 · 2026-09-17 · 与 design/2026-09-16-运维兜底设计.md 同源
+</footer>
+
+</div>
+</body>
+</html>
