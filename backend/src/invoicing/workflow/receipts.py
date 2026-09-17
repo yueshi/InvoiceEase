@@ -97,10 +97,15 @@ def reclassify_receipts(db, include_manual: bool = False) -> int:
 
 
 def is_unmatched_expense(receipt: BankReceipt) -> bool:
-    """无票支出 = 支出方向且未配对发票。
+    """无票支出 = 未配对 + 非收方向（兜底未重分类的历史行）+ 该交易性质需要取得发票。
 
     支出方向：direction 为 "付" 或未识别（None）——与凭证导出同口径
     （reports.receipts_to_csv：仅 "收" 走借银行/贷收入，其余按费用处理）。
     收款（"收"）未配对属「收款未开票」，不是无票支出，不计入。
+    税费/社保/银行费用/工资/内部调拨等 requirement=none 的类别不计入（设计 §6）。
     """
-    return receipt.paired_invoice_id is None and receipt.direction != "收"
+    return (
+        receipt.paired_invoice_id is None
+        and receipt.direction != "收"
+        and requirement_of(receipt.category) == "fetch"
+    )

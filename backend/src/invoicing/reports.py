@@ -11,7 +11,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from invoicing.models import Invoice
-from invoicing.workflow.receipts import is_unmatched_expense
+from invoicing.workflow.receipts import is_unmatched_expense, requirement_of
 
 VALID_STATUS = ("parsed", "pending_review", "verifying", "pending_submit", "submitted", "archived")
 
@@ -232,6 +232,11 @@ def monthly_health(db: Session, month: str) -> str:
     )
     unmatched = [r for r in receipts if is_unmatched_expense(r)]
     unmatched_total = sum((r.amount for r in unmatched if r.amount), 0)
+    exempt = [
+        r for r in receipts
+        if r.paired_invoice_id is None and r.direction != "收"
+        and requirement_of(r.category) == "none"
+    ]
     # 信任（M8）：近 7 天改判统计（跨月滚动窗口，观察期数据）
     from datetime import timedelta
 
@@ -263,6 +268,7 @@ def monthly_health(db: Session, month: str) -> str:
         f"成本：合计 {cost['total_amount']} 元（不含税 {cost['total_without_tax']} + 税额 {cost['total_tax']}）",
         f"费用构成：{type_lines}",
         f"无票支出：{len(unmatched)} 笔（合计 {unmatched_total} 元，建议催交发票）",
+        f"无需发票：{len(exempt)} 笔（税费/社保/银行费用等，缴款书或银行凭证即凭证）",
         f"数字员工：近 7 天自动处理 {auto_count} 张，人工改判 {overturn} 张（改判率 {overturn_rate * 100:.0f}%）",
     ])
 

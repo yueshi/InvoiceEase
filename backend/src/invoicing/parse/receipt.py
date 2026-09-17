@@ -648,6 +648,10 @@ def suggest_pair(db, receipt_id: int) -> int | None:
     r = db.get(BankReceipt, receipt_id)
     if r is None or r.amount is None or not r.counterparty_name:
         return None
+    from invoicing.workflow.receipts import requirement_of
+
+    if requirement_of(getattr(r, "category", None)) != "fetch":
+        return None  # 无需发票的交易（税费/社保/银行费用/调拨…）不参与发票配对
     party = normalize_party(r.counterparty_name)
     if not party:
         return None

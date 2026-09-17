@@ -96,3 +96,25 @@ def test_monthly_health_contains_key_sections(db):
     assert "成本" in text
     assert "无票支出" in text
     assert "1000.00" in text
+
+
+def test_monthly_health_reports_invoice_exempt(db):
+    """月报新增「无需发票」行：税费类不计入无票支出。"""
+    from datetime import date
+    from decimal import Decimal
+
+    from invoicing.models import BankReceipt
+    from invoicing.reports import monthly_health
+
+    db.add_all([
+        BankReceipt(file_url="t.pdf", file_type="PDF", trade_date=date(2026, 8, 7),
+                    counterparty_name="国家金库陕西省西咸新区支库", amount=Decimal("1116.00"),
+                    status="unmatched", direction="付", category="tax"),
+        BankReceipt(file_url="b.pdf", file_type="PDF", trade_date=date(2026, 8, 8),
+                    counterparty_name="供应商甲", amount=Decimal("800.00"),
+                    status="unmatched", direction="付", category="purchase"),
+    ])
+    db.commit()
+    text = monthly_health(db, "2026-08")
+    assert "无票支出：1 笔" in text          # 仅采购类
+    assert "无需发票：1 笔" in text          # 税费类单列

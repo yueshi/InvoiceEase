@@ -1186,3 +1186,47 @@ def test_category_column_fits_all_values():
     from invoicing.workflow.receipts import CATEGORY_META
 
     assert BankReceipt.__table__.c.category.type.length >= max(len(c) for c in CATEGORY_META)
+
+
+def test_unmatched_expense_excludes_invoice_exempt(client, db):
+    """无需发票类（税费/社保/银行费用）不入无票支出队列；采购类仍在。"""
+    auth = _seed_login(client, db)
+    db.add_all([
+        BankReceipt(file_url="tax.pdf", file_type="PDF", trade_date=date(2026, 8, 7),
+                    counterparty_name="国家金库陕西省西咸新区支库", amount=Decimal("1116.00"),
+                    status="unmatched", direction="付", category="tax"),
+        BankReceipt(file_url="social.pdf", file_type="PDF", trade_date=date(2026, 8, 8),
+                    counterparty_name="西安住房公积金管理中心", amount=Decimal("600.00"),
+                    status="unmatched", direction="付", category="social"),
+        BankReceipt(file_url="fee.pdf", file_type="PDF", trade_date=date(2026, 8, 9),
+                    counterparty_name="中国建设银行", amount=Decimal("15.00"), abstract="手续费",
+                    status="unmatched", direction="付", category="bank_fee"),
+        BankReceipt(file_url="buy.pdf", file_type="PDF", trade_date=date(2026, 8, 10),
+                    counterparty_name="供应商甲", amount=Decimal("800.00"),
+                    status="unmatched", direction="付", category="purchase"),
+    ])
+    db.commit()
+
+    rows = client.get("/api/v1/receipts/unmatched?month=2026-08", headers=auth).json()
+    assert [r["counterparty_name"] for r in rows] == ["供应商甲"]
+    probe = client.get("/api/v1/receipts/period-probe?unmatched=true", headers=auth).json()
+    assert probe["total"] == 1
+
+
+def test_suggest_pair_skips_invoice_exempt(db):
+    """无需发票的行不参与发票配对（税务行与发票金额撞车也不得错配）。"""
+    from invoicing.parse.receipt import suggest_pair
+
+    inv = Invoice(file_url="i.xml", file_type="XML", invoice_number="24990000000000000001",
+                  status="parsed", verify_status="passed", seller_name="供应商甲",
+                  total_amount=Decimal("800.00"))
+    db.add(inv)
+    r = BankReceipt(file_url="buy.pdf", file_type="PDF", counterparty_name="供应商甲",
+                    amount=Decimal("800.00"), status="unmatched", direction="付", category="purchase")
+    db.add(r)
+    db.commit()
+    assert suggest_pair(db, r.id) == inv.id  # 采购类照常配对
+
+    r.category = "tax"  # 同类行若被判为税费 → 不参与配对
+    db.commit()
+    assert suggest_pair(db, r.id) is None
