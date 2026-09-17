@@ -877,7 +877,9 @@ def receipt_report(month: str) -> str:
             .all()
         )
         total = sum((r.amount for r in rows if r.amount), 0)
-        unmatched = [r for r in rows if r.paired_invoice_id is None]
+        from invoicing.workflow.receipts import is_unmatched_expense
+
+        unmatched = [r for r in rows if is_unmatched_expense(r)]
     lines = [f"{month} 月回单：共 {len(rows)} 笔，合计 {total} 元"]
     if unmatched:
         lines.append(f"⚠️ 无票支出 {len(unmatched)} 笔（建议催交发票）：")

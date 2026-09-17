@@ -133,9 +133,10 @@ def receipt_period_probe(
     历史上回单页默认「本月」，跨月补录的回单看不见也无提示，用户以为上传失败。
     """
     from invoicing.reports import count_receipts, receipts_in_period
+    from invoicing.workflow.receipts import is_unmatched_expense
 
-    if unmatched:  # 未配对是派生条件，只能逐行判定
-        return {"total": sum(1 for r in receipts_in_period(db) if r.paired_invoice_id is None)}
+    if unmatched:  # 未配对是派生条件，只能逐行判定（口径与列表页一致：无票支出）
+        return {"total": sum(1 for r in receipts_in_period(db) if is_unmatched_expense(r))}
     return {"total": count_receipts(db)}
 
 
@@ -147,14 +148,15 @@ def unmatched_receipts(
     db: Session = Depends(get_db),
     _: User = Depends(require_role(*_FINANCE)),
 ):
-    """无票费用提示（R2）：未配对回单清单（年/季/月；都不传 = 全部时间）。"""
+    """无票费用提示（R2）：无票支出清单（支出方向且未配对；年/季/月；都不传 = 全部时间）。"""
     from invoicing.reports import receipts_in_period
+    from invoicing.workflow.receipts import is_unmatched_expense
 
     try:
         rows = receipts_in_period(db, month=month, quarter=quarter, year=year)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
-    return [_receipt_out(r) for r in rows if r.paired_invoice_id is None]
+    return [_receipt_out(r) for r in rows if is_unmatched_expense(r)]
 
 
 @router.get("/{receipt_id}/file")

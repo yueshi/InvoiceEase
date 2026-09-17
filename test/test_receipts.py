@@ -1056,3 +1056,31 @@ def test_period_probe_reports_other_periods(client, db):
         "/api/v1/receipts/period-probe?unmatched=true", headers=auth
     ).json()["total"] == 1
     assert client.get("/api/v1/receipts/period-probe", headers=auth).json()["total"] == 2
+
+
+def test_unmatched_expense_excludes_incoming(client, db):
+    """「只看无票支出」不得混入收款（收款未配对 ≠ 无票支出）。
+
+    回归：/receipts/unmatched 与 period-probe?unmatched=true 此前只判「未配对」，
+    收款方向（direction="收"）的未配对回单也会被当成无票支出返回/计数。
+    """
+    auth = _seed_login(client, db)
+    db.add_all([
+        BankReceipt(file_url="pay.pdf", file_type="PDF", trade_date=date(2026, 8, 3),
+                    counterparty_name="供应商甲", amount=Decimal("800.00"),
+                    status="unmatched", direction="付"),
+        BankReceipt(file_url="in.pdf", file_type="PDF", trade_date=date(2026, 8, 4),
+                    counterparty_name="客户乙", amount=Decimal("900.00"),
+                    status="unmatched", direction="收"),
+        BankReceipt(file_url="unknown.pdf", file_type="PDF", trade_date=date(2026, 8, 5),
+                    counterparty_name="方向未识别", amount=Decimal("100.00"),
+                    status="unmatched", direction=None),  # 按费用处理（与凭证导出口径一致）
+    ])
+    db.commit()
+
+    rows = client.get("/api/v1/receipts/unmatched?month=2026-08", headers=auth).json()
+    names = sorted(r["counterparty_name"] for r in rows)
+    assert names == ["供应商甲", "方向未识别"]
+
+    probe = client.get("/api/v1/receipts/period-probe?unmatched=true", headers=auth).json()
+    assert probe["total"] == 2  # 与列表页口径一致（收款不计入）

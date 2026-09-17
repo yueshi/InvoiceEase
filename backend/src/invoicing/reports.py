@@ -11,6 +11,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from invoicing.models import Invoice
+from invoicing.workflow.receipts import is_unmatched_expense
 
 VALID_STATUS = ("parsed", "pending_review", "verifying", "pending_submit", "submitted", "archived")
 
@@ -229,7 +230,7 @@ def monthly_health(db: Session, month: str) -> str:
         .filter(BankReceipt.trade_date >= start, BankReceipt.trade_date < end)
         .all()
     )
-    unmatched = [r for r in receipts if r.paired_invoice_id is None]
+    unmatched = [r for r in receipts if is_unmatched_expense(r)]
     unmatched_total = sum((r.amount for r in unmatched if r.amount), 0)
     # 信任（M8）：近 7 天改判统计（跨月滚动窗口，观察期数据）
     from datetime import timedelta
