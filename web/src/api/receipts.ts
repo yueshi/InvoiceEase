@@ -56,6 +56,12 @@ export async function confirmReceiptReview(receiptId: number): Promise<ReceiptOu
   return data;
 }
 
+/** 人工设定回单交易性质（"auto" 还原规则判定；审计留痕） */
+export async function setReceiptCategory(receiptId: number, category: string): Promise<ReceiptOut> {
+  const { data } = await api.post<ReceiptOut>(`/receipts/${receiptId}/category`, { category });
+  return data;
+}
+
 export async function exportReceipts(period: ReceiptPeriod): Promise<void> {
   const key = period.quarter ?? period.month ?? period.year ?? "all";
   const query = period.quarter

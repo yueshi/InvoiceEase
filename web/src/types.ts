@@ -118,6 +118,11 @@ export interface ReceiptOut {
   direction: string | null;
   needs_review: boolean;
   quality_issues: string[] | null;
+  /** 交易性质（后端规则判定或人工覆盖）：tax/social/... 见 RECEIPT_CATEGORY_LABELS */
+  category: string;
+  category_source: "rule" | "manual";
+  /** 发票要求（后端由 category 派生）：fetch=需取得发票（催票）；issue=需我方开具；none=无需发票 */
+  invoice_requirement: "fetch" | "issue" | "none";
   bank_code: string | null;
   page_no: number | null;
   anchor: { bbox: [number, number, number, number] | null; text: string | null; v: number } | null;
@@ -469,3 +474,16 @@ export interface OpsStatusOut {
   storage: { db_bytes: number; originals_bytes: number; disk_free_percent: number };
   last_backup: BackupOut | null;
 }
+
+/** 回单交易性质（与后端 workflow/receipts.CATEGORY_META 一一对应，后端为准） */
+export const RECEIPT_CATEGORY_LABELS: Record<string, string> = {
+  tax: "税费缴款",
+  social: "社保/公积金",
+  bank_fee: "银行内部费用",
+  salary: "工资代发",
+  internal_transfer: "本司账户调拨",
+  sales_collection: "客户回款",
+  treasury_in: "财政/补贴/利息收入",
+  purchase: "对外采购/服务支出",
+  unknown: "待定",
+};

@@ -1,10 +1,30 @@
 <!-- 回单详情抽屉：全字段 + 质量问题 + 原件操作（列表列精简，细节收进此处） -->
 <script setup lang="ts">
 import dayjs from "dayjs";
-import { BANK_LABELS, type ReceiptOut } from "../types";
+import { message } from "ant-design-vue";
+import { setReceiptCategory } from "../api/receipts";
+import { BANK_LABELS, RECEIPT_CATEGORY_LABELS, type ReceiptOut } from "../types";
 
 const props = defineProps<{ open: boolean; receipt: ReceiptOut | null }>();
-const emit = defineEmits<{ "update:open": [boolean]; viewFile: [ReceiptOut]; viewPage: [ReceiptOut]; locate: [ReceiptOut] }>();
+const emit = defineEmits<{
+  "update:open": [boolean];
+  viewFile: [ReceiptOut];
+  viewPage: [ReceiptOut];
+  locate: [ReceiptOut];
+  refresh: [];
+}>();
+
+/** 交易性质人工覆盖（"auto" 由后端还原规则判定）；成功后请列表刷新以同步状态列 */
+async function onCategoryChange(value: string) {
+  if (!props.receipt) return;
+  try {
+    await setReceiptCategory(props.receipt.id, value);
+    message.success("交易性质已更新");
+    emit("refresh");
+  } catch {
+    message.error("交易性质更新失败");
+  }
+}
 
 const REVIEW_ISSUE_LABELS: Record<string, string> = {
   self_account_row: "本司账户行（对方已记为开户银行）",
@@ -49,6 +69,19 @@ function issueText(r: ReceiptOut | null): string {
             {{ STATUS_META[props.receipt.status]?.text || props.receipt.status }}
           </a-tag>
           <a-tag v-if="props.receipt.needs_review" color="red" class="gap-tag">待核对</a-tag>
+        </a-descriptions-item>
+        <a-descriptions-item label="交易性质">
+          <a-select
+            :value="props.receipt.category"
+            size="small"
+            style="width: 200px"
+            :options="Object.entries(RECEIPT_CATEGORY_LABELS).map(([value, label]) => ({ value, label }))"
+            @change="onCategoryChange"
+          />
+          <span class="sub">{{ props.receipt.category_source === "manual" ? "（人工）" : "（规则）" }}</span>
+          <div v-if="props.receipt.invoice_requirement !== 'fetch'" class="sub">
+            该性质无需发票：缴款书或银行凭证即凭证
+          </div>
         </a-descriptions-item>
         <a-descriptions-item label="质量问题">
           <span :class="{ 'warn-strong': props.receipt.needs_review }">

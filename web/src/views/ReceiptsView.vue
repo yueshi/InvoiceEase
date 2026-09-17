@@ -58,6 +58,18 @@ const columns = [
   { title: "操作", key: "action" },
 ];
 
+/** 状态文案/配色：未配对行按「是否需要发票」区分（税费/社保等标无需发票，不进催票语义） */
+function statusText(r: ReceiptOut): string {
+  if (r.status === "paired") return "已配对";
+  if (r.status === "unmatched") return r.invoice_requirement === "fetch" ? "无票" : "无需发票";
+  return "待处理";
+}
+function statusColor(r: ReceiptOut): string {
+  if (r.status === "paired") return "green";
+  if (r.status === "unmatched") return r.invoice_requirement === "fetch" ? "orange" : "default";
+  return "blue";
+}
+
 // 详情抽屉
 const detailOpen = ref(false);
 const detailRecord = ref<ReceiptOut | null>(null);
@@ -272,9 +284,7 @@ onMounted(load);
           <span class="num">{{ formatMoney(record.amount) }}</span>
         </template>
         <template v-if="column.key === 'status'">
-          <a-tag :color="record.status === 'paired' ? 'green' : record.status === 'unmatched' ? 'orange' : 'blue'">
-            {{ { paired: '已配对', unmatched: '无票', pending: '待处理' }[record.status as 'paired' | 'unmatched' | 'pending'] || record.status }}
-          </a-tag>
+          <a-tag :color="statusColor(record)">{{ statusText(record) }}</a-tag>
           <a-tooltip v-if="record.needs_review" title="解析质量存疑，请核对原件">
             <a-tag color="red" class="gap-tag">待核对</a-tag>
           </a-tooltip>
@@ -296,6 +306,7 @@ onMounted(load);
       @view-file="onViewFile"
       @view-page="onViewFileAtPage"
       @locate="onLocate"
+      @refresh="load"
     />
     <a-modal
       v-model:open="locateOpen"
