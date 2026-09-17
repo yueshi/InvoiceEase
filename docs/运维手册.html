@@ -167,13 +167,14 @@ uv run uvicorn invoicing.main:app --reload</pre>
       或经管理员接口 <code>GET /api/v1/ops/logs/download</code> 下载当前日志文件。</li>
   </ul>
   <div class="note"><b>级别</b>：日志级别由 <code>INVOICING_LOG_LEVEL</code> 控制（默认 INFO），修改后重启进程生效。</div>
+  <div class="note warn"><b>已知问题</b>：macOS 上大日志经下载接口获取可能截断，完整日志以服务器上 <code>INVOICING_LOG_DIR/invoicing.log</code> 直接查看为准。</div>
 </div>
 
 <h2 id="s5">5. 启动自检</h2>
 <div class="card">
   <p style="font-size:13.5px">服务每次启动时自动执行一次深度自检，结果同时写入日志、严重项落告警，并可在运维页「自检」Tab随时重跑。
   <code>INVOICING_STARTUP_CHECKS_STRICT</code> 默认为 <code>false</code>——自检 warn/fail 项<b>只告警不阻断启动</b>；
-  设为 <code>true</code> 时 warn/fail 项将<b>阻断启动</b>（fail-fast，适合生产严格要求）。</p>
+  设为 <code>true</code> 时<b>密钥类 warn 项升级为阻断</b>（fernet_key / 默认密钥；fail-fast，适合生产严格要求）。</p>
   <table>
     <tr><th>检查项</th><th>级别</th><th>处置</th></tr>
     <tr><td>fernet_key 非法（非 32 字节 base64）</td>
