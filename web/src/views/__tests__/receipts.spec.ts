@@ -231,6 +231,14 @@ describe("ReceiptsView", () => {
     expect(afterRefresh).toContain("社保/公积金");
     expect(afterRefresh).toContain("该性质无需发票");
     expect(afterRefresh).not.toContain("客户回款：我方需开具销项发票");
+
+    // 该行已不在本视图（被筛选剔除 / 换周期）：抽屉应清空而非停在上一次的陈旧值（终审回复 Minor-1）
+    vi.mocked(api.listReceipts).mockResolvedValue(rows.filter((r) => r.id !== 13));
+    wrapper.findComponent({ name: "ReceiptDetailDrawer" }).vm.$emit("refresh");
+    await flushPromises();
+    const afterDropped = document.querySelector(".ant-drawer-body")?.textContent ?? "";
+    expect(afterDropped).not.toContain("社保/公积金");
+    expect(afterDropped).not.toContain("客户回款");
   }, 20000);
 
   it("状态列以 paired_invoice_id 为门：status 滞后为 paired 时不得显示「已配对」（终审 1b）", async () => {

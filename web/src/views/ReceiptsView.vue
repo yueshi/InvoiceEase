@@ -100,9 +100,10 @@ async function load() {
   loading.value = true;
   try {
     rows.value = await listReceipts(periodParam(), unmatchedOnly.value);
-    // 抽屉持有旧行对象：整体替换 rows 后按 id 回填，否则改完性质抽屉还显示旧值（终审 2）
-    const fresh = detailRecord.value && rows.value.find((r) => r.id === detailRecord.value!.id);
-    if (fresh) detailRecord.value = fresh;
+    // 抽屉持有旧行对象：整体替换 rows 后按 id 回填，否则改完性质抽屉还显示旧值（终审 2）。
+    // 行已不在本视图（改性质后被「只看无票支出」等筛选剔除、或换了周期）→ 置空，
+    // 宁可抽屉空着也不显示上一次的陈旧值（终审回复 Minor-1）。
+    detailRecord.value = rows.value.find((r) => r.id === detailRecord.value?.id) ?? null;
   } catch (e) {
     errorMessage(e, "回单加载失败");
   } finally {
