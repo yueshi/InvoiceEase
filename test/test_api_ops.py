@@ -115,3 +115,35 @@ def test_run_backup_failure_writes_audit(client, db, monkeypatch):
     assert len(logs) == 1
     assert logs[0].detail["outcome"] == "error"
     assert logs[0].detail["error"] == "RuntimeError"
+
+
+def test_run_backup_success_writes_audit(client, db, tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from invoicing.models import AuditLog
+
+    fake = tmp_path / "invoiceease-backup-20260917-021700.tar.gz"
+    fake.write_bytes(b"fake")
+    monkeypatch.setattr("invoicing.ops.backup.create_backup", lambda: fake)
+    token = _login(client, db, "admin2", Role.admin.value)
+    resp = client.post("/api/v1/ops/backups/run", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == fake.name
+    logs = db.query(AuditLog).filter(AuditLog.action == "OPS_BACKUP_RUN").all()
+    assert len(logs) == 1
+    assert logs[0].detail["file"] == fake.name
+
+
+def test_logs_tail_and_download(client, db, tmp_path, monkeypatch):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "invoicing.log").write_text("line1\nline2\nline3\n", encoding="utf-8")
+    monkeypatch.setattr("invoicing.config.settings.log_dir", str(log_dir))
+    token = _login(client, db, "admin2", Role.admin.value)
+    h = {"Authorization": f"Bearer {token}"}
+    resp = client.get("/api/v1/ops/logs/tail", headers=h)
+    assert resp.status_code == 200
+    assert resp.json()["lines"] == ["line1\n", "line2\n", "line3\n"]
+    resp = client.get("/api/v1/ops/logs/download", headers=h)
+    assert resp.status_code == 200
+    assert resp.text == "line1\nline2\nline3\n"
