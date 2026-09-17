@@ -1095,7 +1095,10 @@ def test_classify_receipt_table():
     cases = [
         (dict(counterparty_name="国家金库陕西省西咸新区支库", direction="付"), "tax", "none"),
         (dict(counterparty_name="国家税务总局西咸新区税务局", direction="付"), "tax", "none"),
+        (dict(counterparty_name="中国人民银行国库", direction="付"), "tax", "none"),
         (dict(counterparty_name="国家税务总局西咸新区税务局", direction="付", abstract="企业职工基本养老保险费"), "social", "none"),
+        (dict(counterparty_name="国家税务总局西咸新区税务局", direction="付", abstract="失业保险费"), "social", "none"),
+        (dict(counterparty_name="中国工商银行", direction="付", abstract="工伤保险费"), "social", "none"),
         (dict(counterparty_name="西安住房公积金管理中心", direction="付"), "social", "none"),
         (dict(counterparty_name="中国建设银行", direction="付", abstract="手续费",
               quality_issues=["self_account_row"]), "bank_fee", "none"),
