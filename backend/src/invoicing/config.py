@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     ops_backup_dir: str = "./data/backups"
     ops_backup_retention: int = 7        # 备份保留份数
     alert_cooldown_hours: int = 4        # 同 rule_key 冷却期（防抖）
+    # 运维兜底：告警阈值（design/2026-09-16-运维兜底设计.md §7）
+    alert_disk_min_percent: int = 10          # 磁盘剩余低于此百分比告警
+    alert_review_backlog: int = 50            # 待复核积压阈值
+    alert_parse_error_rate: float = 0.2       # 近 1h 解析 error 占比阈值
+    alert_parse_error_min: int = 5            # 占比告警的最低样本数
     # 数字员工 P2：企微群机器人 webhook（空=不启用通知）
     notify_webhook_url: str = ""
     # 数字员工 P3：渐进自主阈值（0=观察期全人工；>0 时预判 approve 且 conf≥阈值自动通过；拦截永不自动）

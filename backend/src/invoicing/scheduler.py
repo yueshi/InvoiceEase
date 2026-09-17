@@ -165,6 +165,17 @@ def _scheduled_backup() -> None:
 register_task("ops_backup", _scheduled_backup, trigger="cron", hour=2, minute=17)
 
 
+def _run_ops_check() -> None:
+    from invoicing.ops.alerts import evaluate_alerts
+
+    with SessionLocal() as db:
+        evaluate_alerts(db)
+
+
+# 运维巡检：每 5 分钟评估告警规则（设计 §7）
+register_task("ops_check", _run_ops_check, seconds=300)
+
+
 def _install_missed_listener(scheduler) -> None:
     """EVENT_JOB_MISSED → task_runs outcome=missed。"""
     from apscheduler.events import EVENT_JOB_MISSED
