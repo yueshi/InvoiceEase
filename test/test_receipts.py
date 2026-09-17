@@ -1250,3 +1250,47 @@ def test_suggest_pair_keeps_sales_collection(db):
     db.add(r)
     db.commit()
     assert suggest_pair(db, r.id) == sales.id
+
+
+def test_receipt_category_manual_override_and_auto_restore(client, db):
+    """人工覆盖交易性质：写 manual + 审计；"auto" 还原规则值；无变化不留痕。"""
+    from invoicing.models import AuditLog
+
+    auth = _seed_login(client, db)
+    r = BankReceipt(file_url="t.pdf", file_type="PDF", counterparty_name="供应商甲",
+                    amount=Decimal("800.00"), status="unmatched", direction="付",
+                    category="purchase", category_source="rule")
+    db.add(r)
+    db.commit()
+
+    resp = client.post(f"/api/v1/receipts/{r.id}/category", json={"category": "tax"}, headers=auth)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["category"] == "tax" and body["category_source"] == "manual"
+    assert body["invoice_requirement"] == "none"
+    logs = db.query(AuditLog).filter(AuditLog.action == "RECEIPT_CATEGORY").all()
+    assert len(logs) == 1 and logs[0].detail["to"] == "tax"
+
+    # 幂等：同值重复提交不留痕
+    client.post(f"/api/v1/receipts/{r.id}/category", json={"category": "tax"}, headers=auth)
+    assert db.query(AuditLog).filter(AuditLog.action == "RECEIPT_CATEGORY").count() == 1
+
+    # auto：还原规则判定
+    resp = client.post(f"/api/v1/receipts/{r.id}/category", json={"category": "auto"}, headers=auth)
+    assert resp.json()["category"] == "purchase" and resp.json()["category_source"] == "rule"
+
+    # 非法值 422
+    assert client.post(f"/api/v1/receipts/{r.id}/category", json={"category": "nope"},
+                       headers=auth).status_code == 422
+
+
+def test_receipt_out_exposes_category_fields(client, db):
+    """列表带出分类三字段（前端标签与详情选择器依赖）。"""
+    auth = _seed_login(client, db)
+    db.add(BankReceipt(file_url="t.pdf", file_type="PDF", trade_date=date(2026, 8, 7),
+                       counterparty_name="国家金库陕西省西咸新区支库", amount=Decimal("1116.00"),
+                       status="unmatched", direction="付", category="tax"))
+    db.commit()
+    row = client.get("/api/v1/receipts?month=2026-08", headers=auth).json()[0]
+    assert row["category"] == "tax" and row["category_source"] == "rule"
+    assert row["invoice_requirement"] == "none"

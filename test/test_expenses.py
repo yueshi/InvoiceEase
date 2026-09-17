@@ -829,3 +829,25 @@ def test_allowance_subtype_switch_withdraws_auto_item(db, users):
     assert db.query(ExpenseItem).filter(ExpenseItem.entry_id == entry.id).count() == 0
     db.refresh(claim)
     assert claim.total_amount == Decimal("0.00")
+
+
+def test_add_receipt_suggests_voucher_type_by_category(db, users):
+    """报销加回单：税费类自动用「缴款书回单」凭证类型；采购类用「银行回单」。"""
+    tax_r = BankReceipt(file_url="tax.pdf", file_type="PDF", counterparty_name="国家金库陕西省西咸新区支库",
+                        amount=Decimal("1116.00"), trade_date=date(2026, 5, 12), status="unmatched",
+                        direction="付", category="tax")
+    buy_r = BankReceipt(file_url="buy.pdf", file_type="PDF", counterparty_name="供应商甲",
+                        amount=Decimal("800.00"), trade_date=date(2026, 5, 13), status="unmatched",
+                        direction="付", category="purchase")
+    db.add_all([tax_r, buy_r])
+    db.commit()
+    claim, entry = _claim_with_entry(db, users["emp"], title="税费与采购", entry_type="office",
+                                     entry_title="税费缴款")
+
+    tax_item = svc.add_receipt(db, users["emp"], claim.id, tax_r.id, entry.id,
+                               expense_type="office", note="税费缴款")
+    assert tax_item.voucher_type == "tax_receipt"
+
+    buy_item = svc.add_receipt(db, users["emp"], claim.id, buy_r.id, entry.id,
+                               expense_type="office", note="采购")
+    assert buy_item.voucher_type == "bank_receipt"

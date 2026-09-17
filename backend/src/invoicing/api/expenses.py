@@ -61,7 +61,7 @@ class ItemAddInvoice(BaseModel):
 
 class ItemAddReceipt(BaseModel):
     receipt_id: int
-    voucher_type: str = "bank_receipt"
+    voucher_type: str | None = None  # 不传 → 按回单交易性质自动建议
     expense_type: str = "other"
     note: str | None = Field(default=None, max_length=512)
 

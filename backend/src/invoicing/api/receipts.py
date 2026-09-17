@@ -1,5 +1,5 @@
 """银行回单 API（数字员工 P3/R1）：上传/列表/配对/凭证草稿导出。"""
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -8,6 +8,7 @@ from invoicing.models import BankReceipt, ReceiptUpload, User
 from invoicing.reports import receipts_to_csv
 from invoicing.security import get_current_user, require_role
 from invoicing.workers.queue import enqueue_receipt_parse_sync
+from invoicing.workflow.receipts import CATEGORY_META, classify_receipt, requirement_of
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
@@ -30,6 +31,9 @@ def _receipt_out(r: BankReceipt) -> dict:
         "direction": r.direction,
         "needs_review": r.needs_review,
         "quality_issues": r.quality_issues,
+        "category": r.category,
+        "category_source": r.category_source,
+        "invoice_requirement": requirement_of(r.category),
         "bank_code": r.bank_code,
         "page_no": r.page_no,
         "anchor": r.anchor,
@@ -273,6 +277,45 @@ def confirm_receipt_review(
             "counterparty_name": r.counterparty_name,
             "amount": f"{r.amount:.2f}" if r.amount is not None else None,
             "quality_issues": r.quality_issues,
+        },
+    )
+    db.commit()
+    return _receipt_out(r)
+
+
+@router.post("/{receipt_id}/category")
+def set_receipt_category(
+    receipt_id: int,
+    category: str = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(*_FINANCE)),
+):
+    """人工设定回单交易性质（纠正规则误判）；category="auto" 还原为规则判定。
+
+    写 category_source="manual"；重分类任务（receipt_classify）默认跳过 manual 行。
+    """
+    from invoicing.audit import write_audit
+
+    r = db.get(BankReceipt, receipt_id)
+    if r is None:
+        raise HTTPException(404, "回单不存在")
+    if category == "auto":
+        from invoicing.parse.receipt import self_name_set
+
+        new_cat, new_src = classify_receipt(r, self_name_set(db))
+    elif category in CATEGORY_META:
+        new_cat, new_src = category, "manual"
+    else:
+        raise HTTPException(422, f"非法交易性质: {category}（可选 {'/'.join(CATEGORY_META)} 或 auto）")
+    if r.category == new_cat and r.category_source == new_src:
+        return _receipt_out(r)  # 幂等：无变化不留痕
+    old_cat = r.category
+    r.category, r.category_source = new_cat, new_src
+    write_audit(
+        db, action="RECEIPT_CATEGORY", user_id=user.id, channel="web",
+        detail={
+            "receipt_id": r.id, "from": old_cat, "to": new_cat,
+            "source": new_src, "counterparty_name": r.counterparty_name,
         },
     )
     db.commit()

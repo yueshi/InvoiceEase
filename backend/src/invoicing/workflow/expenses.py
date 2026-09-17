@@ -471,19 +471,29 @@ def add_receipt(
     claim_id: int,
     receipt_id: int,
     entry_id: int | None = None,
-    voucher_type: str = VoucherType.BANK_RECEIPT.value,
+    voucher_type: str | None = None,
     expense_type: str = "other",
     note: str | None = None,
 ) -> ExpenseItem:
-    """无票支出：银行回单/缴款书回单作为明细（金额取自回单）。"""
+    """无票支出：银行回单/缴款书回单作为明细（金额取自回单）。
+
+    voucher_type 留空时按回单交易性质建议（税费/社保 → 缴款书回单，其余 → 银行回单）。
+    """
     claim = _get_claim(db, claim_id)
     _require_owner_draft(claim, user)
     entry = _require_entry(db, claim, entry_id)
-    if voucher_type not in (VoucherType.BANK_RECEIPT.value, VoucherType.TAX_RECEIPT.value):
-        raise ValueError("回单明细仅支持 bank_receipt / tax_receipt")
     r = db.get(BankReceipt, receipt_id)
     if r is None:
         raise ValueError(f"回单不存在: {receipt_id}")
+    if voucher_type is None:
+        from invoicing.workflow.receipts import suggest_voucher_type
+
+        voucher_type = suggest_voucher_type(r.category)
+        # 本端点只接受银行/缴款书两类；工资/内部调拨等建议值（internal）收敛为银行回单
+        if voucher_type not in (VoucherType.BANK_RECEIPT.value, VoucherType.TAX_RECEIPT.value):
+            voucher_type = VoucherType.BANK_RECEIPT.value
+    if voucher_type not in (VoucherType.BANK_RECEIPT.value, VoucherType.TAX_RECEIPT.value):
+        raise ValueError("回单明细仅支持 bank_receipt / tax_receipt")
     if r.amount is None:
         raise ValueError("回单金额缺失，无法报销")
     existing = (
