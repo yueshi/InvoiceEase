@@ -1,6 +1,8 @@
 // 结构防回归：高亮层必须与 img 同处「图片尺寸包裹层」内——若包裹层带
 // max-height（滚动容器直接当定位父级），百分比坐标会相对被截断的高度解析，
 // 高亮被压缩/移位（真实 Chrome 实测偏差 16.5 个百分点）
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import ReceiptLocatePanel from "../ReceiptLocatePanel.vue";
@@ -24,8 +26,10 @@ describe("ReceiptLocatePanel", () => {
     expect(hl.element.parentElement).toBe(frame.element);
     // 包裹层自身不得有 max-height（否则高度被截断，百分比坐标失真）
     expect(frame.attributes("style") || "").not.toContain("max-height");
-    // 滚动容器在更外层
-    expect(frame.element.parentElement?.getAttribute("style")).toContain("max-height");
+    // 滚动容器在更外层（行内样式已归位为 .locate-scroll 类，max-height 由该类承担）
+    expect(frame.element.parentElement?.classList.contains("locate-scroll")).toBe(true);
+    const src = readFileSync(join(__dirname, "../ReceiptLocatePanel.vue"), "utf-8");
+    expect(src).toMatch(/\.locate-scroll[^{]*\{[^}]*max-height/);
   });
 
   it("归一化 bbox → CSS 百分比（y 轴翻转）", () => {

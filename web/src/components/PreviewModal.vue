@@ -40,13 +40,20 @@ watch(
   <a-modal :open="open" :footer="null" width="860px" title="原件预览" @cancel="$emit('update:open', false)">
     <a-spin :spinning="loading">
       <div v-if="payload?.kind === 'pdf'">
-        <iframe :src="payload.url" style="width: 100%; height: 70vh; border: 1px solid #eee" />
+        <iframe :src="payload.url" class="preview-frame" />
       </div>
       <div v-else-if="payload?.kind === 'ofd-image'">
-        <img :src="payload.url" style="max-width: 100%" />
+        <img :src="payload.url" class="preview-img" />
       </div>
-      <pre v-else-if="xmlText" style="max-height: 70vh; overflow: auto; white-space: pre-wrap">{{ xmlText }}</pre>
-      <div v-else-if="!loading" style="color: #999">无可预览内容</div>
+      <pre v-else-if="xmlText" class="preview-xml">{{ xmlText }}</pre>
+      <div v-else-if="!loading" class="empty">无可预览内容</div>
     </a-spin>
   </a-modal>
 </template>
+
+<style scoped>
+.preview-frame { width: 100%; height: 70vh; border: 1px solid #eee; }
+.preview-img { max-width: 100%; }
+.preview-xml { max-height: 70vh; overflow: auto; white-space: pre-wrap; }
+.empty { color: var(--c-sub); }
+</style>

@@ -47,10 +47,10 @@ function issueText(r: ReceiptOut | null): string {
           <a-tag :color="STATUS_META[props.receipt.status]?.color || 'default'">
             {{ STATUS_META[props.receipt.status]?.text || props.receipt.status }}
           </a-tag>
-          <a-tag v-if="props.receipt.needs_review" color="red" style="margin-left: 4px">待核对</a-tag>
+          <a-tag v-if="props.receipt.needs_review" color="red" class="gap-tag">待核对</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="质量问题">
-          <span :style="props.receipt.needs_review ? { color: '#cf1322' } : {}">
+          <span :class="{ 'warn-strong': props.receipt.needs_review }">
             {{ issueText(props.receipt) }}
           </span>
         </a-descriptions-item>
@@ -60,8 +60,8 @@ function issueText(r: ReceiptOut | null): string {
         <a-descriptions-item label="原件位置">
           <template v-if="props.receipt.page_no">
             第 {{ props.receipt.page_no }} 页
-            <span v-if="props.receipt.anchor?.bbox" style="color: #888">（可高亮定位）</span>
-            <span v-else style="color: #888">（仅页码，无精确区域）</span>
+            <span v-if="props.receipt.anchor?.bbox" class="sub">（可高亮定位）</span>
+            <span v-else class="sub">（仅页码，无精确区域）</span>
           </template>
           <template v-else>未定位</template>
         </a-descriptions-item>
@@ -70,7 +70,7 @@ function issueText(r: ReceiptOut | null): string {
         </a-descriptions-item>
       </a-descriptions>
 
-      <a-space style="margin-top: 16px" wrap>
+      <a-space class="mt-4" wrap>
         <a-button type="primary" @click="emit('viewFile', props.receipt!)">查看原件</a-button>
         <a-button @click="emit('locate', props.receipt!)">定位高亮</a-button>
         <a-button @click="emit('viewPage', props.receipt!)">
@@ -80,3 +80,10 @@ function issueText(r: ReceiptOut | null): string {
     </template>
   </a-drawer>
 </template>
+
+<style scoped>
+.gap-tag { margin-left: var(--space-1); }
+.warn-strong { color: var(--c-danger); }
+.sub { color: var(--c-sub); }
+.mt-4 { margin-top: var(--space-4); }
+</style>

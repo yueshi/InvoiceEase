@@ -27,16 +27,27 @@ const highlightStyle = computed(() => {
 </script>
 
 <template>
-  <div style="max-height: 70vh; overflow: auto">
+  <div class="locate-scroll">
     <!-- 图片尺寸包裹层：宽 100%，高度由图片撑开（百分比坐标的定位基准） -->
     <div class="receipt-locate-frame">
-      <img :src="imageUrl" style="width: 100%; display: block" />
+      <img :src="imageUrl" class="frame-img" />
       <div v-if="highlightStyle" class="receipt-anchor-highlight" :style="highlightStyle"></div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* 滚动容器：必须在图片尺寸包裹层之外（见上方结构约束） */
+.locate-scroll {
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.frame-img {
+  width: 100%;
+  display: block;
+}
+
 .receipt-locate-frame {
   position: relative;
   width: 100%;

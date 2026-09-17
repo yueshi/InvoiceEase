@@ -170,7 +170,7 @@ onMounted(load);
 
     <a-tabs v-model:activeKey="activeTab">
       <a-tab-pane key="tasks" tab="任务" v-if="!tasksFailed">
-        <a-space style="margin-bottom: 12px" wrap>
+        <a-space class="mb-3" wrap>
           <a-button v-for="name in RUNNABLE" :key="name" size="small" :disabled="busy" @click="onRunTask(name)">
             手动执行 {{ name }}
           </a-button>
@@ -208,7 +208,7 @@ onMounted(load);
       </a-tab-pane>
 
       <a-tab-pane key="backups" tab="备份" v-if="!backupsFailed">
-        <a-space style="margin-bottom: 12px">
+        <a-space class="mb-3">
           <a-button type="primary" :disabled="busy" @click="onBackup">立即备份</a-button>
         </a-space>
         <a-table :data-source="backups" :pagination="{ pageSize: 20 }" row-key="name" size="middle">
@@ -249,5 +249,6 @@ onMounted(load);
 .status-row { margin-bottom: var(--space-4); }
 .log-view { max-height: 320px; overflow: auto; background: #fafafa; padding: 12px; font-size: 12px; }
 .mt-3 { margin-top: var(--space-3); }
+.mb-3 { margin-bottom: var(--space-3); }
 .check-name { margin: 0 var(--space-2); }
 </style>
