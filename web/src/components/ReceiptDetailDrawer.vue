@@ -1,6 +1,7 @@
 <!-- 回单详情抽屉：全字段 + 质量问题 + 原件操作（列表列精简，细节收进此处） -->
 <script setup lang="ts">
 import dayjs from "dayjs";
+import { computed } from "vue";
 import { message } from "ant-design-vue";
 import { setReceiptCategory } from "../api/receipts";
 import { BANK_LABELS, RECEIPT_CATEGORY_LABELS, type ReceiptOut } from "../types";
@@ -25,6 +26,26 @@ async function onCategoryChange(value: string) {
     message.error("交易性质更新失败");
   }
 }
+
+/** 选择器选项：9 个业务性质 + 「跟随规则」（后端 category="auto" 清除人工覆盖） */
+const CATEGORY_OPTIONS = [
+  ...Object.entries(RECEIPT_CATEGORY_LABELS).map(([value, label]) => ({ value, label })),
+  { value: "auto", label: "跟随规则（清除人工覆盖）" },
+];
+
+/** 来源标记：未知值不静默当「规则」 */
+const sourceLabel = computed(() => {
+  const s = props.receipt?.category_source;
+  return s === "manual" ? "（人工）" : s === "rule" ? "（规则）" : "—";
+});
+
+/** 发票要求提示：none/issue 各有说法（issue=客户回款，我方需开销项票），fetch 不提示 */
+const requirementHint = computed(() => {
+  const req = props.receipt?.invoice_requirement;
+  if (req === "none") return "该性质无需发票：缴款书或银行凭证即凭证";
+  if (req === "issue") return "客户回款：我方需开具销项发票（不进项抵扣）";
+  return "";
+});
 
 const REVIEW_ISSUE_LABELS: Record<string, string> = {
   self_account_row: "本司账户行（对方已记为开户银行）",
@@ -75,13 +96,11 @@ function issueText(r: ReceiptOut | null): string {
             :value="props.receipt.category"
             size="small"
             style="width: 200px"
-            :options="Object.entries(RECEIPT_CATEGORY_LABELS).map(([value, label]) => ({ value, label }))"
+            :options="CATEGORY_OPTIONS"
             @change="onCategoryChange"
           />
-          <span class="sub">{{ props.receipt.category_source === "manual" ? "（人工）" : "（规则）" }}</span>
-          <div v-if="props.receipt.invoice_requirement !== 'fetch'" class="sub">
-            该性质无需发票：缴款书或银行凭证即凭证
-          </div>
+          <span class="sub">{{ sourceLabel }}</span>
+          <div v-if="requirementHint" class="sub">{{ requirementHint }}</div>
         </a-descriptions-item>
         <a-descriptions-item label="质量问题">
           <span :class="{ 'warn-strong': props.receipt.needs_review }">

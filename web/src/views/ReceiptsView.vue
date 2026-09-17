@@ -58,16 +58,20 @@ const columns = [
   { title: "操作", key: "action" },
 ];
 
-/** 状态文案/配色：未配对行按「是否需要发票」区分（税费/社保等标无需发票，不进催票语义） */
+/** 状态文案/配色：未配对行按发票要求三分（2026-09-17 T5 审查更正：issue 不能并入「无需发票」） */
 function statusText(r: ReceiptOut): string {
   if (r.status === "paired") return "已配对";
-  if (r.status === "unmatched") return r.invoice_requirement === "fetch" ? "无票" : "无需发票";
-  return "待处理";
+  if (r.status !== "unmatched") return "待处理";
+  if (r.invoice_requirement === "fetch") return "无票"; // 需追发票
+  if (r.invoice_requirement === "issue") return "待开票"; // 我方需开销项票（客户回款）
+  return "无需发票"; // 税费/社保/银行费用等
 }
 function statusColor(r: ReceiptOut): string {
   if (r.status === "paired") return "green";
-  if (r.status === "unmatched") return r.invoice_requirement === "fetch" ? "orange" : "default";
-  return "blue";
+  if (r.status !== "unmatched") return "blue";
+  if (r.invoice_requirement === "fetch") return "orange";
+  if (r.invoice_requirement === "issue") return "blue";
+  return "default";
 }
 
 // 详情抽屉

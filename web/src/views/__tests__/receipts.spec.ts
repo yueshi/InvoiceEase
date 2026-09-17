@@ -1,6 +1,6 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ReceiptsView from "../ReceiptsView.vue";
 
 vi.mock("../../api/receipts", () => ({
@@ -49,6 +49,11 @@ describe("ReceiptsView", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+  });
+
+  // 抽屉/message 的 DOM 挂在 body（teleport），不清会串到下一条用例的 body 断言
+  afterEach(() => {
+    document.body.innerHTML = "";
   });
 
   it("渲染回单页面", () => {
@@ -106,7 +111,7 @@ describe("ReceiptsView", () => {
     expect(vi.mocked(api.confirmReceiptReview)).toHaveBeenCalledWith(7);
   }, 20000);
 
-  it("未配对行按发票要求区分「无票/无需发票」", async () => {
+  it("未配对行按发票要求三分：无票 / 待开票 / 无需发票", async () => {
     const api = await import("../../api/receipts");
     vi.mocked(api.listReceipts).mockResolvedValue([
       {
@@ -125,17 +130,23 @@ describe("ReceiptsView", () => {
         bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: null,
         status: "unmatched", created_at: "2026-08-07T10:00:00",
       },
+      {
+        id: 3, file_url: "c.pdf", file_type: "PDF", trade_date: "2026-08-06",
+        counterparty_name: "客户甲有限公司", amount: "5000.00", abstract: "货款",
+        direction: "收", needs_review: false, quality_issues: null,
+        category: "sales_collection", category_source: "rule", invoice_requirement: "issue",
+        bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: null,
+        status: "unmatched", created_at: "2026-08-06T10:00:00",
+      },
     ]);
     vi.mocked(api.probeReceiptsPeriod).mockResolvedValue(0);
 
     const wrapper = await mountWithAntd();
     await flushPromises();
-    expect(wrapper.text()).toContain("无票");
-    expect(wrapper.text()).toContain("无需发票");
-    // 整页文本里「只看无票支出」本就含「无票」→ 状态标签单独断言，避免假绿
+    // 逐行断言标签归属：分支对调 / 行错配必红；集合式 toContain 杀不掉，
+    // 且工具栏「只看无票支出」本就含「无票」
     const tags = wrapper.findAll(".ant-tag").map((t) => t.text());
-    expect(tags).toContain("无票");
-    expect(tags).toContain("无需发票");
+    expect(tags).toEqual(["无票", "无需发票", "待开票"]); // 顺序即行的顺序
   }, 20000);
 
   it("详情抽屉标注交易性质来源（人工/规则）", async () => {
@@ -157,13 +168,21 @@ describe("ReceiptsView", () => {
         bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: null,
         status: "unmatched", created_at: "2026-08-07T10:00:00",
       },
+      {
+        id: 13, file_url: "c.pdf", file_type: "PDF", trade_date: "2026-08-06",
+        counterparty_name: "客户甲有限公司", amount: "5000.00", abstract: "货款",
+        direction: "收", needs_review: false, quality_issues: null,
+        category: "sales_collection", category_source: "rule", invoice_requirement: "issue",
+        bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: null,
+        status: "unmatched", created_at: "2026-08-06T10:00:00",
+      },
     ]);
     vi.mocked(api.probeReceiptsPeriod).mockResolvedValue(0);
 
     const wrapper = await mountWithAntd(true); // 真渲染抽屉（内容 teleport 到 document.body）
     await flushPromises();
     const details = wrapper.findAll("a").filter((a) => a.text() === "详情");
-    expect(details).toHaveLength(2);
+    expect(details).toHaveLength(3);
 
     await details[0].trigger("click");
     await flushPromises();
@@ -174,6 +193,22 @@ describe("ReceiptsView", () => {
     await flushPromises();
     expect(document.body.textContent).toContain("（规则）");
     expect(document.body.textContent).toContain("该性质无需发票");
+
+    // issue（客户回款）不能说成「无需发票」：提示按 requirement 分档
+    await details[2].trigger("click");
+    await flushPromises();
+    expect(document.body.textContent).toContain("客户回款：我方需开具销项发票");
+
+    // 改性质 → 调接口（回单 id、选项值）+ 抽屉 refresh 事件真接线到列表 load()
+    const select = wrapper.findComponent({ name: "ASelect" });
+    expect(select.exists()).toBe(true);
+    // 9 个业务性质 + 「跟随规则」（后端 auto 清除人工覆盖）——人工误点后的回退入口
+    const options = select.props("options") as Array<{ value: string }>;
+    expect(options.map((o) => o.value)).toContain("auto");
+    select.vm.$emit("change", "social");
+    await flushPromises();
+    expect(vi.mocked(api.setReceiptCategory)).toHaveBeenCalledWith(13, "social");
+    expect(vi.mocked(api.listReceipts)).toHaveBeenCalledTimes(2); // 挂载 1 次 + refresh 1 次
   }, 20000);
 
   it("其他周期也没有数据 → 不显示误导性提示", async () => {
