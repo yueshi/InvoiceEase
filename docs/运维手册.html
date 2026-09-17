@@ -115,6 +115,9 @@
     <tr><td><code>backup.missing</code></td><td>超过 26 小时未产生新备份（当日备份失败或未执行）</td>
         <td><span class="tag red">严重</span></td>
         <td>运维页「备份」Tab「立即备份」手动补一份；再查磁盘剩余与备份目录是否可写</td></tr>
+    <tr><td><code>backup.failed</code></td><td>近 24 小时内 <code>ops_backup</code> 任务执行失败（<b>执行了但失败</b>，与 backup.missing 并存）</td>
+        <td><span class="tag red">严重</span></td>
+        <td>运维页「任务」Tab 过滤 task_name=ops_backup 看 error 列，再查磁盘空间 / 备份目录可写性；修复后「手动执行 ops_backup」补一份备份</td></tr>
     <tr><td><code>disk.low</code></td><td>磁盘剩余低于 10%</td>
         <td><span class="tag amber">警告</span></td>
         <td>扩容磁盘或清理旧日志/临时文件，释放空间后自检确认磁盘剩余回升</td></tr>
@@ -137,6 +140,7 @@
     <li><b>时机</b>：每天 <code>02:17</code> 自动备份（后台进程需保持运行）；也可在运维页「备份」Tab「立即备份」随时手动备份。</li>
     <li><b>保留</b>：默认保留最近 <b>7 份</b>（<code>INVOICING_OPS_BACKUP_RETENTION</code> 可配），超出自动删除最旧。</li>
     <li><b>位置</b>：<code>INVOICING_OPS_BACKUP_DIR</code>（默认 <code>./data/backups</code>）。</li>
+    <li><b>文件名时间</b>：备份文件名时间戳为 <b>UTC</b>（<code>invoiceease-backup-YYYYMMDD-HHMMSS.tar.gz</code>），与运维页展示的本地时间不同，核对时请注意时区。</li>
   </ul>
   <div class="danger"><b>保密要求</b>：备份文件等同于数据库，内含发票与账号等敏感数据，<b>需与数据库同等保密</b>——
   建议将 <code>INVOICING_OPS_BACKUP_DIR</code> 指向第二块数据盘或网络盘，防止与系统同盘同时故障。</div>
@@ -165,6 +169,8 @@ uv run uvicorn invoicing.main:app --reload</pre>
     <li><b>查看</b>：运维页「自检」Tab「查看日志尾部」实时看最近 200 行，日常排查以此为准；
       如需完整日志文件，可在服务器上直接查看 <code>INVOICING_LOG_DIR/invoicing.log</code>，
       或经管理员接口 <code>GET /api/v1/ops/logs/download</code> 下载当前日志文件。</li>
+    <li><b>redis 部署</b>：queue_backend=redis 时，arq worker 进程的日志走 <b>stderr</b>（不汇入
+      <code>invoicing.log</code>）。排查队列任务失败时，请在 worker 进程自身日志中查看。</li>
   </ul>
   <div class="note"><b>级别</b>：日志级别由 <code>INVOICING_LOG_LEVEL</code> 控制（默认 INFO），修改后重启进程生效。</div>
   <div class="note warn"><b>已知问题</b>：macOS 上大日志经下载接口获取可能截断，完整日志以服务器上 <code>INVOICING_LOG_DIR/invoicing.log</code> 直接查看为准。</div>
@@ -187,7 +193,7 @@ uv run uvicorn invoicing.main:app --reload</pre>
         <td>在 <code>backend/.env</code> 覆盖全部默认值：<code>INVOICING_JWT_SECRET</code>、<code>INVOICING_MCP_TOKEN</code>、
             <code>INVOICING_ADMIN_PASSWORD</code>（勿用 <code>change-me</code> / <code>admin123</code>），重启生效</td></tr>
     <tr><td>存储 / 日志 / 备份目录不可写</td>
-        <td><span class="tag red">fail</span>（硬前提，一律阻断）</td>
+        <td><span class="tag red">fail</span>（默认仅告警，strict=true 时阻断启动）</td>
         <td>为三个目录授权写权限（<code>storage_root</code> / <code>log_dir</code> / <code>ops_backup_dir</code>）</td></tr>
     <tr><td>数据库迁移版本落后</td>
         <td><span class="tag amber">warn</span></td>
