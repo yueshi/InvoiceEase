@@ -85,11 +85,15 @@ describe("OpsView", () => {
     expect(listBackups).toHaveBeenCalled();
   }, 20000);
 
-  it("warn 级自检项可见（非 ok 项着色）", async () => {
+  it("自检项以表格呈现：中文级别 + 语义着色（与其他 Tab 同构）", async () => {
     const wrapper = await mountWithAntd();
     await new Promise((r) => setTimeout(r, 0));
     await activateChecksTab(wrapper);
-    expect(wrapper.html()).toContain("warn");
+    expect(wrapper.text()).toContain("检查项"); // 表头（告警 Tab 同款结构）
+    // 级别中文化（曾直接渲染原始 level 串 ok/warn）并保留语义色
+    expect(wrapper.html()).toContain("警告");
+    expect(wrapper.html()).toContain("正常");
+    expect(wrapper.html()).toContain("ant-tag-orange");
   }, 20000);
 
   it("自定义单元格列真实渲染（结果/级别/备份操作）——列插槽回归", async () => {

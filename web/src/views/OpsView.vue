@@ -1,6 +1,6 @@
 <!-- 运维（兜底，admin）：状态卡片 + 任务/告警/备份/自检四 Tab（设计 §10） -->
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
 import {
@@ -37,12 +37,20 @@ const OUTCOME_META: Record<string, { text: string; color: string }> = {
   error: { text: "异常", color: "red" },
   missed: { text: "错过", color: "default" },
 };
-const LEVEL_META: Record<string, { color: string }> = {
-  ok: { color: "green" },
-  warn: { color: "orange" },
-  fail: { color: "red" },
-  info: { color: "blue" },
+const LEVEL_META: Record<string, { text: string; color: string }> = {
+  ok: { text: "正常", color: "green" },
+  warn: { text: "警告", color: "orange" },
+  fail: { text: "异常", color: "red" },
+  info: { text: "提示", color: "blue" },
 };
+
+// 自检结果（与告警 Tab 同构：级别 tag 列 + 内容列）
+const checks = computed(() => (status.value?.checks ?? []) as OpsCheckOut[]);
+const checkColumns = [
+  { title: "级别", key: "level", width: 90 },
+  { title: "检查项", key: "name", width: 180 },
+  { title: "说明", dataIndex: "message", key: "message" },
+];
 
 function fmtBytes(n: number): string {
   if (n >= 1 << 30) return `${(n / (1 << 30)).toFixed(1)} GB`;
@@ -233,20 +241,26 @@ onMounted(load);
 
       <a-tab-pane key="checks" tab="自检">
         <div class="table-card">
-        <a-list :data-source="(status?.checks || []) as OpsCheckOut[]" size="small" bordered>
-          <template #renderItem="{ item }">
-            <a-list-item>
-              <a-tag :color="LEVEL_META[item.level]?.color || 'default'">{{ item.level }}</a-tag>
-              <b class="check-name">{{ item.name }}</b>
-              <span>{{ item.message }}</span>
-            </a-list-item>
-          </template>
-        </a-list>
-        <a-space class="mt-3">
+        <div class="wrap-row mb-3">
           <a-button size="small" @click="load">刷新自检</a-button>
           <a-button size="small" @click="loadLog">查看日志尾部</a-button>
-        </a-space>
-        <pre v-if="logLines.length" class="log-view">{{ logLines.join("") }}</pre>
+        </div>
+        <a-table :columns="checkColumns" :data-source="checks" row-key="name" size="middle" :pagination="false">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'level'">
+              <a-tag :color="LEVEL_META[record.level]?.color || 'default'">
+                {{ LEVEL_META[record.level]?.text || record.level }}
+              </a-tag>
+            </template>
+            <template v-else-if="column.key === 'name'">
+              <code>{{ record.name }}</code>
+            </template>
+          </template>
+        </a-table>
+        <template v-if="logLines.length">
+          <p class="log-title">日志尾部（最近 200 行）</p>
+          <pre class="log-view">{{ logLines.join("") }}</pre>
+        </template>
         </div>
       </a-tab-pane>
     </a-tabs>
@@ -255,8 +269,8 @@ onMounted(load);
 
 <style scoped>
 .status-row { margin-bottom: var(--space-4); }
-.log-view { max-height: 320px; overflow: auto; background: #fafafa; padding: 12px; font-size: 12px; }
+.log-view { max-height: 320px; overflow: auto; background: #fafafa; padding: 12px; font-size: 12px; border-radius: 4px; margin: 0; }
+.log-title { margin: var(--space-3) 0 var(--space-2); font-size: 13px; color: var(--c-sub); }
 .mt-3 { margin-top: var(--space-3); }
 .mb-3 { margin-bottom: var(--space-3); }
-.check-name { margin: 0 var(--space-2); }
 </style>
