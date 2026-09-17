@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -40,7 +41,11 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     from invoicing.ops.logging_setup import setup_logging
 
-    setup_logging()
+    try:
+        setup_logging()
+    except Exception:
+        # 日志落盘自身失败绝不阻断业务：降级 stderr（无 handler 时 lastResort 落 stderr），继续启动
+        logging.exception("日志落盘初始化失败，降级为 stderr 输出，继续启动")
     app = FastAPI(title="发票易 InvoiceEase", lifespan=lifespan)
     # /mcp 的鉴权由 SDK 认证栈负责（装配在 mcp/server.py），不再自研中间件：
     # 自研版本只认单一静态令牌，会挡在 SDK 前面把个人令牌全部 401。
