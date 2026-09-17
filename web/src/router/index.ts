@@ -16,6 +16,7 @@ const routes = [
   // 我的令牌：自助签发（所有角色可见——平台侧按用户配令牌是主路径）
   { path: "/mcp-tokens", component: () => import("../views/McpTokensView.vue") },
   { path: "/audit", component: () => import("../views/AuditView.vue"), meta: { adminOnly: true } },
+  { path: "/ops", component: () => import("../views/OpsView.vue"), meta: { adminOnly: true } },
   { path: "/settings", component: () => import("../views/SettingsView.vue"), meta: { adminOnly: true } },
 ];
 

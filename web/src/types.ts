@@ -416,3 +416,56 @@ export const BANK_LABELS: Record<string, string> = {
 export const COMPANY_KIND_LABELS: Record<string, string> = {
   self: "本司", supplier: "供应商", other: "其他",
 };
+
+// ---- 运维兜底（design/2026-09-16-运维兜底设计.md §9）----
+export interface OpsCheckOut {
+  name: string;
+  level: "ok" | "warn" | "fail" | "info";
+  message: string;
+}
+export interface TaskRunOut {
+  id: number;
+  task_name: string;
+  trigger: string;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  outcome: string;
+  error: string | null;
+}
+export interface TaskRunListResponse {
+  items: TaskRunOut[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+export interface OpsAlertOut {
+  id: number;
+  rule_key: string;
+  severity: "critical" | "warning";
+  message: string;
+  fired_at: string;
+}
+export interface OpsAlertListResponse {
+  items: OpsAlertOut[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+export interface BackupOut {
+  name: string;
+  size_bytes: number;
+  created_at: string;
+  meta: Record<string, unknown> | null;
+}
+export interface OpsStatusOut {
+  version: string;
+  uptime_seconds: number;
+  checks: OpsCheckOut[];
+  metrics: {
+    last_24h: { created: number; verify_passed: number; pending_review: number; blocked: number };
+    review_backlog: number;
+  };
+  storage: { db_bytes: number; originals_bytes: number; disk_free_percent: number };
+  last_backup: BackupOut | null;
+}
