@@ -20,6 +20,8 @@ import {
   withdrawClaim,
 } from "../api/expenses";
 import { useAuthStore } from "../stores/auth";
+import PageHeader from "../components/PageHeader.vue";
+import { formatMoney } from "../utils/format";
 import {
   CLAIM_STATUS_LABELS,
   EXPENSE_TYPE_COLORS,
@@ -155,7 +157,7 @@ const columns = [
   { title: "单号", dataIndex: "claim_no", key: "claim_no" },
   { title: "事由", dataIndex: "title", key: "title" },
   { title: "类型", key: "claim_type", width: 100 },
-  { title: "金额", dataIndex: "total_amount", key: "total_amount", width: 110 },
+  { title: "金额", dataIndex: "total_amount", key: "total_amount", width: 120, align: "right" as const },
   { title: "张数", dataIndex: "item_count", key: "item_count", width: 70 },
   { title: "状态", dataIndex: "status", key: "status", width: 110 },
   { title: "提交时间", dataIndex: "submitted_at", key: "submitted_at" },
@@ -322,8 +324,12 @@ onMounted(() => {
 
 <template>
   <div>
-    <h3>我的报销</h3>
-    <a-space style="margin-bottom: 16px" wrap>
+    <PageHeader title="我的报销" desc="员工创建报销单、关联发票并提交；财务在列表直接审批。">
+      <template #extra>
+        <a-button type="primary" @click="createOpen = true">新建报销单</a-button>
+      </template>
+    </PageHeader>
+    <div class="filter-toolbar">
       <a-select v-model:value="statusFilter" placeholder="状态" allow-clear style="width: 160px" @change="load">
         <a-select-option v-for="(v, k) in CLAIM_STATUS_LABELS" :key="k" :value="k">{{ v.text }}</a-select-option>
       </a-select>
@@ -331,9 +337,9 @@ onMounted(() => {
         <a-select-option v-for="(label, k) in EXPENSE_TYPE_LABELS" :key="k" :value="k">{{ label }}</a-select-option>
       </a-select>
       <a-button @click="load">刷新</a-button>
-      <a-button type="primary" @click="createOpen = true">新建报销单</a-button>
-    </a-space>
+    </div>
 
+    <div class="table-card">
     <a-table :columns="columns" :data-source="rows" :loading="loading" row-key="id" :pagination="{ pageSize: 20 }">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'claim_type'">
@@ -345,6 +351,9 @@ onMounted(() => {
           <a-tag :color="CLAIM_STATUS_LABELS[record.status as string]?.color">
             {{ CLAIM_STATUS_LABELS[record.status as string]?.text || record.status }}
           </a-tag>
+        </template>
+        <template v-else-if="column.key === 'total_amount'">
+          <span class="num">{{ formatMoney(record.total_amount) }}</span>
         </template>
         <template v-else-if="column.key === 'submitted_at'">
           {{ record.submitted_at ? String(record.submitted_at).replace("T", " ").slice(0, 19) : "—" }}
@@ -362,13 +371,14 @@ onMounted(() => {
             >撤回</a>
             <a
               v-if="canFinance() || (record.status === 'draft' || record.status === 'withdrawn')"
-              style="color: #cf1322"
+              class="danger-link"
               @click="onDelete(record)"
             >删除</a>
           </a-space>
         </template>
       </template>
     </a-table>
+    </div>
 
     <!-- 新建 -->
     <a-modal v-model:open="createOpen" title="新建报销单" @ok="onCreate">
@@ -395,7 +405,7 @@ onMounted(() => {
       @close="detailOpen = false"
     >
       <template v-if="detail">
-        <a-space style="margin-bottom: 12px" wrap>
+        <a-space class="mb-3" wrap>
           <a-tag :color="EXPENSE_TYPE_COLORS[detail.claim.claim_type as string] || 'default'">
             {{ EXPENSE_TYPE_LABELS[detail.claim.claim_type as string] || detail.claim.claim_type }}
           </a-tag>
@@ -414,10 +424,10 @@ onMounted(() => {
           v-if="detail.claim.rejected_reason"
           type="error"
           show-icon
-          style="margin-bottom: 12px"
+          class="mb-3"
           :message="`驳回理由：${detail.claim.rejected_reason}`"
         />
-        <p v-if="detail.entries.length === 0" style="color: #888">
+        <p v-if="detail.entries.length === 0" class="sub">
           还没有事项：先「添加事项」（如「北京出差机票」），再在事项下加凭证。
         </p>
         <a-collapse v-else :default-active-key="detail.entries.map((e) => String(e.id))">
@@ -429,21 +439,21 @@ onMounted(() => {
                   {{ TRAVEL_SUBTYPES.find((t) => t.value === entry.scene_fields?.subtype)?.label || entry.scene_fields.subtype }}
                 </a-tag>
                 <b>{{ entry.title }}</b>
-                <span style="color: #888">
+                <span class="sub">
                   {{ entry.occurred_on || "无日期" }} · {{ entry.amount }} 元 · {{ entry.items.length }} 张凭证
                 </span>
               </a-space>
             </template>
             <template v-if="entry.scene_fields && Object.keys(entry.scene_fields).length">
-              <p style="color: #666; margin-bottom: 8px">
+              <p class="sub mb-2">
                 <span v-for="f in (entry.entry_type === 'travel'
                   ? (TRAVEL_SUBTYPES.find((t) => t.value === entry.scene_fields?.subtype)?.fields || [])
-                  : (SCENE_FIELDS[entry.entry_type] || []))" :key="f.key" style="margin-right: 12px">
+                  : (SCENE_FIELDS[entry.entry_type] || []))" :key="f.key" class="mr-3">
                   {{ f.label }}：{{ entry.scene_fields[f.key] || "—" }}
                 </span>
               </p>
             </template>
-            <a-space style="margin-bottom: 8px">
+            <a-space class="mb-2">
               <a-button v-if="detailEditable" size="small" @click="openPool(entry.id)">加发票</a-button>
               <a-button v-if="detailEditable" size="small" danger @click="onRemoveEntry(entry.id)">删除事项</a-button>
             </a-space>
@@ -470,7 +480,7 @@ onMounted(() => {
                   <span v-else-if="record.receipt_id">回单 #{{ record.receipt_id }}</span>
                   <span v-else-if="record.auto_rule">自动计算</span>
                   <span v-else>人工凭证</span>
-                  <span v-if="record.note" style="color: #888">（{{ record.note }}）</span>
+                  <span v-if="record.note" class="sub">（{{ record.note }}）</span>
                 </template>
                 <template v-else-if="column.key === 'expense_type'">
                   {{ EXPENSE_TYPE_LABELS[record.expense_type as string] || record.expense_type }}
@@ -483,7 +493,7 @@ onMounted(() => {
                 </template>
                 <template v-else-if="column.key === 'op'">
                   <a-tooltip v-if="record.auto_rule" title="由补助天数 × 日标准自动计算；改天数或标准即可">
-                    <span style="color: #888">自动</span>
+                    <span class="sub">自动</span>
                   </a-tooltip>
                   <a v-else-if="detailEditable" @click="onRemove(record.id)">移除</a>
                 </template>
@@ -524,7 +534,7 @@ onMounted(() => {
           v-if="travelSubtype === 'allowance' && entryForm.entry_type === 'travel'"
           type="success"
           show-icon
-          style="margin-bottom: 12px"
+          class="mb-3"
           :message="allowancePreview
             ? `补助金额 = ${entryForm.scene.days || 0} 天 × ${entryForm.scene.daily_standard || allowanceStandard} 元/天 = ${allowancePreview} 元`
             : `请填写补助天数；日标准留空按公司标准 ${allowanceStandard} 元/天`"
@@ -547,7 +557,7 @@ onMounted(() => {
       :confirm-loading="poolLoading"
       @ok="onAddSelected"
     >
-      <a-space style="margin-bottom: 12px">
+      <a-space class="mb-3">
         <span>费用类型</span>
         <a-select v-model:value="poolExpenseType" style="width: 140px">
           <a-select-option v-for="(label, k) in EXPENSE_TYPE_LABELS" :key="k" :value="k">{{ label }}</a-select-option>
@@ -567,9 +577,27 @@ onMounted(() => {
         :pagination="{ pageSize: 10 }"
         :row-selection="{ selectedRowKeys: poolSelection, onChange: (k: number[]) => (poolSelection = k) }"
       />
-      <p v-if="!poolLoading && pool.length === 0" style="color: #888">
+      <p v-if="!poolLoading && pool.length === 0" class="sub">
         暂无可用发票：需已验真通过、未被拦截且未被其他报销单占用。
       </p>
     </a-modal>
   </div>
 </template>
+
+<style scoped>
+.sub {
+  color: var(--c-sub);
+}
+.danger-link {
+  color: var(--c-danger);
+}
+.mb-2 {
+  margin-bottom: var(--space-2);
+}
+.mb-3 {
+  margin-bottom: var(--space-3);
+}
+.mr-3 {
+  margin-right: var(--space-3);
+}
+</style>
