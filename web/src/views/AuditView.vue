@@ -167,7 +167,7 @@ const columns = computed(() => [
   flex: 1 1 auto;
   min-width: 0;
   font-size: 12px;
-  color: #888;
+  color: var(--c-sub);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
