@@ -6,6 +6,7 @@ import { errorMessage } from "../api/client";
 import { listAuditLogs } from "../api/audit";
 import dayjs from "dayjs";
 import { AUDIT_OUTCOME_LABELS, type AuditListResponse, type AuditOut } from "../types";
+import PageHeader from "../components/PageHeader.vue";
 
 const data = ref<AuditListResponse>({ items: [], total: 0, page: 1, page_size: 20 });
 const loading = ref(false);
@@ -91,17 +92,12 @@ const columns = computed(() => [
 
 <template>
   <div>
-    <h3>审计日志</h3>
+    <PageHeader title="审计日志" :desc="category === 'business' ? '业务操作留痕（收信/解析/验真/复核/配置变更等）；身份事件在「安全审计」标签页。' : '身份事件（登录成功/失败/登出）——失败登录是撞库与爆破检测依据，长期保留。'" />
     <a-tabs v-model:active-key="category" @change="onCategoryChange">
       <a-tab-pane key="business" tab="业务审计" />
       <a-tab-pane key="security" tab="安全审计" />
     </a-tabs>
-    <p style="color: #888; margin-bottom: 12px">
-      {{ category === "business"
-        ? "业务操作留痕（收信/解析/验真/复核/配置变更等）；身份事件在「安全审计」标签页。"
-        : "身份事件（登录成功/失败/登出）——失败登录是撞库与爆破检测依据，长期保留。" }}
-    </p>
-    <a-space style="margin-bottom: 16px" wrap>
+    <div class="filter-toolbar">
       <a-select v-model:value="filters.action" placeholder="操作类型" allow-clear style="width: 180px" @change="reloadFirst">
         <a-select-option v-for="a in (category === 'security' ? SECURITY_ACTIONS : BUSINESS_ACTIONS)" :key="a" :value="a">{{ a }}</a-select-option>
       </a-select>
@@ -113,7 +109,7 @@ const columns = computed(() => [
       </a-checkbox>
       <a-range-picker v-model:value="filters.dateRange" @change="reloadFirst" />
       <a-button type="primary" @click="load">查询</a-button>
-    </a-space>
+    </div>
     <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id" :scroll="{ x: 960 }"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size }"
       @change="(p: any) => { data.page = p.current; data.page_size = p.pageSize; load(); }">
@@ -138,7 +134,7 @@ const columns = computed(() => [
       </template>
     </a-table>
     <a-modal v-model:open="detailOpen" title="审计详情" width="720px" :footer="null">
-      <a-descriptions :column="1" size="small" bordered style="margin-bottom: 12px">
+      <a-descriptions :column="1" size="small" bordered class="mb-3">
         <a-descriptions-item label="时间">{{ detailRecord?.created_at }}</a-descriptions-item>
         <a-descriptions-item label="操作">{{ detailRecord?.action }}</a-descriptions-item>
         <a-descriptions-item label="用户 / 通道">
@@ -148,7 +144,7 @@ const columns = computed(() => [
           {{ detailRecord.ip_address }}
         </a-descriptions-item>
       </a-descriptions>
-      <pre style="max-height: 55vh; overflow: auto; background: #fafafa; border-radius: 4px; padding: 12px; font-size: 12px; line-height: 1.6">{{ JSON.stringify(detailRecord?.detail ?? {}, null, 2) }}</pre>
+      <pre class="detail-json">{{ JSON.stringify(detailRecord?.detail ?? {}, null, 2) }}</pre>
     </a-modal>
   </div>
 </template>
@@ -167,10 +163,6 @@ const columns = computed(() => [
   flex: 0 0 auto; /* 不参与收缩，避免「查看」被挤成两行 */
   white-space: nowrap;
 }
-.audit-detail-cell > a {
-  flex: 0 0 auto; /* 不参与收缩，避免「查看」被挤成两行 */
-  white-space: nowrap;
-}
 .audit-detail-text {
   flex: 1 1 auto;
   min-width: 0;
@@ -180,4 +172,14 @@ const columns = computed(() => [
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.detail-json {
+  max-height: 55vh;
+  overflow: auto;
+  background: #fafafa;
+  border-radius: 4px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.mb-3 { margin-bottom: var(--space-3); }
 </style>

@@ -7,6 +7,7 @@ import { message } from "ant-design-vue";
 import { errorMessage } from "../api/client";
 import { changeOwnPassword } from "../api/auth";
 import { useAuthStore } from "../stores/auth";
+import PageHeader from "../components/PageHeader.vue";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -38,14 +39,14 @@ async function onSubmit() {
 </script>
 
 <template>
-  <div style="max-width: 460px">
-    <h3>修改密码</h3>
+  <div class="narrow">
+    <PageHeader title="修改密码" />
 
     <a-alert
       v-if="forced"
       type="warning"
       show-icon
-      style="margin-bottom: 16px"
+      class="mb-4"
       message="请先修改密码"
       description="管理员已重置你的密码。为安全起见，修改后才能使用其他功能。"
     />
@@ -67,3 +68,8 @@ async function onSubmit() {
     </a-form>
   </div>
 </template>
+
+<style scoped>
+.narrow { max-width: 460px; }
+.mb-4 { margin-bottom: var(--space-4); }
+</style>

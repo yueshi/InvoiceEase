@@ -8,6 +8,7 @@ import { createBankAccount, deleteBankAccount, listBankAccounts, updateBankAccou
 import { createMailbox, listMailboxes, pollMailbox, testMailbox, updateMailbox } from "../api/mailboxes";
 import { createUser, listUsers, resetUserPassword, resumeUser, suspendUser, updateUser } from "../api/users";
 import { BANK_LABELS, COMPANY_KIND_LABELS, ROLE_LABELS, USER_STATUS_LABELS, type BankAccountCreate, type BankAccountOut, type CompanyInfoCreate, type CompanyInfoOut, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut, type UserStatus } from "../types";
+import PageHeader from "../components/PageHeader.vue";
 
 const TAX_ID_RE = /^[0-9A-Z]{18}$/;
 
@@ -329,10 +330,10 @@ const companyColumns = [
 
 <template>
   <div>
-    <h3>系统配置</h3>
+    <PageHeader title="系统配置" desc="邮箱收取、用户与角色、常用公司税号与银行账号。" />
     <a-tabs v-model:active-key="activeTab">
       <a-tab-pane key="mailboxes" tab="邮箱配置">
-        <a-button type="primary" style="margin-bottom: 12px" @click="editingMailbox = null; Object.assign(mailboxForm, { name: '', mailbox_type: 'imap', imap_host: '', username: '', password: '', imap_port: undefined, keywords: '发票,Invoice', agently_workspace: '', agently_token: '' }); mailboxModalOpen = true">新建邮箱</a-button>
+        <a-button type="primary" class="pane-action" @click="editingMailbox = null; Object.assign(mailboxForm, { name: '', mailbox_type: 'imap', imap_host: '', username: '', password: '', imap_port: undefined, keywords: '发票,Invoice', agently_workspace: '', agently_token: '' }); mailboxModalOpen = true">新建邮箱</a-button>
         <a-table :columns="mailboxColumns" :data-source="mailboxes" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'actions'">
@@ -346,7 +347,7 @@ const companyColumns = [
         </a-table>
       </a-tab-pane>
       <a-tab-pane key="users" tab="用户管理">
-        <a-button type="primary" style="margin-bottom: 12px" @click="editingUser = null; Object.assign(userForm, { username: '', password: '', role: 'employee' }); userModalOpen = true">新建用户</a-button>
+        <a-button type="primary" class="pane-action" @click="editingUser = null; Object.assign(userForm, { username: '', password: '', role: 'employee' }); userModalOpen = true">新建用户</a-button>
         <a-table :columns="userColumns" :data-source="users" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'role'">{{ ROLE_LABELS[record.role as Role] || record.role }}</template>
@@ -355,7 +356,7 @@ const companyColumns = [
                 {{ USER_STATUS_LABELS[record.status as UserStatus]?.text || record.status }}
               </a-tag>
               <a-tooltip v-if="record.must_change_password" title="管理员已重置其密码，本人尚未修改">
-                <a-tag color="orange" style="margin-left: 4px">待改密</a-tag>
+                <a-tag color="orange" class="gap-tag">待改密</a-tag>
               </a-tooltip>
             </template>
             <template v-else-if="column.key === 'actions'">
@@ -369,7 +370,7 @@ const companyColumns = [
                   ok-text="确定" cancel-text="取消"
                   @confirm="onToggleStatus(record)"
                 >
-                  <a :style="record.status === 'active' ? 'color:#cf1322' : ''">
+                  <a :class="{ 'danger-link': record.status === 'active' }">
                     {{ record.status === "active" ? "暂停" : "恢复" }}
                   </a>
                 </a-popconfirm>
@@ -379,7 +380,7 @@ const companyColumns = [
         </a-table>
       </a-tab-pane>
       <a-tab-pane key="company" tab="常用税号/公司">
-        <a-button type="primary" style="margin-bottom: 12px" @click="openCompanyModal(null)">新建公司</a-button>
+        <a-button type="primary" class="pane-action" @click="openCompanyModal(null)">新建公司</a-button>
         <a-table :columns="companyColumns" :data-source="companyInfos" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'kind'">{{ COMPANY_KIND_LABELS[record.kind as string] || record.kind }}</template>
@@ -394,16 +395,16 @@ const companyColumns = [
         </a-table>
       </a-tab-pane>
       <a-tab-pane key="bank" tab="常用银行账号">
-        <p style="color: #888; margin-bottom: 12px">
+        <p class="sub mb-3">
           本司银行账号：回单解析用它判定「本司账户行」（命中时对方户名留空并标记待核对）。
           账号是可靠依据——户名可能与本司全名不一致；停用的账号不参与判定。
         </p>
-        <a-button type="primary" style="margin-bottom: 12px" @click="openBankModal(null)">新建账号</a-button>
+        <a-button type="primary" class="pane-action" @click="openBankModal(null)">新建账号</a-button>
         <a-table :columns="bankColumns" :data-source="bankAccounts" row-key="id" :pagination="false">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'bank_code'">
               <a-tag v-if="record.bank_code">{{ BANK_LABELS[record.bank_code as string] || record.bank_code }}</a-tag>
-              <span v-else style="color: #bbb">未识别</span>
+              <span v-else class="faint">未识别</span>
             </template>
             <template v-else-if="column.key === 'is_default'">{{ record.is_default ? '是' : '' }}</template>
             <template v-else-if="column.key === 'enabled'">
@@ -469,9 +470,9 @@ const companyColumns = [
         v-if="!resetForm.generate"
         v-model:value="resetForm.new_password"
         placeholder="至少 8 位"
-        style="margin-top: 12px"
+        class="mt-3"
       />
-      <div style="color: #888; font-size: 12px; margin-top: 12px">
+      <div class="hint mt-3">
         重置后该用户下次登录必须修改密码；其角色不变（降级请用「改角色」）。
       </div>
     </a-modal>
@@ -484,13 +485,13 @@ const companyColumns = [
       :mask-closable="false"
     >
       <a-alert
-        type="warning" show-icon style="margin-bottom: 12px"
+        type="warning" show-icon class="mb-3"
         message="明文只显示这一次"
         description="密码以哈希存储，关闭后无法再次查看。若丢失，只能再重置一次。"
       />
-      <p style="margin-bottom: 6px">「{{ resetPlaintext?.username }}」的新密码：</p>
-      <a-textarea :value="resetPlaintext?.plaintext" :rows="2" readonly style="font-family: monospace" />
-      <a-space style="margin-top: 12px">
+      <p class="mb-2">「{{ resetPlaintext?.username }}」的新密码：</p>
+      <a-textarea :value="resetPlaintext?.plaintext" :rows="2" readonly class="mono" />
+      <a-space class="mt-3">
         <a-button type="primary" @click="copyResetPassword">复制密码</a-button>
         <a-button @click="resetPlaintext = null">我已复制，关闭</a-button>
       </a-space>
@@ -543,3 +544,16 @@ const companyColumns = [
     </a-modal>
   </div>
 </template>
+
+<style scoped>
+.pane-action { margin-bottom: var(--space-3); }
+.gap-tag { margin-left: var(--space-1); }
+.sub { color: var(--c-sub); }
+.faint { color: #bbb; }
+.danger-link { color: var(--c-danger); }
+.mt-3 { margin-top: var(--space-3); }
+.mb-2 { margin-bottom: var(--space-2); }
+.mb-3 { margin-bottom: var(--space-3); }
+.hint { font-size: 12px; color: var(--c-sub); }
+.mono { font-family: monospace; }
+</style>

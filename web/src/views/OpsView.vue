@@ -13,6 +13,7 @@ import {
   runTask,
 } from "../api/ops";
 import type { BackupOut, OpsAlertOut, OpsCheckOut, OpsStatusOut, TaskRunOut } from "../types";
+import PageHeader from "../components/PageHeader.vue";
 
 const status = ref<OpsStatusOut | null>(null);
 const runs = ref<TaskRunOut[]>([]);
@@ -151,16 +152,15 @@ onMounted(load);
 
 <template>
   <div>
-    <h3>运维</h3>
-    <p style="color: #888; margin-bottom: 12px">系统状态、任务班表执行记录、告警历史、备份与自检（仅管理员）。</p>
+    <PageHeader title="运维" desc="系统状态、任务班表执行记录、告警历史、备份与自检（仅管理员）。" />
 
-    <a-row v-if="status && !statusFailed" :gutter="12" style="margin-bottom: 16px">
-      <a-col :span="4"><a-card size="small"><a-statistic title="版本" :value="status.version" /></a-card></a-col>
-      <a-col :span="4"><a-card size="small"><a-statistic title="运行时长" :value="fmtUptime(status.uptime_seconds)" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
-      <a-col :span="4"><a-card size="small"><a-statistic title="数据库" :value="fmtBytes(status.storage.db_bytes)" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
-      <a-col :span="4"><a-card size="small"><a-statistic title="原件体积" :value="fmtBytes(status.storage.originals_bytes)" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
-      <a-col :span="4"><a-card size="small"><a-statistic title="磁盘剩余" :value="`${status.storage.disk_free_percent}%`" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
-      <a-col :span="4">
+    <a-row v-if="status && !statusFailed" :gutter="12" class="status-row">
+      <a-col :xs="12" :md="4"><a-card size="small"><a-statistic title="版本" :value="status.version" /></a-card></a-col>
+      <a-col :xs="12" :md="4"><a-card size="small"><a-statistic title="运行时长" :value="fmtUptime(status.uptime_seconds)" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
+      <a-col :xs="12" :md="4"><a-card size="small"><a-statistic title="数据库" :value="fmtBytes(status.storage.db_bytes)" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
+      <a-col :xs="12" :md="4"><a-card size="small"><a-statistic title="原件体积" :value="fmtBytes(status.storage.originals_bytes)" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
+      <a-col :xs="12" :md="4"><a-card size="small"><a-statistic title="磁盘剩余" :value="`${status.storage.disk_free_percent}%`" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
+      <a-col :xs="12" :md="4">
         <a-card size="small">
           <a-statistic title="最近备份" :value="status.last_backup ? fmtBackupTime(status.last_backup.name) : '无'"
                        :value-style="{ fontSize: '16px' }" />
@@ -230,17 +230,24 @@ onMounted(load);
           <template #renderItem="{ item }">
             <a-list-item>
               <a-tag :color="LEVEL_META[item.level]?.color || 'default'">{{ item.level }}</a-tag>
-              <b style="margin: 0 8px">{{ item.name }}</b>
+              <b class="check-name">{{ item.name }}</b>
               <span>{{ item.message }}</span>
             </a-list-item>
           </template>
         </a-list>
-        <a-space style="margin-top: 12px">
+        <a-space class="mt-3">
           <a-button size="small" @click="load">刷新自检</a-button>
           <a-button size="small" @click="loadLog">查看日志尾部</a-button>
         </a-space>
-        <pre v-if="logLines.length" style="max-height: 320px; overflow: auto; background: #fafafa; padding: 12px; font-size: 12px">{{ logLines.join("") }}</pre>
+        <pre v-if="logLines.length" class="log-view">{{ logLines.join("") }}</pre>
       </a-tab-pane>
     </a-tabs>
   </div>
 </template>
+
+<style scoped>
+.status-row { margin-bottom: var(--space-4); }
+.log-view { max-height: 320px; overflow: auto; background: #fafafa; padding: 12px; font-size: 12px; }
+.mt-3 { margin-top: var(--space-3); }
+.check-name { margin: 0 var(--space-2); }
+</style>

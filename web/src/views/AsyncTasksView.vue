@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import { errorMessage } from "../api/client";
 import { listReceiptUploads } from "../api/receipts";
 import type { ReceiptUploadOut } from "../types";
+import PageHeader from "../components/PageHeader.vue";
 
 const rows = ref<ReceiptUploadOut[]>([]);
 const loading = ref(false);
@@ -51,14 +52,16 @@ onUnmounted(() => timer && clearTimeout(timer));
 
 <template>
   <div>
-    <h3>异步任务</h3>
-    <p style="color: #888; margin-bottom: 12px">
-      批量上传（如一份 PDF 含多张回单）在后台解析；此处查看解析进度与入库结果，解析中的任务每 5 秒自动刷新。
-    </p>
-    <a-space style="margin-bottom: 16px">
-      <a-button @click="load">刷新</a-button>
-    </a-space>
-    <a-table
+    <PageHeader
+      title="异步任务"
+      desc="批量上传（如一份 PDF 含多张回单）在后台解析；此处查看解析进度与入库结果，解析中的任务每 5 秒自动刷新。"
+    >
+      <template #extra>
+        <a-button @click="load">刷新</a-button>
+      </template>
+    </PageHeader>
+    <div class="table-card">
+      <a-table
       :columns="columns"
       :data-source="rows"
       :loading="loading"
@@ -79,5 +82,6 @@ onUnmounted(() => timer && clearTimeout(timer));
         </template>
       </template>
     </a-table>
+    </div>
   </div>
 </template>
