@@ -78,6 +78,28 @@ def test_fetch_invoices_mcp_writes_mcp_audit(db, monkeypatch, mcp_admin_auth):
     assert len(logs) == 1
 
 
+def test_receipt_report_excludes_invoice_exempt(db, mcp_admin_auth):
+    """催票清单不得含无需发票行（税费类）——WorkBuddy 侧的面孔，免误催。"""
+    from invoicing.mcp.tools import receipt_report
+    from invoicing.models import BankReceipt
+
+    _seed(db)
+    db.add_all([
+        BankReceipt(file_url="t.pdf", file_type="PDF", trade_date=date(2026, 8, 7),
+                    counterparty_name="国家金库陕西省西咸新区支库", amount=Decimal("1116.00"),
+                    status="unmatched", direction="付", category="tax"),
+        BankReceipt(file_url="b.pdf", file_type="PDF", trade_date=date(2026, 8, 8),
+                    counterparty_name="供应商甲", amount=Decimal("800.00"),
+                    status="unmatched", direction="付", category="purchase"),
+    ])
+    db.commit()
+
+    text = receipt_report(month="2026-08")
+    assert "无票支出 1 笔" in text
+    assert "供应商甲" in text
+    assert "国家金库" not in text
+
+
 @pytest.mark.asyncio
 async def test_in_memory_client_lists_tools():
     async with Client(mcp, raise_exceptions=True) as client:

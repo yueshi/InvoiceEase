@@ -1230,3 +1230,23 @@ def test_suggest_pair_skips_invoice_exempt(db):
     r.category = "tax"  # 同类行若被判为税费 → 不参与配对
     db.commit()
     assert suggest_pair(db, r.id) is None
+
+
+def test_suggest_pair_keeps_sales_collection(db):
+    """收款回单判为 sales_collection（requirement=issue）仍与销项蓝票配对。
+
+    回归：早退谓词曾写成 requirement != "fetch"，把「需我方开具」的收款一并挡掉，
+    静默废掉 D5 销项对账。豁免范围只能是 requirement=none。
+    """
+    from invoicing.parse.receipt import suggest_pair
+
+    sales = Invoice(file_url="s.xml", file_type="XML", invoice_number="24990000000000000002",
+                    status="parsed", verify_status="passed", invoice_direction="output",
+                    buyer_name="客户甲有限公司", total_amount=Decimal("500.00"))
+    db.add(sales)
+    r = BankReceipt(file_url="in.pdf", file_type="PDF", counterparty_name="客户甲有限公司",
+                    amount=Decimal("500.00"), status="unmatched", direction="收",
+                    category="sales_collection")
+    db.add(r)
+    db.commit()
+    assert suggest_pair(db, r.id) == sales.id

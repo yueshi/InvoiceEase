@@ -650,8 +650,8 @@ def suggest_pair(db, receipt_id: int) -> int | None:
         return None
     from invoicing.workflow.receipts import requirement_of
 
-    if requirement_of(getattr(r, "category", None)) != "fetch":
-        return None  # 无需发票的交易（税费/社保/银行费用/调拨…）不参与发票配对
+    if requirement_of(r.category) == "none":
+        return None  # 仅「无需发票」类跳过配对（税费/社保/银行费用/工资/调拨/财政收入）
     party = normalize_party(r.counterparty_name)
     if not party:
         return None
