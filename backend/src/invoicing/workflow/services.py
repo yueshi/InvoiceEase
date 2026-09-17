@@ -13,7 +13,11 @@ from invoicing.workflow.state import transition
 from invoicing.workers.queue import enqueue_parse_sync, enqueue_verify_sync
 
 
-def _scope_query(db: Session, current_user: User):
+def scoped_invoices(db: Session, current_user: User):
+    """发票查询的 RBAC 范围（FRD §3.5.2）：员工仅本人，财务/主管/管理员全公司。
+
+    所有按发票出数的读路径（列表/详情/工作台统计）都必须经此收敛，避免漏网。
+    """
     q = db.query(Invoice)
     if current_user.role == Role.employee.value:
         q = q.filter(Invoice.user_id == current_user.id)
@@ -32,7 +36,7 @@ def list_invoices(
     page: int = 1,
     page_size: int = 20,
 ) -> InvoiceListResponse:
-    q = _scope_query(db, current_user)
+    q = scoped_invoices(db, current_user)
     if status:
         q = q.filter(Invoice.status == status)
     if invoice_direction:
@@ -62,7 +66,7 @@ def list_invoices(
 
 
 def get_invoice(db: Session, current_user: User, invoice_id: int) -> Invoice:
-    inv = _scope_query(db, current_user).filter(Invoice.id == invoice_id).first()
+    inv = scoped_invoices(db, current_user).filter(Invoice.id == invoice_id).first()
     if inv is None:
         from fastapi import HTTPException
 

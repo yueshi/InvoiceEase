@@ -8,20 +8,23 @@ from invoicing.models import AuditLog, Invoice, User
 from invoicing.models.fields import utcnow
 from invoicing.schemas.stats import StatsOverviewOut, TrustStatsOut
 from invoicing.security import get_current_user, require_role
+from invoicing.workflow.services import scoped_invoices
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 
 @router.get("/overview", response_model=StatsOverviewOut)
-def overview(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def overview(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """工作台统计（FRD §3.5.2）：与发票列表同一 RBAC 范围——员工仅本人，财务/管理看全公司。"""
     today = utcnow().date()  # naive-UTC，与库内时间戳一致
     today_start = datetime.combine(today, time.min)
     month_start = datetime.combine(today.replace(day=1), time.min)
+    q = scoped_invoices(db, user)
     return StatsOverviewOut(
-        pending_review=db.query(Invoice).filter(Invoice.status == "pending_review").count(),
-        pending_submit=db.query(Invoice).filter(Invoice.status == "pending_submit").count(),
-        today_new=db.query(Invoice).filter(Invoice.created_at >= today_start).count(),
-        month_total=db.query(Invoice).filter(Invoice.created_at >= month_start).count(),
+        pending_review=q.filter(Invoice.status == "pending_review").count(),
+        pending_submit=q.filter(Invoice.status == "pending_submit").count(),
+        today_new=q.filter(Invoice.created_at >= today_start).count(),
+        month_total=q.filter(Invoice.created_at >= month_start).count(),
     )
 
 

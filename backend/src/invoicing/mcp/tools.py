@@ -109,7 +109,7 @@ def list_invoices_mcp(
 def get_invoice_mcp(invoice_id: int) -> InvoiceOut:
     with SessionLocal() as db:
         try:
-            # get_invoice 走 _scope_query：员工查他人发票得 404（数据范围隔离生效点）
+            # get_invoice 走 scoped_invoices：员工查他人发票得 404（数据范围隔离生效点）
             inv = services.get_invoice(db, _current_user(db), invoice_id)
         except HTTPException as e:
             # service 层 404 泄漏到 MCP 层，映射为协议友好的错误信息
