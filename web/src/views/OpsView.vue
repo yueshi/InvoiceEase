@@ -51,6 +51,13 @@ function fmtUptime(sec: number): string {
   return h > 0 ? `${h} 时 ${m} 分` : `${m} 分`;
 }
 
+/** 备份名 invoiceease-backup-YYYYMMDD-HHMMSS.tar.gz → 可读时间 "YYYY-MM-DD HH:MM"；不符则原样返回 */
+function fmtBackupTime(name: string): string {
+  const m = name.match(/invoiceease-backup-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})/);
+  if (!m) return name;
+  return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+}
+
 async function load() {
   try {
     const [s, r, a, b] = await Promise.all([
@@ -119,7 +126,7 @@ onMounted(load);
       <a-col :span="4"><a-card size="small"><a-statistic title="磁盘剩余" :value="`${status.storage.disk_free_percent}%`" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
       <a-col :span="4">
         <a-card size="small">
-          <a-statistic title="最近备份" :value="status.last_backup ? status.last_backup.name.slice(24, 39) : '无'"
+          <a-statistic title="最近备份" :value="status.last_backup ? fmtBackupTime(status.last_backup.name) : '无'"
                        :value-style="{ fontSize: '16px' }" />
         </a-card>
       </a-col>
@@ -182,7 +189,7 @@ onMounted(load);
         </a-table>
       </a-tab-pane>
 
-      <a-tab-pane key="checks" tab="自检" @click="load">
+      <a-tab-pane key="checks" tab="自检">
         <a-list :data-source="(status?.checks || []) as OpsCheckOut[]" size="small" bordered>
           <template #renderItem="{ item }">
             <a-list-item>
@@ -193,6 +200,7 @@ onMounted(load);
           </template>
         </a-list>
         <a-space style="margin-top: 12px">
+          <a-button size="small" @click="load">刷新自检</a-button>
           <a-button size="small" @click="loadLog">查看日志尾部</a-button>
         </a-space>
         <pre v-if="logLines.length" style="max-height: 320px; overflow: auto; background: #fafafa; padding: 12px; font-size: 12px">{{ logLines.join("") }}</pre>

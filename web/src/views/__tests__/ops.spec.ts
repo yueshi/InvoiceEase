@@ -55,6 +55,8 @@ vi.mock("../../api/ops", () => ({
   listBackups: (...a: unknown[]) => listBackups(...a),
   runTask: vi.fn(),
   runBackup: vi.fn(),
+  downloadBackup: vi.fn(),
+  fetchLogTail: vi.fn(),
 }));
 
 describe("OpsView", () => {
