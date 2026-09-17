@@ -83,4 +83,18 @@ describe("OpsView", () => {
     await activateChecksTab(wrapper);
     expect(wrapper.html()).toContain("warn");
   }, 20000);
+
+  it("单个端点失败只隐藏对应 Tab，不整页白屏", async () => {
+    listTaskRuns.mockRejectedValueOnce(new Error("boom"));
+    const wrapper = await mountWithAntd();
+    await new Promise((r) => setTimeout(r, 0));
+    // 整页未白屏：标题仍在、状态卡片（status 端点成功）照常渲染
+    expect(wrapper.text()).toContain("运维");
+    expect(wrapper.findAll(".ant-card").length).toBeGreaterThanOrEqual(1);
+    // 失败的「任务」Tab 隐藏，其余「告警」Tab 保留
+    const tabTexts = wrapper.findAll(".ant-tabs-tab").map((t) => t.text());
+    expect(tabTexts).not.toContain("任务");
+    expect(tabTexts).toContain("告警");
+    expect(fetchOpsStatus).toHaveBeenCalled();
+  }, 20000);
 });

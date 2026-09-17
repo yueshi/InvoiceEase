@@ -22,7 +22,8 @@ export async function listTaskRuns(params?: {
 }
 
 export async function runTask(name: string): Promise<void> {
-  await api.post(`/ops/tasks/${name}/run`);
+  // 手动任务同步执行（含备份可达数分钟），放宽到 600s 超时
+  await api.post(`/ops/tasks/${name}/run`, undefined, { timeout: 600000 });
 }
 
 export async function listOpsAlerts(params?: {
@@ -39,7 +40,10 @@ export async function listBackups(): Promise<BackupOut[]> {
 }
 
 export async function runBackup(): Promise<{ name: string }> {
-  const { data } = await api.post<{ name: string }>("/ops/backups/run");
+  // 备份同步执行（打包原件+轮转可达分钟级），放宽到 600s 超时
+  const { data } = await api.post<{ name: string }>("/ops/backups/run", undefined, {
+    timeout: 600000,
+  });
   return data;
 }
 

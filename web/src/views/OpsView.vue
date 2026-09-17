@@ -22,6 +22,11 @@ const backups = ref<BackupOut[]>([]);
 const logLines = ref<string[]>([]);
 const activeTab = ref("tasks");
 const busy = ref(false);
+// 单端点加载失败标记：对应卡片/Tab 隐藏并提示，不整页白屏
+const statusFailed = ref(false);
+const tasksFailed = ref(false);
+const alertsFailed = ref(false);
+const backupsFailed = ref(false);
 
 const RUNNABLE = ["mailbox_poll", "review_predict", "monthly_health", "audit_retention", "ops_check", "ops_backup"];
 
@@ -59,21 +64,52 @@ function fmtBackupTime(name: string): string {
 }
 
 async function load() {
-  try {
-    const [s, r, a, b] = await Promise.all([
-      fetchOpsStatus(),
-      listTaskRuns(),
-      listOpsAlerts(),
-      listBackups(),
-    ]);
-    status.value = s;
-    runs.value = r.items;
-    runsTotal.value = r.total;
-    alerts.value = a.items;
-    backups.value = b;
-  } catch (e) {
-    errorMessage(e, "运维状态加载失败");
+  // Promise.allSettled：单个端点失败只隐藏对应卡片/Tab 并提示，其余端点照常渲染，不整页白屏
+  const settled = await Promise.allSettled([
+    fetchOpsStatus(),
+    listTaskRuns(),
+    listOpsAlerts(),
+    listBackups(),
+  ]);
+  const [s, r, a, b] = settled;
+  if (s.status === "fulfilled") {
+    status.value = s.value;
+    statusFailed.value = false;
+  } else {
+    status.value = null;
+    statusFailed.value = true;
+    message.warning("运维状态加载失败，状态卡片已隐藏");
   }
+  if (r.status === "fulfilled") {
+    runs.value = r.value.items;
+    runsTotal.value = r.value.total;
+    tasksFailed.value = false;
+  } else {
+    runs.value = [];
+    runsTotal.value = 0;
+    tasksFailed.value = true;
+    message.warning("任务记录加载失败，任务 Tab 已隐藏");
+  }
+  if (a.status === "fulfilled") {
+    alerts.value = a.value.items;
+    alertsFailed.value = false;
+  } else {
+    alerts.value = [];
+    alertsFailed.value = true;
+    message.warning("告警列表加载失败，告警 Tab 已隐藏");
+  }
+  if (b.status === "fulfilled") {
+    backups.value = b.value;
+    backupsFailed.value = false;
+  } else {
+    backups.value = [];
+    backupsFailed.value = true;
+    message.warning("备份列表加载失败，备份 Tab 已隐藏");
+  }
+  // 当前激活 Tab 的端点失败被隐藏时，切到第一个可见 Tab，避免空 Tab
+  if (activeTab.value === "tasks" && tasksFailed.value) activeTab.value = "alerts";
+  if (activeTab.value === "alerts" && alertsFailed.value) activeTab.value = "backups";
+  if (activeTab.value === "backups" && backupsFailed.value) activeTab.value = "checks";
 }
 
 async function onRunTask(name: string) {
@@ -118,7 +154,7 @@ onMounted(load);
     <h3>运维</h3>
     <p style="color: #888; margin-bottom: 12px">系统状态、任务班表执行记录、告警历史、备份与自检（仅管理员）。</p>
 
-    <a-row v-if="status" :gutter="12" style="margin-bottom: 16px">
+    <a-row v-if="status && !statusFailed" :gutter="12" style="margin-bottom: 16px">
       <a-col :span="4"><a-card size="small"><a-statistic title="版本" :value="status.version" /></a-card></a-col>
       <a-col :span="4"><a-card size="small"><a-statistic title="运行时长" :value="fmtUptime(status.uptime_seconds)" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
       <a-col :span="4"><a-card size="small"><a-statistic title="数据库" :value="fmtBytes(status.storage.db_bytes)" :value-style="{ fontSize: '20px' }" /></a-card></a-col>
@@ -133,7 +169,7 @@ onMounted(load);
     </a-row>
 
     <a-tabs v-model:activeKey="activeTab">
-      <a-tab-pane key="tasks" tab="任务">
+      <a-tab-pane key="tasks" tab="任务" v-if="!tasksFailed">
         <a-space style="margin-bottom: 12px" wrap>
           <a-button v-for="name in RUNNABLE" :key="name" size="small" :disabled="busy" @click="onRunTask(name)">
             手动执行 {{ name }}
@@ -156,7 +192,7 @@ onMounted(load);
         </a-table>
       </a-tab-pane>
 
-      <a-tab-pane key="alerts" tab="告警">
+      <a-tab-pane key="alerts" tab="告警" v-if="!alertsFailed">
         <a-table :data-source="alerts" :pagination="{ pageSize: 20 }" row-key="id" size="middle">
           <a-table-column title="级别" key="severity" :width="90">
             <template #bodyCell="{ record }">
@@ -171,7 +207,7 @@ onMounted(load);
         </a-table>
       </a-tab-pane>
 
-      <a-tab-pane key="backups" tab="备份">
+      <a-tab-pane key="backups" tab="备份" v-if="!backupsFailed">
         <a-space style="margin-bottom: 12px">
           <a-button type="primary" :disabled="busy" @click="onBackup">立即备份</a-button>
         </a-space>
