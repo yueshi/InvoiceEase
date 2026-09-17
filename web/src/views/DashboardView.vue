@@ -1,12 +1,22 @@
 <!-- 工作台：统计卡片 + 开票抬头卡片 -->
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { message } from "ant-design-vue";
 import PageHeader from "../components/PageHeader.vue";
 import { errorMessage } from "../api/client";
 import { listCompanyInfos } from "../api/companyInfos";
 import { fetchOverview, fetchTrustStats } from "../api/stats";
+import { useAuthStore } from "../stores/auth";
 import type { CompanyInfoOut, StatsOverviewOut, TrustStatsOut } from "../types";
+
+const auth = useAuthStore();
+// 统计口径随角色收敛（FRD §3.5.2：员工仅本人，财务/管理全公司）——页头注明范围免歧义
+const scopeDesc = computed(
+  () =>
+    `发票与报销的总体概览（数据范围：${
+      ["finance_staff", "finance_manager", "admin"].includes(auth.role ?? "") ? "全公司" : "本人"
+    }）。`,
+);
 
 const stats = ref<StatsOverviewOut | null>(null);
 const trust = ref<TrustStatsOut | null>(null);
@@ -53,7 +63,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <PageHeader title="工作台" desc="发票与报销的总体概览。" />
+    <PageHeader title="工作台" :desc="scopeDesc" />
     <a-row :gutter="16">
       <a-col :xs="12" :md="6"><a-card><a-statistic title="待复核" :value="stats?.pending_review ?? 0" /></a-card></a-col>
       <a-col :xs="12" :md="6"><a-card><a-statistic title="待提交" :value="stats?.pending_submit ?? 0" /></a-card></a-col>
