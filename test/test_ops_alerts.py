@@ -131,7 +131,7 @@ def test_rule_parse_error_rate_below_min_samples(db):
 
 
 def test_evaluate_alerts_runs_all(db, monkeypatch):
-    """evaluate_alerts 跑全部规则并汇总本次推送的 rule_key。"""
+    """evaluate_alerts 跑全部规则并汇总本次触发（含冷却抑制未推送）的 rule_key。"""
     monkeypatch.setattr("invoicing.notify.notify", lambda text: True)
     monkeypatch.setattr(alerts, "_rule_task_failed", lambda db: [])
     monkeypatch.setattr(alerts, "_rule_mailbox_stalled", lambda db: [])
@@ -139,13 +139,40 @@ def test_evaluate_alerts_runs_all(db, monkeypatch):
     monkeypatch.setattr(alerts, "_rule_disk_low", lambda db: [])
     monkeypatch.setattr(alerts, "_rule_review_backlog", lambda db: ["review.backlog"])
     monkeypatch.setattr(alerts, "_rule_parse_error_rate", lambda db: [])
-    # _RULES 在模块加载期已持有原函数对象引用，需同步替换为补丁后的函数
+    # _RULES 持有模块加载期的原函数引用；按现值逐名映射到补丁后的函数，
+    # 避免硬编码规则名——未来新增规则时自动纳入、静默漂移归零
     monkeypatch.setattr(alerts, "_RULES", [
-        alerts._rule_task_failed,
-        alerts._rule_mailbox_stalled,
-        alerts._rule_backup_missing,
-        alerts._rule_disk_low,
-        alerts._rule_review_backlog,
-        alerts._rule_parse_error_rate,
+        getattr(alerts, rule.__name__) for rule in alerts._RULES
     ])
     assert alerts.evaluate_alerts(db) == ["review.backlog"]
+
+
+def test_evaluate_alerts_rule_failure_isolated(db, monkeypatch):
+    """全局约束锁定：单规则抛异常仅记录日志，其余规则照常评估、异常不外抛。"""
+    boom_rule = alerts._RULES[0].__name__
+    expected = [rule.__name__ for rule in alerts._RULES[1:]]
+    called = []
+
+    def _boom(db):
+        raise RuntimeError("rule boom")
+
+    def _record(rule_name):
+        def _rule(db):
+            called.append(rule_name)
+            return [rule_name]
+
+        return _rule
+
+    # 首条规则抛异常；其余规则按 _RULES 现值逐名替换为「记录+返回」，自动覆盖全部规则
+    patched = {boom_rule: _boom}
+    for rule in alerts._RULES[1:]:
+        patched[rule.__name__] = _record(rule.__name__)
+    for name, fn in patched.items():
+        monkeypatch.setattr(alerts, name, fn)
+    monkeypatch.setattr(alerts, "_RULES", [
+        getattr(alerts, rule.__name__) for rule in alerts._RULES
+    ])
+
+    fired = alerts.evaluate_alerts(db)  # 不抛异常即通过
+    assert called == expected
+    assert fired == expected

@@ -128,6 +128,11 @@ _RULES = [_rule_task_failed, _rule_mailbox_stalled, _rule_backup_missing,
 
 
 def evaluate_alerts(db) -> list[str]:
+    """跑全部规则，返回本次触发（含冷却抑制未推送）的 rule_key 列表。
+
+    注：`_fired` 无论 record_alert 是否因冷却抑制推送都会返回 rule_key，
+    因此返回值语义是「规则被触发」，而非「本次实际推送企微」。
+    """
     fired: list[str] = []
     for rule in _RULES:
         try:
