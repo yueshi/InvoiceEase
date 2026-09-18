@@ -62,6 +62,11 @@ export async function setReceiptCategory(receiptId: number, category: string): P
   return data;
 }
 
+/** 删除回单（manager/admin）：快照审计后硬删原件与记录，报销明细引用自动置空 */
+export async function deleteReceipt(receiptId: number): Promise<void> {
+  await api.delete(`/receipts/${receiptId}`);
+}
+
 export async function exportReceipts(period: ReceiptPeriod): Promise<void> {
   const key = period.quarter ?? period.month ?? period.year ?? "all";
   const query = period.quarter

@@ -12,6 +12,7 @@ vi.mock("../../api/receipts", () => ({
   autoPairReceipt: vi.fn(),
   confirmReceiptReview: vi.fn().mockResolvedValue({}),
   setReceiptCategory: vi.fn().mockResolvedValue({}),
+  deleteReceipt: vi.fn().mockResolvedValue(undefined),
   exportReceipts: vi.fn(),
   fetchReceiptFileUrl: vi.fn(),
   fetchReceiptPageUrl: vi.fn(),
@@ -280,5 +281,51 @@ describe("ReceiptsView", () => {
     await flushPromises();
     expect(wrapper.text()).not.toContain("其他周期有");
     expect(wrapper.text()).toContain("当前筛选无回单");
+  }, 20000);
+
+  it("删除按钮仅 manager/admin 可见，popconfirm 确认后调接口并刷新", async () => {
+    const { useAuthStore } = await import("../../stores/auth");
+    const api = await import("../../api/receipts");
+    vi.mocked(api.listReceipts).mockResolvedValue([
+      {
+        id: 7, file_url: "f.pdf", file_type: "PDF", trade_date: "2026-08-06",
+        counterparty_name: "中国建设银行", amount: "15.00", abstract: "手续费",
+        direction: "付", needs_review: false, quality_issues: null,
+        category: "bank_fee", category_source: "rule", invoice_requirement: "none",
+        bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: null,
+        status: "unmatched", created_at: "2026-08-06T10:00:00",
+      },
+    ]);
+    vi.mocked(api.probeReceiptsPeriod).mockResolvedValue(0);
+
+    // 未登录态（role null）：不出删除入口
+    const guest = await mountWithAntd();
+    await flushPromises();
+    expect(guest.findAll("a").filter((a) => a.text() === "删除")).toHaveLength(0);
+    guest.unmount();
+    document.body.innerHTML = "";
+
+    // manager：出删除入口 → popconfirm 确认 → 调接口 + 刷新列表
+    const auth = useAuthStore();
+    auth.user = {
+      id: 1, username: "m", role: "finance_manager", status: "active",
+      must_change_password: false, created_at: "2026-01-01T00:00:00",
+    };
+    const wrapper = await mountWithAntd();
+    await flushPromises();
+    const del = wrapper.findAll("a").filter((a) => a.text() === "删除");
+    expect(del).toHaveLength(1);
+    await del[0].trigger("click");
+    await flushPromises();
+    await new Promise((r) => setTimeout(r, 50)); // 弹层经 transition 挂载，需一个 settle tick
+    // popconfirm 确认键 teleport 到 body（antd 两字按钮插空格 → 归一化匹配）
+    const ok = [...document.querySelectorAll(".ant-popconfirm .ant-btn-primary")].find(
+      (b) => b.textContent?.replace(/\s/g, "") === "删除",
+    );
+    expect(ok).toBeTruthy();
+    (ok as HTMLElement).click();
+    await flushPromises();
+    expect(vi.mocked(api.deleteReceipt)).toHaveBeenCalledWith(7);
+    expect(vi.mocked(api.listReceipts)).toHaveBeenCalledTimes(3); // guest 挂载 1 + manager 挂载 1 + 删除后刷新 1
   }, 20000);
 });

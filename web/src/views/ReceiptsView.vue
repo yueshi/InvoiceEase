@@ -7,6 +7,7 @@ import { errorMessage } from "../api/client";
 import {
   autoPairReceipt,
   confirmReceiptReview,
+  deleteReceipt,
   exportReceipts,
   fetchReceiptFileUrl,
   fetchReceiptPageUrl,
@@ -15,11 +16,16 @@ import {
   probeReceiptsPeriod,
   uploadReceipt,
 } from "../api/receipts";
+import { useAuthStore } from "../stores/auth";
 import { BANK_LABELS, type ReceiptOut } from "../types";
 import PageHeader from "../components/PageHeader.vue";
 import { formatMoney, receiptStatusColor, receiptStatusText } from "../utils/format";
 import ReceiptDetailDrawer from "../components/ReceiptDetailDrawer.vue";
 import ReceiptLocatePanel from "../components/ReceiptLocatePanel.vue";
+
+const auth = useAuthStore();
+// 删除与后端口径一致：仅 manager/admin（staff 不出删除入口）
+const canDelete = computed(() => ["finance_manager", "admin"].includes(auth.role ?? ""));
 
 // a-month-picker / a-date-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()）
 const periodType = ref<"all" | "month" | "quarter" | "year">("month");
@@ -205,6 +211,16 @@ async function onAutoPair(r: ReceiptOut) {
   }
 }
 
+async function onDelete(r: ReceiptOut) {
+  try {
+    await deleteReceipt(r.id);
+    message.success("回单已删除（审计日志留痕）");
+    await load();
+  } catch (e) {
+    errorMessage(e, "删除失败");
+  }
+}
+
 function onExport() {
   exportReceipts(periodParam()).catch((e) => errorMessage(e));
 }
@@ -287,6 +303,15 @@ onMounted(load);
             <a @click="onLocate(record)">定位{{ record.page_no ? ` P${record.page_no}` : "" }}</a>
             <a @click="onAutoPair(record)">自动配对</a>
             <a v-if="record.needs_review" class="warn-text" @click="onConfirmReview(record)">核对无误</a>
+            <a-popconfirm
+              v-if="canDelete"
+              title="删除后回单记录与原件不可恢复（审计日志留痕）。确定删除？"
+              ok-text="删除"
+              cancel-text="取消"
+              @confirm="onDelete(record)"
+            >
+              <a class="danger-link">删除</a>
+            </a-popconfirm>
           </a-space>
         </template>
       </template>
@@ -343,6 +368,9 @@ onMounted(load);
 }
 .warn-text {
   color: var(--c-warn); /* 待核对操作入口与行高亮同色系，扫视时成组 */
+}
+.danger-link {
+  color: var(--c-danger);
 }
 
 /* 待核对行高亮（--c-danger 浅底） */

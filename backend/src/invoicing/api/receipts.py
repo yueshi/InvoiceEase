@@ -345,6 +345,49 @@ def auto_pair_receipt(
     return _receipt_out(r)
 
 
+@router.delete("/{receipt_id}")
+def delete_receipt(
+    receipt_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("finance_manager", "admin")),
+):
+    """删除回单：先写快照审计（合规留痕），再删原件与记录（与 delete_invoice 同口径）。
+
+    报销明细（expense_items.receipt_id）引用由 FK ON DELETE SET NULL 自动置空；
+    上传批次记录保留（同文件重传仍被 409 防重拦截）。
+    """
+    import logging
+
+    from invoicing.audit import write_audit
+    from invoicing.storage import get_storage
+
+    logger = logging.getLogger(__name__)
+    r = db.get(BankReceipt, receipt_id)
+    if r is None:
+        raise HTTPException(404, "回单不存在")
+    write_audit(
+        db, action="RECEIPT_DELETE", user_id=user.id, channel="web",
+        detail={"snapshot": {
+            "id": r.id, "file_url": r.file_url, "file_type": r.file_type,
+            "trade_date": str(r.trade_date) if r.trade_date else None,
+            "counterparty_name": r.counterparty_name,
+            "amount": f"{r.amount:.2f}" if r.amount is not None else None,
+            "abstract": r.abstract, "direction": r.direction,
+            "bank_code": r.bank_code, "category": r.category,
+            "category_source": r.category_source,
+            "paired_invoice_id": r.paired_invoice_id,
+            "status": r.status, "file_hash": r.file_hash,
+        }},
+    )
+    try:
+        get_storage().delete(r.file_url)
+    except Exception:  # 原件删除失败不阻塞记录删除（审计已留痕，文件残留可清理）
+        logger.warning("回单原件删除失败 receipt_id=%s key=%s", receipt_id, r.file_url, exc_info=True)
+    db.delete(r)
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/export")
 def export_receipts(
     month: str | None = Query(None, pattern=_MONTH_PATTERN),

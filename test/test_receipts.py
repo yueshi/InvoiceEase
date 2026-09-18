@@ -1324,3 +1324,44 @@ def test_reclassify_skips_manual_and_is_idempotent(db):
     assert (man.category, man.category_source) == ("purchase", "manual")  # 人工判断原样
     assert (rule.category, rule.category_source) == ("purchase", "rule")  # 规则行重算
     assert reclassify_receipts(db) == 0  # 幂等：再跑一次零变更
+
+
+def test_delete_receipt_audits_and_clears_expense_reference(client, db):
+    """删除回单：快照审计（RECEIPT_DELETE）+ 记录删除 + 报销明细引用置空；manager/admin 可删。"""
+    from invoicing.models import AuditLog, ExpenseClaim, ExpenseItem
+
+    auth = _seed_login(client, db, username="caiwu_m", role=Role.finance_manager.value)
+    r = BankReceipt(
+        file_url="fee.pdf", file_type="PDF", trade_date=date(2026, 8, 6),
+        counterparty_name="中国建设银行", amount=Decimal("15.00"), abstract="手续费",
+        direction="付", category="bank_fee", status="unmatched",
+    )
+    db.add(r)
+    db.flush()
+    applicant = db.query(User).filter_by(username="caiwu_m").first()
+    claim = ExpenseClaim(claim_no="BX20260918001", applicant_id=applicant.id,
+                         title="手续费报销", total_amount=Decimal("15.00"))
+    db.add(claim)
+    db.flush()
+    item = ExpenseItem(claim_id=claim.id, receipt_id=r.id,
+                       voucher_type="bank_receipt", amount=Decimal("15.00"))
+    db.add(item)
+    db.commit()
+
+    assert client.delete(f"/api/v1/receipts/{r.id}", headers=auth).status_code == 200
+    db.expire_all()
+    assert db.get(BankReceipt, r.id) is None
+    assert db.get(ExpenseItem, item.id).receipt_id is None  # FK ON DELETE SET NULL
+
+    logs = db.query(AuditLog).filter(AuditLog.action == "RECEIPT_DELETE").all()
+    assert len(logs) == 1
+    assert logs[0].detail["snapshot"]["counterparty_name"] == "中国建设银行"
+    assert logs[0].detail["snapshot"]["category"] == "bank_fee"
+
+    # 已删再删 404；finance_staff 无权删除（403，对齐 DELETE /invoices 角色口径）
+    assert client.delete(f"/api/v1/receipts/{r.id}", headers=auth).status_code == 404
+    auth_staff = _seed_login(client, db, username="caiwu_s2", role=Role.finance_staff.value)
+    r2 = BankReceipt(file_url="x.pdf", file_type="PDF", status="unmatched")
+    db.add(r2)
+    db.commit()
+    assert client.delete(f"/api/v1/receipts/{r2.id}", headers=auth_staff).status_code == 403
