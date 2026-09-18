@@ -55,10 +55,10 @@ describe("ExpensesView", () => {
     setActivePinia(createPinia());
   });
 
-  it("渲染我的报销页面并加载报销单", async () => {
+  it("渲染报销管理页面并加载报销单", async () => {
     const wrapper = mount(ExpensesView);
     expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toContain("我的报销");
+    expect(wrapper.text()).toContain("报销管理");
     const { listClaims } = await import("../../api/expenses");
     await new Promise((r) => setTimeout(r, 0));
     expect(listClaims).toHaveBeenCalled();

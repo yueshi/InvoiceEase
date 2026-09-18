@@ -35,8 +35,8 @@ const isFinance = () => ["finance_staff", "finance_manager", "admin"].includes(a
 const menuItems = computed(() => [
   { key: "/", label: "工作台" },
   { key: "/invoices", label: "发票列表" },
-  { key: "/expenses", label: "我的报销" },
-  { key: "/mcp-tokens", label: "我的令牌" },
+  { key: "/expenses", label: "报销管理" },
+  { key: "/mcp-tokens", label: "令牌管理" },
   ...(isFinance() ? [{ key: "/receipts", label: "银行回单" }] : []),
   ...(isFinance() ? [{ key: "/tasks", label: "异步任务" }] : []),
   ...(auth.isAdmin ? [{ key: "/audit", label: "审计日志" }, { key: "/ops", label: "运维管理" }, { key: "/settings", label: "系统配置" }] : []),

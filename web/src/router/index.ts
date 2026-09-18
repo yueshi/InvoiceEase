@@ -10,11 +10,11 @@ const routes = [
   { path: "/receipts", component: () => import("../views/ReceiptsView.vue"), meta: { title: "银行回单" } },
   { path: "/tasks", component: () => import("../views/AsyncTasksView.vue"), meta: { title: "异步任务", financeOnly: true } },
   // 报销：员工与财务共用（员工看本人，财务看全部并审批）
-  { path: "/expenses", component: () => import("../views/ExpensesView.vue"), meta: { title: "我的报销" } },
+  { path: "/expenses", component: () => import("../views/ExpensesView.vue"), meta: { title: "报销管理" } },
   // 修改密码：顶栏自愿改密 + 管理员重置后的强制改密（同一页）
   { path: "/change-password", component: () => import("../views/ChangePasswordView.vue"), meta: { title: "修改密码" } },
-  // 我的令牌：自助签发（所有角色可见——平台侧按用户配令牌是主路径）
-  { path: "/mcp-tokens", component: () => import("../views/McpTokensView.vue"), meta: { title: "我的令牌" } },
+  // 令牌管理：自助签发（所有角色可见——平台侧按用户配令牌是主路径）
+  { path: "/mcp-tokens", component: () => import("../views/McpTokensView.vue"), meta: { title: "令牌管理" } },
   { path: "/audit", component: () => import("../views/AuditView.vue"), meta: { title: "审计日志", adminOnly: true } },
   { path: "/ops", component: () => import("../views/OpsView.vue"), meta: { title: "运维管理", adminOnly: true } },
   { path: "/settings", component: () => import("../views/SettingsView.vue"), meta: { title: "系统配置", adminOnly: true } },

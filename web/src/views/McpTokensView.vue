@@ -1,4 +1,4 @@
-<!-- 我的令牌：MCP 访问令牌自助签发/撤销（管理员可代发与查看全部）
+<!-- 令牌管理：MCP 访问令牌自助签发/撤销（管理员可代发与查看全部）
      设计见 design/2026-09-13-MCP身份与权限设计.md §10 —— 一人一令牌是主路径 -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
@@ -147,7 +147,7 @@ onMounted(async () => {
 <template>
   <div>
     <PageHeader
-      title="我的令牌"
+      title="令牌管理"
       desc="生成令牌后在 WorkBuddy 里按用户配置，Agent 的每次调用以你的身份执行、只能看到你自己的发票与报销单。令牌明文只显示一次，请当场复制。"
     >
       <template #extra>

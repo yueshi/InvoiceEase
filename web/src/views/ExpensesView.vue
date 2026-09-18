@@ -1,4 +1,4 @@
-<!-- 我的报销：员工建单/选票/提交；财务审批（同一页面按角色显示操作） -->
+<!-- 报销管理：员工建单/选票/提交；财务审批（同一页面按角色显示操作） -->
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
@@ -324,7 +324,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <PageHeader title="我的报销" desc="员工创建报销单、关联发票并提交；财务在列表直接审批。">
+    <PageHeader title="报销管理" desc="员工创建报销单、关联发票并提交；财务在列表直接审批。">
       <template #extra>
         <a-button type="primary" @click="createOpen = true">新建报销单</a-button>
       </template>
