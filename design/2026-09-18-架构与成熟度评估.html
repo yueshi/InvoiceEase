@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · 架构与成熟度评估</title>
+<style>
+  :root {
+    --ink: #1f2937; --sub: #6b7280; --line: #e5e7eb;
+    --blue: #2563eb; --blue-bg: #eff6ff; --green: #059669; --green-bg: #ecfdf5;
+    --amber: #d97706; --amber-bg: #fffbeb; --red: #dc2626; --red-bg: #fef2f2;
+    --card-bg: #ffffff; --page-bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--page-bg); color: var(--ink); line-height: 1.65; padding: 32px 16px 64px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff;
+           border-radius: 14px; padding: 32px 36px; margin-bottom: 24px; }
+  header h1 { font-size: 26px; font-weight: 700; }
+  header .meta { margin-top: 10px; font-size: 13px; opacity: .92; }
+  header .meta span { display: inline-block; background: rgba(255,255,255,.18);
+                      border-radius: 999px; padding: 2px 12px; margin-right: 8px; margin-top: 6px; }
+  h2 { font-size: 19px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid var(--blue); }
+  h3 { font-size: 15.5px; margin: 18px 0 8px; color: #111827; }
+  .card { background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 24px; margin-bottom: 16px; }
+  .card ul, .card ol { padding-left: 22px; font-size: 13.5px; }
+  .card ul li, .card ol li { margin: 5px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; white-space: nowrap; }
+  code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-size: 12.5px;
+         font-family: "SF Mono", Menlo, monospace; color: #111827; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tag.blue { background: var(--blue-bg); color: var(--blue); }
+  .tag.green { background: var(--green-bg); color: var(--green); }
+  .tag.amber { background: var(--amber-bg); color: var(--amber); }
+  .tag.red { background: var(--red-bg); color: var(--red); }
+  .tag.gray { background: #f3f4f6; color: var(--sub); }
+  .note { background: var(--blue-bg); border-left: 3px solid var(--blue); border-radius: 8px;
+          padding: 12px 16px; font-size: 13.5px; margin: 12px 0; }
+  .warn { background: var(--amber-bg); border-left: 3px solid var(--amber); }
+  .danger { background: var(--red-bg); border-left: 3px solid var(--red); }
+  .ok { background: var(--green-bg); border-left: 3px solid var(--green); }
+  footer { margin-top: 40px; text-align: center; color: var(--sub); font-size: 12.5px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 · 架构与成熟度评估</h1>
+  <div class="meta">
+    <span>2026-09-18</span>
+    <span>性质：09-16 商用差距评估的续评（78+ commits 后复核）+ 成熟度分级</span>
+    <span>实测基线：后端 582 passed / 前端 58 passed，全绿</span>
+    <span>完整文档：design/2026-09-18-架构与成熟度评估.md</span>
+  </div>
+</header>
+
+<h2>一、一句话结论</h2>
+<div class="card">
+  <p style="font-size:14px"><strong>比 09-16 又进了一档：从「单租户内网 MVP」到「带运维骨架的单租户内网 MVP+」。</strong>
+  运维兜底从零到基本可用是本阶段最大增量（日志轮转 / 7 条告警规则 / 备份恢复 / 启动自检 / 运维页）；
+  回单从「记录」进化为「业务对象」（交易性质分类接入月报、配对、催票，删除带快照审计）。
+  但三大商用硬差距<strong>原封未动</strong>——验真仍是模拟、安全基线仍是开发默认、生产部署物仍不存在。</p>
+  <div class="note" style="margin-top:12px">离「可收费」的那一步依然完整，只是每一步的入口比两周前更清楚了。</div>
+</div>
+
+<h2>二、成熟度分级（当前快照）</h2>
+<div class="card">
+<table>
+  <tr><th>维度</th><th>等级</th><th>今日证据</th></tr>
+  <tr><td>功能广度</td><td><span class="tag blue">★★★★☆</span></td>
+      <td>FRD Phase1 全覆盖；Phase2 大半（多邮箱/RBAC/报表/报销）；超出 FRD 的回单域与数字员工</td></tr>
+  <tr><td>功能真实性</td><td><span class="tag amber">★★★☆☆</span></td>
+      <td>解析链全真实（XML/XBRL/OFD 自研渲染/PDF 文本）；<strong>验真 100% 模拟</strong>（<code>verify/provider.py:19-22</code> 无条件 Mock）</td></tr>
+  <tr><td>工程质量/测试</td><td><span class="tag green">★★★★☆</span></td>
+      <td>582+58 全绿（今日实跑）；关键合规点双保险（部分唯一索引+应用层）；设计/裁决文档与代码对得上</td></tr>
+  <tr><td>安全基线</td><td><span class="tag red">★★☆☆☆</span></td>
+      <td>B2 六项全部原封（见 §四）；<code>startup_checks_strict</code> 默认 false，弱密钥只 warn 不阻断（<code>config.py:59</code>、<code>ops/checks.py:146-147</code>）</td></tr>
+  <tr><td>可观测/运维</td><td><span class="tag amber">★★★☆☆</span></td>
+      <td>从零到有：RotatingFileHandler 落盘、task_runs/ops_alerts、7 条告警规则+企微 webhook、备份轮转+恢复脚本、6 项启动自检（<code>ops/</code> 7 文件）</td></tr>
+  <tr><td>部署交付</td><td><span class="tag red">★☆☆☆☆</span></td>
+      <td><code>deploy/</code> 仍只有 dev-compose 基础设施；无 Dockerfile/应用 compose/nginx；PG/Redis/S3 未实测</td></tr>
+  <tr><td>多租户/SaaS</td><td><span class="tag red">★☆☆☆☆</span></td>
+      <td>tenant_id 全硬编码 <code>default</code>（<code>models/*.py</code> 6 处），无查询过滤，未变</td></tr>
+</table>
+</div>
+
+<h2>三、两周增量（09-16 → 09-18，逐条核实）</h2>
+<div class="card">
+  <h3><span class="tag green">已解决</span></h3>
+  <ul>
+    <li><strong>R1 Fernet 重启失效 ✅</strong>：未配置时直接拒绝而非随机生成（<code>fetch/crypto.py:42-60</code>）；库中存量密文时启动自检无条件 fail 并提示 <code>scripts/reencrypt_secrets.py</code> 迁移（<code>ops/checks.py:27-60</code>）</li>
+    <li><strong>B5 运维兜底 ✅（大部分）</strong>：<code>ops/</code> 模块落地——logging_setup（10MB×9 轮转+敏感信息打码）、instrumentation 统一埋点、checks 六项自检、alerts 七条规则（task_failed / mailbox.stalled / backup.missing / backup.failed / disk.low / review.backlog / parse.error_rate）+ 企微推送、备份（SQLite 一致性快照+originals.tar+保留轮转）、<code>/api/v1/ops/*</code> 全套 admin 端点 + OpsView 页面</li>
+    <li><strong>回单业务化</strong>：交易性质分类（category / invoice_requirement）解析入库即打标，接入月报（<code>reports.py:233,238,271</code>）、配对（<code>workflow/receipts.py:99-108</code>）、MCP 催票；人工重分类任务；删除接口（快照审计 RECEIPT_DELETE + FK ON DELETE SET NULL + manager/admin 口径）</li>
+    <li>WebUI 布局优化收官；菜单文案「报销管理 / 令牌管理」对齐管理口径</li>
+    <li>测试 493→582（+89）、39→58（+19）；alembic 迁移 22→24</li>
+  </ul>
+</div>
+
+<h2>四、仍然原封的硬差距（今日逐条复核，均有 file:line）</h2>
+
+<div class="card">
+  <h3><span class="tag red">B1</span> 验真仍是模拟</h3>
+  <p style="font-size:13.5px"><code>verify/provider.py:19-22</code> 无真实国税 API 代码路径；披露机制健在（<code>verify_is_mock</code>、前端橙色 tag、月报声明）。</p>
+  <div class="warn note" style="margin-top:10px">新发现：<code>verify_is_mock</code> 判定靠 reason 前缀 <code>"mock_"</code> 字符串耦合（<code>schemas/invoice.py:70-73</code> ↔ <code>mock.py:21,26,28</code>），且该字段后端零消费方——mock 规则文案一改即静默失效。</div>
+</div>
+
+<div class="card">
+  <h3><span class="tag red">B2</span> 安全基线六项全部未动</h3>
+  <table style="margin-top:8px">
+    <tr><th>#</th><th>项</th><th>今日证据</th></tr>
+    <tr><td>①</td><td>jwt_secret 默认 <code>change-me</code></td><td><code>config.py:19</code>；自检仅 warn（strict 默认 false，<code>config.py:59</code>）</td></tr>
+    <tr><td>②</td><td>初始 admin <code>admin/admin123</code></td><td><code>config.py:37</code>、<code>bootstrap.py:8-18</code></td></tr>
+    <tr><td>③</td><td>无 CORS / TrustedHost 中间件</td><td><code>main.py</code> 全文件无 add_middleware，全库 grep 零命中</td></tr>
+    <tr><td>④</td><td>无登录限流 / 失败锁定</td><td><code>api/auth.py:41-69</code> 仅记审计</td></tr>
+    <tr><td>⑤</td><td><code>workbuddy_inbox_dir</code> 空 = MCP 可读任意路径</td><td><code>config.py:28</code> 默认空串，<code>mcp/extract.py:39-42</code> 仅非空时约束</td></tr>
+    <tr><td>⑥</td><td>legacy MCP token 通道默认开启</td><td><code>config.py:22</code> 默认 <code>change-me</code> → 最小 id admin 全权（<code>verifier.py:51-81</code>）</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3><span class="tag red">B3</span> 部署形态不存在（新增一条实证）</h3>
+  <div class="danger note">无 Dockerfile / 应用 compose / nginx / backup.sh；且 <strong><code>backup.py:28,57-63</code> 仅支持 SQLite，非 sqlite 直接 RuntimeError——生产切 PG 当日，每日备份任务必然失败</strong>，只能靠 backup.missing 告警兜底。</div>
+</div>
+
+<div class="card">
+  <h3><span class="tag red">B4</span> 多租户仍空架子</h3>
+  <p style="font-size:13.5px">6 处模型 <code>default="default"</code>、令牌签发硬编码（<code>workflow/mcp_tokens.py:105</code>）、无查询过滤。</p>
+</div>
+
+<div class="card">
+  <h3><span class="tag amber">其余风险未动</span></h3>
+  <ul>
+    <li><strong>R4</strong>：dayjs 仍是 antd 传递依赖未声明（<code>package.json:11-17</code> 无，6 个文件在用）；401 仍 <code>window.location</code> 硬跳（<code>api/client.ts:15-26</code>）</li>
+    <li><strong>R6</strong>：离线部署无「云端 LLM 拒绝启动」校验（自检六项 dirs_writable / fernet_key / default_secrets / db_migration / disk_free / engines 中无此项）</li>
+    <li><strong>R7</strong>：local 模式发票解析/验真仍同步内联（<code>workers/queue.py:40-57,88-105</code>），回单已后台线程</li>
+    <li><strong>K1</strong>：<code>/ops/logs/download</code> macOS 大日志截断，GA 前需 Linux 真机验证（运维兜底遗留清单）</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3><span class="tag gray">结构性观察（不阻塞，记账用）</span></h3>
+  <ol>
+    <li><strong>超长单体</strong>：<code>mcp/tools.py</code> 900 行、<code>workflow/expenses.py</code> 817 行、<code>parse/receipt.py</code> 729 行</li>
+    <li><strong>queue.py 三份近同拷贝</strong>（parse_sync / verify_sync / receipt 三兄弟），一个泛型 <code>enqueue_sync</code> 可收</li>
+    <li><strong><code>/health</code> 静态 200 不检任何依赖</strong>（<code>main.py:61-63</code>）；metrics 无独立端点，仅内嵌 <code>/ops/status</code></li>
+    <li><code>backend/src</code> 13,115 行 / 108 py 文件 / 14 张表 / 13 router / MCP 36 工具 13 scope——规模已过「随手改」线，重构应在下一功能立项时顺带做，不单独立项</li>
+    <li>ops 语义遗留 S1-S4 与小项（OpsView 分页未接线、同秒备份重名等）见《2026-09-17-运维兜底已知问题与后续立项.md》，均非阻断</li>
+  </ol>
+</div>
+
+<h2>五、成熟度定位（三档口径，与 09-16 对齐更新）</h2>
+<div class="card">
+<table>
+  <tr><th>商用口径</th><th>09-16</th><th>今日</th></tr>
+  <tr><td>内部试点 / PoC</td><td>基本就绪，差 OCR 部署、真机验收、运维兜底</td>
+      <td><span class="tag green">更近了</span>：运维兜底已就位。剩：OCR 环境、真机验收 5 项、K1 Linux 验证</td></tr>
+  <tr><td>单企业私有化商用</td><td>差一个生产化里程碑</td>
+      <td><span class="tag blue">内容不变、入口更清楚</span>：B2 六项 + 部署物 + 验真口径</td></tr>
+  <tr><td>多租户 SaaS</td><td>架构级差距</td><td><span class="tag gray">未变</span>（B4）</td></tr>
+</table>
+</div>
+
+<h2>六、上线路径修订（M1 / M2 / M3 增量版）</h2>
+<div class="card">
+  <h3>M1 · 安全收口（本机即可做，1 周量级）——比 09-16 更省：自检框架已在位，大部分是「补默认值与裁决」</h3>
+  <ol>
+    <li>生产 profile 置 <code>startup_checks_strict=true</code>，弱 jwt_secret / admin123 即 fail-fast（机制已在 <code>checks.py</code>，只差配置与文档裁决）</li>
+    <li>CORS / TrustedHost 中间件；登录限流（重新评估已裁决项）；<code>workbuddy_inbox_dir</code> 生产必填校验；legacy MCP token 默认关闭（部署留空即禁用的开关已有，改默认值）</li>
+    <li>dayjs 显式声明；<code>verify_is_mock</code> 判定去字符串耦合（改用结构化标志）；离线模式 LLM 端点启动校验（R6）</li>
+  </ol>
+  <h3 style="margin-top:16px">M2 · 生产化对齐（需有 Docker 的环境）</h3>
+  <p style="font-size:13.5px">新增一条：<strong>backup.py PG 支持（切 PG 前 must）</strong>；其余同前：应用 Dockerfile + compose + nginx/TLS、PG 迁移实测（naive-UTC 雷）、redis/arq 实测、S3 测试、CI。</p>
+  <h3 style="margin-top:16px">M3 · 合规与验收（外部依赖驱动）</h3>
+  <p style="font-size:13.5px">国税资质 → 验真 provider 真实化；OCR 环境部署；真机验收 5 项；观察期改判率评估。</p>
+</div>
+
+<h2>附：本次评估与既有文档的关系</h2>
+<div class="card">
+  <ul>
+    <li>事实来源：两路全库扫描（后端架构与安全 / 前端与产品面，全部带 file:line）+ 今日全量测试实跑</li>
+    <li>基线文档：《2026-09-16-已实现功能盘点与商用差距评估》（功能清单与 B/R 编号沿用其口径，不重复展开）；《2026-09-17-运维兜底已知问题与后续立项》（K1 / S1-S4 沿用）</li>
+    <li>工作区状态：回单删除功能（后端+审计+测试+前端+用例）已完成且全绿，随本评估一并入库</li>
+  </ul>
+</div>
+
+<footer>发票易 design/2026-09-18-架构与成熟度评估.html · 生成于 2026-09-18</footer>
+</div>
+</body>
+</html>
