@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · 种子客户 PoC 前检查清单</title>
+<style>
+  :root {
+    --ink: #1f2937; --sub: #6b7280; --line: #e5e7eb;
+    --blue: #2563eb; --blue-bg: #eff6ff; --green: #059669; --green-bg: #ecfdf5;
+    --amber: #d97706; --amber-bg: #fffbeb; --red: #dc2626; --red-bg: #fef2f2;
+    --card-bg: #ffffff; --page-bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--page-bg); color: var(--ink); line-height: 1.65; padding: 32px 16px 64px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff;
+           border-radius: 14px; padding: 32px 36px; margin-bottom: 24px; }
+  header h1 { font-size: 26px; font-weight: 700; }
+  header .meta { margin-top: 10px; font-size: 13px; opacity: .92; }
+  header .meta span { display: inline-block; background: rgba(255,255,255,.18);
+                      border-radius: 999px; padding: 2px 12px; margin-right: 8px; margin-top: 6px; }
+  h2 { font-size: 19px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid var(--blue); }
+  h3 { font-size: 15px; margin: 16px 0 8px; color: #111827; }
+  .card { background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 24px; margin-bottom: 16px; }
+  ul.check { list-style: none; padding-left: 4px; font-size: 13.5px; }
+  ul.check li { margin: 6px 0; padding-left: 26px; position: relative; }
+  ul.check li::before { content: "☐"; position: absolute; left: 2px; color: var(--blue); font-size: 15px; }
+  ul.check li.done::before { content: "☑"; color: var(--green); }
+  ul.plain { padding-left: 22px; font-size: 13.5px; }
+  ul.plain li { margin: 5px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; white-space: nowrap; }
+  code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-size: 12.5px;
+         font-family: "SF Mono", Menlo, monospace; color: #111827; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tag.blue { background: var(--blue-bg); color: var(--blue); }
+  .tag.green { background: var(--green-bg); color: var(--green); }
+  .tag.amber { background: var(--amber-bg); color: var(--amber); }
+  .tag.red { background: var(--red-bg); color: var(--red); }
+  .tag.gray { background: #f3f4f6; color: var(--sub); }
+  .note { background: var(--blue-bg); border-left: 3px solid var(--blue); border-radius: 8px;
+          padding: 12px 16px; font-size: 13.5px; margin: 12px 0; }
+  .danger { background: var(--red-bg); border-left: 3px solid var(--red); }
+  .gate { background: var(--amber-bg); border-left: 3px solid var(--amber); }
+  footer { margin-top: 40px; text-align: center; color: var(--sub); font-size: 12.5px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 · 种子客户 PoC 前检查清单</h1>
+  <div class="meta">
+    <span>2026-09-18</span>
+    <span>来源：架构与成熟度评估 + PoC 可行性评估</span>
+    <span>PoC 形态：单企业 · 客户内网 Linux · 我方陪跑 · 验真人工兜底</span>
+    <span>完整文档：design/2026-09-18-PoC前检查清单.md</span>
+  </div>
+</header>
+
+<div class="note">
+  <strong>结论口径：</strong>M1 + 代码侧补丁 + 流程准备全部勾完，即可带「约法三章」签第一家 PoC。
+  <strong>不是 SaaS、不是客户自助。</strong>
+</div>
+
+<h2>A · 代码侧（全部完成后才可上客户数据）</h2>
+
+<div class="card">
+  <h3><span class="tag green">A1 ✅</span> M1 安全收口（计划：design/2026-09-18-M1安全收口实施计划.md）—— 2026-09-19 完成</h3>
+  <ul class="check">
+    <li class="done">T1 生产形态 fail-fast（<code>INVOICING_ENV=production</code>：弱密钥 / inbox_dir 空 / 离线模式云端 LLM 拒绝启动）</li>
+    <li class="done">T2 CORS / TrustedHost 中间件（默认关闭，部署时配置）</li>
+    <li class="done">T3 legacy MCP token 默认关闭（<code>mcp_token</code> 默认空）</li>
+    <li class="done">T4 登录限流（15 分钟窗 5 次失败锁 ip+username，429 写审计）</li>
+    <li class="done">T5 <code>verify_is_mock</code> 去字符串耦合（保留前缀回退兼容存量数据）</li>
+    <li class="done">T6 dayjs 显式声明 + 运维手册「安全配置」节 + .env.example 同步</li>
+    <li class="done">手动验收：production + 弱默认 → 拒绝启动演示通过（实测暴露并修复 <code>INVOICING_ENV</code> 双重前缀映射 bug）</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3><span class="tag blue">A2</span> 报销入口补齐（后端零改动，约 3 天）</h3>
+  <ul class="check">
+    <li>无票支出人工凭证录入 UI（<code>addVoucherToClaim</code> client 已有，页面无入口；表单要点：收款凭证姓名+身份证号必填、超 500 元「需取得发票」提示前置到录入现场、note 引导为支出项目）</li>
+    <li>回单挂载入口（client 新增 <code>addReceiptToClaim</code> + 报销页「引用到报销」选单/事项交互；金额取自回单，凭证类型按交易性质自动建议）</li>
+    <li>MCP 两工具：<code>expense_add_receipt</code> / <code>expense_add_voucher</code>（套 <code>expense_add_invoices</code> 模式）</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3><span class="tag blue">A3</span> 备份恢复演练（半天）</h3>
+  <ul class="check">
+    <li>触发一次备份 → 干净目录用 <code>scripts/restore_backup.py</code> 恢复 → 数据完整性抽查（票数/原件可打开/审计在）</li>
+    <li>演练步骤写进运维手册或部署文档</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3><span class="tag blue">A4</span> 真机冒烟（1 天；2026-08-18 验收清单先冒烟、全项留 PoC 现场验证）</h3>
+  <ul class="check">
+    <li>真实邮箱 IMAP 收票全链路（真实数电票 XML/PDF 各 ≥1 张）</li>
+    <li>企微 webhook 真实推送（告警 + 月报通道各触发一次）</li>
+    <li>WorkBuddy 真机挂载：个人令牌签发 → Agent 真实调用 invoice_list / invoice_ingest</li>
+    <li>员工真实上传 + 报销全流程走通（含无票支出、回单挂载两条新路径）</li>
+  </ul>
+</div>
+
+<h2>B · 流程侧（约客户之前谈定）</h2>
+<div class="card">
+  <ul class="check">
+    <li><strong>客户画像核验</strong>：数电票 XML/PDF 原件为主；1-2 名专职财务；接受陪跑模式。<span class="tag red">大量拍照/扫描件的客户不接（OCR 未部署）</span></li>
+    <li><strong>约法三章（书面，进试用协议附件）</strong>：
+      <ul class="check" style="margin-top:6px">
+        <li>验真模拟声明 + 财务人工国税平台查验 SOP（明确「系统验真为模拟、需人工查验兜底」）</li>
+        <li>图片件拒收口径（仅收原件，财会〔2025〕9 号）</li>
+        <li>PoC 期间 bug 由我方人肉响应（明确响应方式与时段）</li>
+        <li>数据退出路径：Excel 台账导出 + originals 原件打包，PoC 结束可带走</li>
+      </ul>
+    </li>
+    <li><strong>部署形态定死</strong>：客户内网 Linux 服务器 + systemd 手工部署（绕开无 Dockerfile 与 macOS 日志截断 K1）；数据不出客户内网</li>
+    <li><strong>前置问清</strong>：客户是否要求「自动验真」才用——<span class="tag red">是要，就不签（等 B1 国税资质）</span></li>
+  </ul>
+</div>
+
+<h2>C · PoC 期间风险认知（不解决，但要有预案）</h2>
+<div class="card">
+<table>
+  <tr><th>#</th><th>风险</th><th>预案</th></tr>
+  <tr><td>1</td><td>无部署物，修 bug 全靠人肉上客户机器</td><td>PoC 并发 = 1-2 家，不贪；修复窗口提前约定</td></tr>
+  <tr><td>2</td><td>验真 mock 话术风险</td><td>见 B「前置问清」；话术备好「全行业同等待资质」</td></tr>
+  <tr><td>3</td><td>单进程 + SQLite，调度器与 API 同进程，重启丢任务</td><td>部署文档写清升级窗口操作（先停 API 再起）</td></tr>
+  <tr><td>4</td><td>PoC 结束数据绑定猜疑</td><td>退出路径已写入协议（B）</td></tr>
+</table>
+</div>
+
+<h2>D · PoC 复盘指标（两周后回看）</h2>
+<div class="card">
+  <ul class="check">
+    <li>财务节省时间：单张票 3-5 分钟 → 30 秒内（含人工查验动作的口径要分开统计）</li>
+    <li>人工复核率 / 解析准确率（分票型统计：XML / XBRL PDF / 版式 PDF）</li>
+    <li>改判埋点数据积累（决定 <code>auto_review_threshold</code> 是否开启）</li>
+    <li>MCP/数字员工路径真实使用频次（决定盒子里 MCP 是否主界面）</li>
+    <li>客户撞到的 Top 问题清单（回填 roadmap）</li>
+  </ul>
+</div>
+
+<h2>E · 明确不在 PoC 前做（边界）</h2>
+<div class="card">
+  <p style="font-size:13.5px">
+    <span class="tag gray">部署物/TLS/PG/Redis（M2）</span>
+    <span class="tag gray">验真真实化（M3，等国税资质）</span>
+    <span class="tag gray">OCR 部署</span>
+    <span class="tag gray">盒子 PoC（种子启动后）</span>
+    <span class="tag gray">多租户</span>
+    <span class="tag gray">分布式限流</span>
+  </p>
+</div>
+
+<footer>发票易 design/2026-09-18-PoC前检查清单.html · 生成于 2026-09-18</footer>
+</div>
+</body>
+</html>
