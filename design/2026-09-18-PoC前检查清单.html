@@ -93,10 +93,10 @@
 </div>
 
 <div class="card">
-  <h3><span class="tag blue">A3</span> 备份恢复演练（半天）</h3>
+  <h3><span class="tag green">A3 ✅</span> 备份恢复演练 —— 2026-09-19 完成</h3>
   <ul class="check">
-    <li>触发一次备份 → 干净目录用 <code>scripts/restore_backup.py</code> 恢复 → 数据完整性抽查（票数/原件可打开/审计在）</li>
-    <li>演练步骤写进运维手册或部署文档</li>
+    <li class="done">触发一次备份 → 隔离目录恢复（环境变量重定向，不碰生产）→ 五项校验全过：库完整性 ok / 行数逐项对上 meta / 15 个原件哈希零差异 / 应用层可读 / 迁移版本一致</li>
+    <li class="done">演练步骤与校验清单写入运维手册 §3「恢复演练」（含 2026-09-19 演练记录）</li>
   </ul>
 </div>
 

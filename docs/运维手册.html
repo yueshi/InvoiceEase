@@ -166,6 +166,26 @@ uv run alembic upgrade head
 uv run uvicorn invoicing.main:app --reload</pre>
   <div class="note ok"><b>安全网</b>：恢复执行时会把当前数据库另存为 <code>&lt;db&gt;.pre-restore</code> 后再替换，误恢复可找回。
   恢复完成后建议立即做一次「立即备份」产生新基线。</div>
+
+  <h3>恢复演练（建议每季度一次；PoC 上真实数据前必做）</h3>
+  <p style="font-size:13.5px">没有恢复过的备份不算备份。演练用<b>环境变量把恢复目标指向隔离目录</b>（不碰生产库与生产原件），
+  再按校验清单逐项核对。以下命令在 <code>backend</code> 目录执行：</p>
+<pre># 0) 先做一份新备份（演练对象），假定输出 tmp/drill-backups/invoiceease-backup-*.tar.gz
+# 1) 隔离目标目录 + 指向它（绝对路径）
+D=/tmp/restore-drill && mkdir -p $D
+export INVOICING_DATABASE_URL="sqlite:///$D/app.db"
+export INVOICING_STORAGE_ROOT="$D/data/originals"
+# 2) 先预览再执行（先不加 --yes 核对备份时间与表计数）
+uv run python scripts/restore_backup.py &lt;备份 tar.gz 路径&gt; --yes</pre>
+  <table>
+    <tr><th>#</th><th>校验项</th><th>命令 / 判定</th></tr>
+    <tr><td>1</td><td>库完整性</td><td><code>sqlite3 $D/app.db "PRAGMA integrity_check"</code> → <code>ok</code></td></tr>
+    <tr><td>2</td><td>行数对账</td><td>比对恢复库 <code>invoices/bank_receipts/users/expense_claims/audit_logs</code> 与备份 meta.json 的 <code>table_counts</code>（预览输出里也有）</td></tr>
+    <tr><td>3</td><td>原件全量比对</td><td>对实时 <code>originals/</code> 与恢复目录分别 <code>find -type f -exec shasum {} \;</code> 后 <code>diff</code>，应零差异</td></tr>
+    <tr><td>4</td><td>应用层读取</td><td>用隔离环境变量起一个 python/uvicorn，确认能登录、发票与回单列表可读（验证 schema 与当前代码兼容）</td></tr>
+    <tr><td>5</td><td>迁移版本</td><td>恢复库 <code>alembic_version</code> 与当前 head 一致（不一致执行 <code>alembic upgrade head</code>）</td></tr>
+  </table>
+  <div class="note"><b>演练记录</b>：2026-09-19 首次演练通过（样本：3 张发票 / 17 张回单 / 15 个原件；1-5 项全过，原件哈希零差异）。</div>
 </div>
 
 <h2 id="s4">4. 日志</h2>
