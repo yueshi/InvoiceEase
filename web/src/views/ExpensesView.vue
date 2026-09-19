@@ -5,6 +5,8 @@ import { message } from "ant-design-vue";
 import { errorMessage, errorText } from "../api/client";
 import {
   addInvoiceToClaim,
+  addReceiptToClaim,
+  addVoucherToClaim,
   approveClaim,
   createClaim,
   createEntry,
@@ -19,6 +21,7 @@ import {
   submitClaim,
   withdrawClaim,
 } from "../api/expenses";
+import { listReceipts } from "../api/receipts";
 import { useAuthStore } from "../stores/auth";
 import PageHeader from "../components/PageHeader.vue";
 import { formatMoney } from "../utils/format";
@@ -33,6 +36,7 @@ import {
   type ClaimOut,
   type ClaimDetailOut,
   type EligibleInvoiceOut,
+  type ReceiptOut,
 } from "../types";
 
 const auth = useAuthStore();
@@ -64,9 +68,13 @@ const sceneDefs = computed(() => {
 // 差旅伙食补助：金额 = 天数 × 日标准（后端落成内部凭证，见 P1-3）
 // 日标准默认取公司配置（「按规定标准发放」才符合不征个税的前提）
 const allowanceStandard = ref(100);
+// 小额零星税前扣除阈值（收款凭证超此金额需取得发票；表单提示用，判定仍以后端为准）
+const pettyCashThreshold = ref(500);
 async function loadExpenseConfig() {
   try {
-    allowanceStandard.value = (await getExpenseConfig()).travel_allowance_daily_standard;
+    const cfg = await getExpenseConfig();
+    allowanceStandard.value = cfg.travel_allowance_daily_standard;
+    pettyCashThreshold.value = cfg.petty_cash_threshold;
   } catch {
     /* 配置拉取失败不阻断：保留默认值，后端仍会按公司标准计算 */
   }
@@ -249,6 +257,110 @@ async function onRemove(itemId: number) {
     await load();
   } catch (e) {
     errorMessage(e, "移除失败");
+  }
+}
+
+// ---- 无票支出人工凭证（收款凭证/合同类/境外票据；要素校验见 28 号公告） ----
+const voucherOpen = ref(false);
+const voucherSubmitting = ref(false);
+const voucherForm = reactive({
+  voucher_type: "receipt_voucher",
+  amount: "",
+  expense_type: "other",
+  note: "",
+  payee_name: "",
+  payee_id_no: "",
+});
+const needsPayee = computed(() => voucherForm.voucher_type === "receipt_voucher");
+
+function openVoucher(entryId: number) {
+  targetEntryId.value = entryId;
+  voucherForm.voucher_type = "receipt_voucher";
+  voucherForm.amount = "";
+  voucherForm.expense_type = "other";
+  voucherForm.note = "";
+  voucherForm.payee_name = "";
+  voucherForm.payee_id_no = "";
+  voucherOpen.value = true;
+}
+
+async function onCreateVoucher() {
+  if (!detail.value || targetEntryId.value === null) return;
+  const amount = Number(voucherForm.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    message.warning("请填写大于 0 的金额");
+    return;
+  }
+  if (needsPayee.value && (!voucherForm.payee_name.trim() || !voucherForm.payee_id_no.trim())) {
+    message.warning("收款凭证需填写收款人姓名与身份证号，否则不可税前扣除");
+    return;
+  }
+  voucherSubmitting.value = true;
+  try {
+    const item = await addVoucherToClaim(detail.value.claim.id, targetEntryId.value, {
+      voucher_type: voucherForm.voucher_type,
+      amount: voucherForm.amount.trim(),
+      expense_type: voucherForm.expense_type,
+      note: voucherForm.note.trim() || undefined,
+      payee_name: needsPayee.value ? voucherForm.payee_name.trim() : null,
+      payee_id_no: needsPayee.value ? voucherForm.payee_id_no.trim() : null,
+    });
+    // 提示前置到录入现场：不可扣除的原因当场给出，不拖到财务审批
+    if (!item.deductible) {
+      message.warning(`已加入，但不可税前扣除：${item.deductible_note || "请财务确认"}`);
+    } else {
+      message.success("凭证已加入");
+    }
+    voucherOpen.value = false;
+    await openDetail(detail.value.claim);
+    await load();
+  } catch (e) {
+    errorMessage(e, "凭证添加失败");
+  } finally {
+    voucherSubmitting.value = false;
+  }
+}
+
+// ---- 引用回单（财务限定：回单列表 API 是财务域，且仅申请人本人可改单） ----
+const receiptOpen = ref(false);
+const receiptLoading = ref(false);
+const receiptRows = ref<ReceiptOut[]>([]);
+const receiptSelection = ref<number[]>([]);
+const receiptSubmitting = ref(false);
+
+async function openReceiptPicker(entryId: number) {
+  targetEntryId.value = entryId;
+  receiptSelection.value = [];
+  receiptOpen.value = true;
+  receiptLoading.value = true;
+  try {
+    // 全部时间的未配对回单（周期筛选会在跨月补录时看不见，此处不做周期）
+    receiptRows.value = await listReceipts({}, true);
+  } catch (e) {
+    errorMessage(e, "回单加载失败");
+  } finally {
+    receiptLoading.value = false;
+  }
+}
+
+async function onPickReceipt() {
+  if (!detail.value || targetEntryId.value === null || receiptSelection.value.length === 0) {
+    message.warning("请先选择一张回单");
+    return;
+  }
+  receiptSubmitting.value = true;
+  try {
+    const item = await addReceiptToClaim(detail.value.claim.id, targetEntryId.value, {
+      receipt_id: receiptSelection.value[0],
+    });
+    message.success(`已引用回单（${VOUCHER_TYPE_LABELS[item.voucher_type] || item.voucher_type}）`);
+    receiptOpen.value = false;
+    await openDetail(detail.value.claim);
+    await load();
+  } catch (e) {
+    errorMessage(e, "回单引用失败");
+  } finally {
+    receiptSubmitting.value = false;
   }
 }
 
@@ -455,6 +567,8 @@ onMounted(() => {
             </template>
             <a-space class="mb-2">
               <a-button v-if="detailEditable" size="small" @click="openPool(entry.id)">加发票</a-button>
+              <a-button v-if="detailEditable" size="small" @click="openVoucher(entry.id)">无票凭证</a-button>
+              <a-button v-if="detailEditable && canFinance()" size="small" @click="openReceiptPicker(entry.id)">引用回单</a-button>
               <a-button v-if="detailEditable" size="small" danger @click="onRemoveEntry(entry.id)">删除事项</a-button>
             </a-space>
             <a-table
@@ -579,6 +693,85 @@ onMounted(() => {
       />
       <p v-if="!poolLoading && pool.length === 0" class="sub">
         暂无可用发票：需已验真通过、未被拦截且未被其他报销单占用。
+      </p>
+    </a-modal>
+
+    <!-- 无票支出人工凭证 -->
+    <a-modal
+      v-model:open="voucherOpen"
+      title="录入无票支出凭证"
+      :confirm-loading="voucherSubmitting"
+      @ok="onCreateVoucher"
+    >
+      <a-alert
+        type="info"
+        show-icon
+        class="mb-3"
+        :message="`收款凭证适用于向个人小额零星采购（单次 ≤ ${pettyCashThreshold} 元）；超过该标准需取得发票方可税前扣除。`"
+      />
+      <a-form layout="vertical">
+        <a-form-item label="凭证类型">
+          <a-radio-group v-model:value="voucherForm.voucher_type">
+            <a-radio-button value="receipt_voucher">收款凭证</a-radio-button>
+            <a-radio-button value="contract">合同/协议类</a-radio-button>
+            <a-radio-button value="overseas">境外票据</a-radio-button>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="金额（元）">
+          <a-input v-model:value="voucherForm.amount" placeholder="如 300.00" />
+        </a-form-item>
+        <template v-if="needsPayee">
+          <a-form-item label="收款人姓名（税前扣除要素）">
+            <a-input v-model:value="voucherForm.payee_name" placeholder="个人收款人真实姓名" />
+          </a-form-item>
+          <a-form-item label="收款人身份证号（税前扣除要素）">
+            <a-input v-model:value="voucherForm.payee_id_no" placeholder="18 位身份证号" />
+          </a-form-item>
+        </template>
+        <a-form-item label="费用类型">
+          <a-select v-model:value="voucherForm.expense_type">
+            <a-select-option v-for="(label, k) in EXPENSE_TYPE_LABELS" :key="k" :value="k">{{ label }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="说明（建议写明支出项目）">
+          <a-input v-model:value="voucherForm.note" placeholder="如：支出项目——办公用品（个人小贩）" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 引用回单（财务） -->
+    <a-modal
+      v-model:open="receiptOpen"
+      title="引用回单作为报销凭证（未配对回单，金额取自回单）"
+      width="820px"
+      :confirm-loading="receiptSubmitting"
+      @ok="onPickReceipt"
+    >
+      <a-table
+        :columns="[
+          { title: '回单', dataIndex: 'id', key: 'id', width: 80 },
+          { title: '交易日', dataIndex: 'trade_date', key: 'trade_date', width: 110 },
+          { title: '对方', dataIndex: 'counterparty_name', key: 'counterparty_name' },
+          { title: '摘要', dataIndex: 'abstract', key: 'abstract' },
+          { title: '金额', dataIndex: 'amount', key: 'amount', width: 110 },
+        ]"
+        :data-source="receiptRows"
+        :loading="receiptLoading"
+        row-key="id"
+        size="small"
+        :pagination="{ pageSize: 10 }"
+        :row-selection="{
+          type: 'radio',
+          selectedRowKeys: receiptSelection,
+          onChange: (k: number[]) => (receiptSelection = k),
+        }"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'id'">#{{ record.id }}</template>
+        </template>
+      </a-table>
+      <p v-if="!receiptLoading && receiptRows.length === 0" class="sub">
+        暂无未配对回单：回单在「银行回单」页上传解析后即可引用；凭证类型由交易性质自动建议。
       </p>
     </a-modal>
   </div>

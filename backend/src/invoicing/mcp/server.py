@@ -105,6 +105,19 @@ def build_server() -> MCPServer:
                              expense_type: str = "other", note: str | None = None) -> dict:
         return mcp_tools.expense_add_invoices(claim_id, entry_id, invoice_numbers, expense_type, note)
 
+    @server.tool(description="把银行回单/缴款书回单挂为报销凭证（金额取自回单，一单一报）；receipt_id 用 receipt_list 查询，凭证类型留空按回单交易性质自动建议。")
+    def expense_add_receipt(claim_id: int, entry_id: int, receipt_id: int,
+                            voucher_type: str | None = None, expense_type: str = "other",
+                            note: str | None = None) -> dict:
+        return mcp_tools.expense_add_receipt(claim_id, entry_id, receipt_id, voucher_type, expense_type, note)
+
+    @server.tool(description="录入无票支出人工凭证（receipt_voucher 收款凭证需收款人姓名+身份证号且 ≤500 元；contract 合同类；overseas 境外票据），返回 deductible 与不可扣除原因。")
+    def expense_add_voucher(claim_id: int, entry_id: int, voucher_type: str, amount: str,
+                            expense_type: str = "other", note: str | None = None,
+                            payee_name: str | None = None, payee_id_no: str | None = None) -> dict:
+        return mcp_tools.expense_add_voucher(claim_id, entry_id, voucher_type, amount,
+                                             expense_type, note, payee_name, payee_id_no)
+
     @server.tool(description="提交报销单进入审批（需已有明细）。")
     def expense_submit(claim_id: int) -> dict:
         return mcp_tools.expense_submit(claim_id)

@@ -374,6 +374,60 @@ def expense_add_invoices(claim_id: int, entry_id: int, invoice_numbers: list[str
 
 
 @requires("expense:write")
+def expense_add_receipt(claim_id: int, entry_id: int, receipt_id: int,
+                        voucher_type: str | None = None, expense_type: str = "other",
+                        note: str | None = None) -> dict:
+    """把银行回单/缴款书回单挂为报销凭证（金额取自回单，一单一报）。
+
+    receipt_id 用 receipt_list 查询；voucher_type 留空时按回单交易性质自动建议
+    （税费/社保 → 缴款书回单 tax_receipt，其余 → 银行回单 bank_receipt）。
+    """
+    from invoicing.workflow import expenses as svc
+
+    with SessionLocal() as db:
+        item = svc.add_receipt(db, _current_user(db), claim_id, receipt_id, entry_id,
+                               voucher_type, expense_type, note)
+        claim = svc._get_claim(db, claim_id)
+        return {
+            "claim_id": claim.id, "claim_no": claim.claim_no, "entry_id": entry_id,
+            "total_amount": _money(claim.total_amount),
+            "item": {"id": item.id, "voucher_type": item.voucher_type,
+                     "amount": _money(item.amount), "receipt_id": item.receipt_id},
+        }
+
+
+@requires("expense:write")
+def expense_add_voucher(claim_id: int, entry_id: int, voucher_type: str, amount: str,
+                        expense_type: str = "other", note: str | None = None,
+                        payee_name: str | None = None, payee_id_no: str | None = None) -> dict:
+    """无票支出人工凭证（按 28 号公告校验税前扣除资格，金额为字符串避免浮点误差）。
+
+    voucher_type：receipt_voucher（收款凭证，小额零星 ≤500 元，需收款人姓名+身份证号）/
+    contract（合同类，仅特殊情形可扣，需财务确认）/ overseas（境外票据）。
+    返回 deductible/deductible_note：false 时提示用户补要素或取得发票。
+    """
+    from decimal import Decimal
+
+    from invoicing.workflow import expenses as svc
+
+    with SessionLocal() as db:
+        item = svc.add_manual_voucher(
+            db, _current_user(db), claim_id, entry_id,
+            voucher_type=voucher_type, amount=Decimal(str(amount)),
+            expense_type=expense_type, note=note,
+            payee_name=payee_name, payee_id_no=payee_id_no,
+        )
+        claim = svc._get_claim(db, claim_id)
+        return {
+            "claim_id": claim.id, "claim_no": claim.claim_no, "entry_id": entry_id,
+            "total_amount": _money(claim.total_amount),
+            "item": {"id": item.id, "voucher_type": item.voucher_type,
+                     "amount": _money(item.amount), "deductible": item.deductible,
+                     "deductible_note": item.deductible_note},
+        }
+
+
+@requires("expense:write")
 def expense_submit(claim_id: int) -> dict:
     """提交报销单进入审批（需已有明细）。"""
     from invoicing.workflow import expenses as svc

@@ -4,18 +4,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import ExpensesView from "../ExpensesView.vue";
 import { allowanceAmount } from "../../types";
 
+vi.mock("../../api/receipts", () => ({
+  listReceipts: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock("../../api/expenses", () => ({
   listClaims: vi.fn().mockResolvedValue([
     { id: 1, claim_no: "FY-202609-0001", title: "6 月差旅", total_amount: "272.50",
       status: "draft", applicant_id: 1, item_count: 1, submitted_at: null, decided_at: null,
       approver_id: null, rejected_reason: null, remark: null, created_at: "2026-09-13T00:00:00" },
   ]),
-  getExpenseConfig: vi.fn().mockResolvedValue({ travel_allowance_daily_standard: 120 }),
+  getExpenseConfig: vi.fn().mockResolvedValue({ travel_allowance_daily_standard: 120, petty_cash_threshold: 500 }),
   createClaim: vi.fn(),
   getClaim: vi.fn(),
   eligibleInvoices: vi.fn().mockResolvedValue([]),
   addInvoiceToClaim: vi.fn(),
   addVoucherToClaim: vi.fn(),
+  addReceiptToClaim: vi.fn(),
   removeItem: vi.fn(),
   submitClaim: vi.fn(),
   approveClaim: vi.fn(),
@@ -133,5 +138,160 @@ describe("allowanceAmount（补助金额算式，与后端一致）", () => {
     expect(allowanceAmount("0", "100")).toBe("");
     expect(allowanceAmount("两天", "100")).toBe("");
     expect(allowanceAmount("2", "-1")).toBe("");
+  });
+});
+
+// ---- 无票凭证 / 引用回单入口（PoC 清单 A2，2026-09-19） ----------------------
+
+/** 打开一张草稿单详情（含 1 个事项），返回已挂载的 wrapper */
+async function openDraftDetail() {
+  const api = await import("../../api/expenses");
+  vi.mocked(api.getClaim).mockResolvedValue({
+    claim: {
+      id: 1, claim_no: "FY-202609-0001", title: "6 月差旅", total_amount: "0.00",
+      status: "draft", applicant_id: 1, item_count: 0, submitted_at: null, decided_at: null,
+      approver_id: null, rejected_reason: null, remark: null, created_at: "2026-09-13T00:00:00",
+      claim_type: "travel",
+    },
+    entries: [{
+      id: 11, claim_id: 1, entry_type: "travel", title: "上海→北京 高铁",
+      occurred_on: "2026-06-10", scene_fields: null, amount: "0.00", note: null, items: [],
+    }],
+    items: [],
+  } as never);
+  const wrapper = await mountWithAntd();
+  await flushPromises();
+  const detailLink = wrapper.findAll("a").find((a) => a.text() === "详情");
+  await detailLink!.trigger("click");
+  await flushPromises();
+  return wrapper;
+}
+
+function setInput(placeholder: string, value: string) {
+  const el = document.body.querySelector(`input[placeholder="${placeholder}"]`) as HTMLInputElement;
+  expect(el, `未找到输入框「${placeholder}」`).toBeTruthy();
+  el.value = value;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** 按标题定位弹窗（body 里可能同时存在多个已挂载的 modal，取第一个会点错） */
+function modalByTitle(titleIncludes: string): Element {
+  const modal = [...document.body.querySelectorAll(".ant-modal")].find((m) =>
+    m.querySelector(".ant-modal-title")?.textContent?.includes(titleIncludes),
+  );
+  expect(modal, `未找到弹窗「${titleIncludes}」`).toBeTruthy();
+  return modal!;
+}
+
+function clickModalOk(titleIncludes: string) {
+  // 按 primary 定位而非文案：测试未装 zh_CN locale（按钮是 OK/Cancel，应用里是 确定/取消）
+  const ok = modalByTitle(titleIncludes).querySelector(".ant-modal-footer .ant-btn-primary") as HTMLElement | null;
+  expect(ok, "未找到弹窗确定按钮").toBeTruthy();
+  ok!.click();
+}
+
+describe("报销入口补齐（无票凭证 / 引用回单）", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it("草稿单事项行有「无票凭证」入口；收款凭证缺要素不发请求", async () => {
+    await openDraftDetail();
+    const api = await import("../../api/expenses");
+
+    const btn = [...document.body.querySelectorAll("button")].find((b) => b.textContent === "无票凭证");
+    expect(btn).toBeTruthy();
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flushPromises();
+
+    // 默认收款凭证：只填金额、不填收款人要素 → 本地拦截，不发请求
+    setInput("如 300.00", "300");
+    await flushPromises();
+    clickModalOk("录入无票支出凭证");
+    await flushPromises();
+    expect(api.addVoucherToClaim).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("收款凭证需填写收款人姓名与身份证号");
+  });
+
+  it("收款凭证要素齐全 → 提交成功；返回不可扣除时当场提示原因", async () => {
+    const api = await import("../../api/expenses");
+    vi.mocked(api.addVoucherToClaim).mockResolvedValue({
+      id: 99, claim_id: 1, invoice_id: null, receipt_id: null, voucher_type: "receipt_voucher",
+      amount: "300.00", expense_type: "other", note: null, payee_name: "张三",
+      payee_id_no: "110101199001011234", deductible: false,
+      deductible_note: "单次 300.00 元已超小额零星标准（100 元），需取得发票方可税前扣除",
+      active: true,
+    } as never);
+
+    await openDraftDetail();
+    const btn = [...document.body.querySelectorAll("button")].find((b) => b.textContent === "无票凭证");
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flushPromises();
+
+    setInput("如 300.00", "300");
+    setInput("个人收款人真实姓名", "张三");
+    setInput("18 位身份证号", "110101199001011234");
+    await flushPromises();
+    clickModalOk("录入无票支出凭证");
+    await flushPromises();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(api.addVoucherToClaim).toHaveBeenCalledWith(1, 11, expect.objectContaining({
+      voucher_type: "receipt_voucher", amount: "300",
+      payee_name: "张三", payee_id_no: "110101199001011234",
+    }));
+    // 提示前置：不可扣除的原因当场给出（antd message 渲染到 body）
+    expect(document.body.textContent).toContain("不可税前扣除");
+    expect(document.body.textContent).toContain("需取得发票");
+  });
+
+  it("「引用回单」仅财务可见；选中后调接口并刷新", async () => {
+    const { useAuthStore } = await import("../../stores/auth");
+    const receiptsApi = await import("../../api/receipts");
+    vi.mocked(receiptsApi.listReceipts).mockResolvedValue([{
+      id: 7, file_url: "f.pdf", file_type: "PDF", trade_date: "2026-08-06",
+      counterparty_name: "中国建设银行", amount: "15.00", abstract: "手续费",
+      direction: "付", needs_review: false, quality_issues: null,
+      category: "bank_fee", category_source: "rule", invoice_requirement: "none",
+      bank_code: "ccb", page_no: 1, anchor: null, paired_invoice_id: null,
+      status: "unmatched", created_at: "2026-08-06T10:00:00",
+    }] as never);
+
+    // 员工：无「引用回单」入口
+    const emp = await openDraftDetail();
+    expect([...document.body.querySelectorAll("button")].some((b) => b.textContent === "引用回单")).toBe(false);
+    emp.unmount();
+    document.body.innerHTML = "";
+
+    // 财务：入口可见 → 选号器加载未配对回单 → 选中提交
+    const auth = useAuthStore();
+    auth.user = {
+      id: 2, username: "caiwu", role: "finance_staff", status: "active",
+      must_change_password: false, created_at: "2026-01-01T00:00:00",
+    };
+    const api = await import("../../api/expenses");
+    vi.mocked(api.addReceiptToClaim).mockResolvedValue({
+      id: 100, claim_id: 1, invoice_id: null, receipt_id: 7, voucher_type: "bank_receipt",
+      amount: "15.00", expense_type: "other", note: null, payee_name: null, payee_id_no: null,
+      deductible: true, deductible_note: null, active: true,
+    } as never);
+
+    await openDraftDetail();
+    const btn = [...document.body.querySelectorAll("button")].find((b) => b.textContent === "引用回单");
+    expect(btn).toBeTruthy();
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flushPromises();
+
+    expect(receiptsApi.listReceipts).toHaveBeenCalledWith({}, true); // 全部时间的未配对回单
+    const receiptModal = modalByTitle("引用回单作为报销凭证");
+    const radio = receiptModal.querySelector(".ant-table-tbody .ant-radio-input") as HTMLElement;
+    expect(radio, "未渲染回单选号行").toBeTruthy();
+    radio.click();
+    await flushPromises();
+    clickModalOk("引用回单作为报销凭证");
+    await flushPromises();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(api.addReceiptToClaim).toHaveBeenCalledWith(1, 11, { receipt_id: 7 });
   });
 });

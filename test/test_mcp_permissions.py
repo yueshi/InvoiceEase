@@ -214,7 +214,7 @@ def test_audit_records_legacy_source(db, users, mcp_auth):
     assert log.detail["token_id"] is None
 
 
-# ---- 覆盖性：36 个工具一个都不能漏 ------------------------------------------
+# ---- 覆盖性：38 个工具一个都不能漏 ------------------------------------------
 
 
 def test_every_registered_tool_declares_scope():
@@ -230,7 +230,7 @@ def test_every_registered_tool_declares_scope():
     server = build_server()
     tools = asyncio.run(server.list_tools())
     names = {t.name for t in tools}
-    assert len(names) == 36, f"工具数变化（{len(names)}），请同步更新设计附录 A"
+    assert len(names) == 38, f"工具数变化（{len(names)}），请同步更新设计附录 A"
 
     from invoicing.mcp import extract as mt_extract
     from invoicing.mcp import tools as mt
@@ -249,6 +249,8 @@ def test_every_registered_tool_declares_scope():
         "expense_create": mt.expense_create,
         "expense_add_entry": mt.expense_add_entry,
         "expense_add_invoices": mt.expense_add_invoices,
+        "expense_add_receipt": mt.expense_add_receipt,
+        "expense_add_voucher": mt.expense_add_voucher,
         "expense_submit": mt.expense_submit,
         "expense_list": mt.expense_list,
         "expense_approve": mt.expense_approve,

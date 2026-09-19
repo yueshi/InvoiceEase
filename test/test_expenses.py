@@ -861,3 +861,71 @@ def test_add_receipt_suggests_voucher_type_by_category(db, users):
     salary_item = svc.add_receipt(db, users["emp"], claim.id, salary_r.id, entry.id,
                                   expense_type="office", note="代发工资")
     assert salary_item.voucher_type == "bank_receipt"
+
+
+# ---- MCP 工具：回单挂载 / 无票支出人工凭证（2026-09-19 补） ------------------
+
+
+def test_mcp_expense_add_receipt_tool(db, users, mcp_auth):
+    """MCP：回单挂为报销凭证（金额取自回单，凭证类型按交易性质建议）。"""
+    from invoicing.mcp import tools as mt
+
+    mcp_auth(users["admin"])
+    r = BankReceipt(file_url="tax2.pdf", file_type="PDF", counterparty_name="国家金库某支库",
+                    amount=Decimal("1116.00"), trade_date=date(2026, 5, 12),
+                    status="unmatched", category="tax")
+    db.add(r)
+    db.commit()
+    claim, entry = _claim_with_entry(db, users["admin"], title="税费", entry_type="office",
+                                     entry_title="增值税缴纳")
+    res = mt.expense_add_receipt(claim.id, entry.id, r.id, expense_type="office")
+    assert res["item"]["voucher_type"] == "tax_receipt"  # 按交易性质自动建议
+    assert res["item"]["amount"] == "1116.00"
+    assert res["total_amount"] == "1116.00"
+
+    # 一单一报：同回单再挂 → 明确报错
+    claim2, entry2 = _claim_with_entry(db, users["admin"], title="再挂一次")
+    with pytest.raises(ValueError, match="已被占用"):
+        mt.expense_add_receipt(claim2.id, entry2.id, r.id)
+
+
+def test_mcp_expense_add_voucher_tool(db, users, mcp_auth):
+    """MCP：无票支出人工凭证——要素齐全可扣；超小额零星/合同类不可扣并给理由。"""
+    from invoicing.mcp import tools as mt
+
+    mcp_auth(users["admin"])
+    claim, entry = _claim_with_entry(db, users["admin"], title="零星采购", entry_type="office",
+                                     entry_title="办公用品（个人小贩）")
+    ok = mt.expense_add_voucher(claim.id, entry.id, "receipt_voucher", "300.00",
+                                payee_name="张三", payee_id_no="110101199001011234",
+                                note="支出项目：办公用品")
+    assert ok["item"]["deductible"] is True
+    assert ok["total_amount"] == "300.00"
+
+    over = mt.expense_add_voucher(claim.id, entry.id, "receipt_voucher", "800.00",
+                                  payee_name="李四", payee_id_no="110101199001011235")
+    assert over["item"]["deductible"] is False
+    assert "需取得发票" in over["item"]["deductible_note"]
+
+    contract = mt.expense_add_voucher(claim.id, entry.id, "contract", "5000.00")
+    assert contract["item"]["deductible"] is False
+    assert "财务确认" in contract["item"]["deductible_note"]
+
+
+def test_mcp_expense_add_voucher_rejects_others_claim(db, users, mcp_auth):
+    """MCP：非申请人不能往他人草稿单里录凭证（与 Web 同一 owner-only 口径）。"""
+    from invoicing.mcp import tools as mt
+
+    claim, entry = _claim_with_entry(db, users["emp"], title="员工的单")
+    mcp_auth(users["admin"])
+    with pytest.raises(ValueError, match="无权操作他人的报销单"):
+        mt.expense_add_voucher(claim.id, entry.id, "overseas", "100.00")
+
+
+def test_expense_config_exposes_petty_cash_threshold(client, users):
+    """前端收款凭证表单提示用：小额零星阈值随 /expenses/config 下发。"""
+    token = client.post("/api/v1/auth/login", json={"username": "emp1", "password": "pass123"})
+    resp = client.get("/api/v1/expenses/config",
+                      headers={"Authorization": f"Bearer {token.json()['access_token']}"})
+    assert resp.status_code == 200
+    assert resp.json()["petty_cash_threshold"] == 500

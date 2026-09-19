@@ -24,9 +24,15 @@ export async function eligibleInvoices(): Promise<EligibleInvoiceOut[]> {
   return data;
 }
 
-/** 报销相关配置：差旅伙食补助公司标准（表单预填 + 金额实时预览用） */
-export async function getExpenseConfig(): Promise<{ travel_allowance_daily_standard: number }> {
-  const { data } = await api.get<{ travel_allowance_daily_standard: number }>("/expenses/config");
+/** 报销相关配置：差旅伙食补助公司标准（表单预填 + 金额实时预览用）、小额零星税前扣除阈值 */
+export async function getExpenseConfig(): Promise<{
+  travel_allowance_daily_standard: number;
+  petty_cash_threshold: number;
+}> {
+  const { data } = await api.get<{
+    travel_allowance_daily_standard: number;
+    petty_cash_threshold: number;
+  }>("/expenses/config");
   return data;
 }
 
@@ -61,6 +67,18 @@ export async function addVoucherToClaim(
 ): Promise<ExpenseItemOut> {
   const { data } = await api.post<ExpenseItemOut>(
     `/expenses/${claimId}/entries/${entryId}/vouchers`, body,
+  );
+  return data;
+}
+
+/** 引用回单：把银行回单/缴款书挂为报销凭证（金额取自回单；凭证类型留空由后端按交易性质建议） */
+export async function addReceiptToClaim(
+  claimId: number,
+  entryId: number,
+  body: { receipt_id: number; voucher_type?: string; expense_type?: string; note?: string },
+): Promise<ExpenseItemOut> {
+  const { data } = await api.post<ExpenseItemOut>(
+    `/expenses/${claimId}/entries/${entryId}/receipts`, body,
   );
   return data;
 }
