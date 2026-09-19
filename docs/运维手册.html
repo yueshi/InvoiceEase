@@ -63,7 +63,7 @@
 <header>
   <h1>发票易 InvoiceEase · 运维手册</h1>
   <div class="meta">
-    <span>V1.0 · 2026-09-17</span>
+    <span>V1.1 · 2026-09-18</span>
     <span>面向：客户 IT 运维</span>
     <span>部署口径：单机内网私有化</span>
     <span>后台路径：/ops（仅系统管理员）</span>
@@ -72,7 +72,7 @@
 
 <nav class="toc">
   <a href="#s1">1 日常巡检</a><a href="#s2">2 告警处置</a><a href="#s3">3 备份与恢复</a>
-  <a href="#s4">4 日志</a><a href="#s5">5 启动自检</a><a href="#s6">6 常见问题</a>
+  <a href="#s4">4 日志</a><a href="#s5">5 启动自检</a><a href="#s6">6 安全配置</a><a href="#s7">7 常见问题</a>
 </nav>
 
 <div class="card">
@@ -190,7 +190,8 @@ uv run uvicorn invoicing.main:app --reload</pre>
 <div class="card">
   <p style="font-size:13.5px">服务每次启动时自动执行一次深度自检，结果同时写入日志、严重项落告警，并可在运维页「自检」Tab随时重跑。
   <code>INVOICING_STARTUP_CHECKS_STRICT</code> 默认为 <code>false</code>——自检 warn/fail 项<b>只告警不阻断启动</b>；
-  设为 <code>true</code> 时<b>密钥类 warn 项升级为阻断</b>（fernet_key / 默认密钥；fail-fast，适合生产严格要求）。</p>
+  设为 <code>true</code> 时<b>密钥类 warn 项升级为阻断</b>（fernet_key / 默认密钥；fail-fast）。
+  <b><code>INVOICING_ENV=production</code> 与 strict=true 等效且更强</b>：弱密钥 / 未配置 inbox_dir / 离线模式 + 云端 LLM 一律<b>拒绝启动</b>（见第 6 节）。</p>
   <table>
     <tr><th>检查项</th><th>级别</th><th>处置</th></tr>
     <tr><td>fernet_key 未配置/非法（非 44 字符 base64）</td>
@@ -199,9 +200,15 @@ uv run uvicorn invoicing.main:app --reload</pre>
 <pre style="margin:6px 0">python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"</pre>
         将输出填入 <code>INVOICING_FERNET_KEY=</code> 后重启。注意：<b>更换密钥后此前加密的邮箱密码将无法解密</b>，需按下方「Fernet key 配置与轮换」迁移。</td></tr>
     <tr><td>jwt_secret / mcp_token / admin_password 仍为默认值</td>
-        <td><span class="tag amber">warn</span>（strict 下阻断）</td>
+        <td><span class="tag amber">warn</span>（strict / production 下阻断）</td>
         <td>在 <code>backend/.env</code> 覆盖全部默认值：<code>INVOICING_JWT_SECRET</code>、<code>INVOICING_MCP_TOKEN</code>、
             <code>INVOICING_ADMIN_PASSWORD</code>（勿用 <code>change-me</code> / <code>admin123</code>），重启生效</td></tr>
+    <tr><td>workbuddy_inbox_dir 未配置</td>
+        <td><span class="tag gray">info</span>（dev）<br><span class="tag red">fail</span>（production）</td>
+        <td>为空时 MCP 文件级工具可读服务器任意路径；生产必须配置 <code>INVOICING_WORKBUDDY_INBOX_DIR</code> 为专用附件目录</td></tr>
+    <tr><td>离线部署（offline_deploy）启用了云端 LLM 端点</td>
+        <td><span class="tag red">fail</span></td>
+        <td>FRD 要求数据不出企业内网：改 <code>INVOICING_LLM_BASE_URL</code> 为内网模型（vLLM/Ollama）或置 <code>INVOICING_LLM_ENABLED=false</code></td></tr>
     <tr><td>存储 / 日志 / 备份目录不可写</td>
         <td><span class="tag red">fail</span>（默认仅告警，strict=true 时阻断启动）</td>
         <td>为三个目录授权写权限（<code>storage_root</code> / <code>log_dir</code> / <code>ops_backup_dir</code>）</td></tr>
@@ -228,7 +235,29 @@ uv run uvicorn invoicing.main:app --reload</pre>
   </ol>
 </div>
 
-<h2 id="s6">6. 常见问题</h2>
+<h2 id="s6">6. 安全配置（production 形态）</h2>
+<div class="card">
+  <p style="font-size:13.5px">对外服务部署时置 <code>INVOICING_ENV=production</code>：启动自检按最严口径执行（第 5 节），
+  弱配置直接拒绝启动，避免「带着默认密码上线」。</p>
+  <table>
+    <tr><th>配置项</th><th>作用</th><th>生产建议</th></tr>
+    <tr><td><code>INVOICING_ENV</code></td><td>dev / production；production = 自检升级为阻断</td><td><code>production</code></td></tr>
+    <tr><td><code>INVOICING_LOGIN_MAX_FAILURES</code><br><code>INVOICING_LOGIN_LOCKOUT_MINUTES</code></td>
+        <td>登录限流：窗口内连续失败达上限即锁定该 (IP, 用户名)，锁定期内正确密码同样拒绝；429 写审计（含 rate_limited 标记）</td>
+        <td>默认 5 次 / 15 分钟；如财务室共用出口 IP，可适当放宽</td></tr>
+    <tr><td><code>INVOICING_CORS_ORIGINS</code><br><code>INVOICING_ALLOWED_HOSTS</code></td>
+        <td>跨域来源白名单与 Host 头校验；空 = 关闭（同源部署零影响）</td>
+        <td>Web 与 API 同源部署时留空；分开域名时配 CORS，公网入口建议配 ALLOWED_HOSTS</td></tr>
+    <tr><td><code>INVOICING_MCP_TOKEN</code></td>
+        <td>legacy 全局 MCP 令牌，<b>默认关闭</b>（留空）；一旦配置 = 最小 id 管理员全权</td>
+        <td>保持留空，统一用「令牌管理」页的个人令牌</td></tr>
+    <tr><td><code>INVOICING_OFFLINE_DEPLOY</code></td>
+        <td>声明数据不出内网：true 时启用云端 LLM 端点将拒绝启动</td>
+        <td>内网交付置 <code>true</code> 并配内网 LLM，或关闭 LLM</td></tr>
+  </table>
+</div>
+
+<h2 id="s7">7. 常见问题</h2>
 <div class="card">
   <h3>Q1：自检提示「迁移落后（db=… head=…）」</h3>
   <p style="font-size:13.5px">数据库版本落后于代码迁移。在 <code>backend</code> 目录执行 <code>uv run alembic upgrade head</code>，
