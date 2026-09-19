@@ -1,8 +1,13 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="INVOICING_", env_file=".env", extra="ignore")
+
+    # 运行形态：dev（本机开发，自检宽松）| production（对外服务，弱配置拒绝启动，见 ops/checks.py）
+    # 显式 alias：字段名自带 invoicing，与 env_prefix 拼接会变成 INVOICING_INVOICING_ENV（已踩）
+    invoicing_env: str = Field(default="dev", validation_alias="INVOICING_ENV")
 
     # 开发默认值：SQLite + 本地文件存储 + 进程内队列（无需 docker）；
     # 生产对齐：database_url 指向 postgres、storage_backend=s3、queue_backend=redis
@@ -19,7 +24,13 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480
-    mcp_token: str = "change-me"  # legacy 内建令牌（兼容期，建议改用个人令牌）
+    # 登录限流：滑动窗口内连续失败达上限即锁定 (ip, username)（进程内实现，见 api/auth.py）
+    login_max_failures: int = 5
+    login_lockout_minutes: int = 15
+    # Web 防线：空串=关闭（同源部署零行为变化）；逗号分列，生产按部署拓扑配置
+    cors_origins: str = ""  # 允许跨域的来源，如 https://invoice.example.com
+    allowed_hosts: str = ""  # 允许的 Host 头，如 invoice.example.com（不含端口也可含）
+    mcp_token: str = ""  # legacy 内建令牌，默认关闭；仅为兼容旧 WorkBuddy 配置时显式设置（建议改用个人令牌）
     # MCP 身份与权限（design/2026-09-13-MCP身份与权限设计.md）
     mcp_issuer_url: str = "http://localhost:8000"  # 阶段 1 仅作 claims["iss"]；阶段 2 接 IdP 时替换
     mcp_resource_url: str = "http://localhost:8000/mcp"  # RFC 8707 audience / PRM 元数据地址
@@ -47,6 +58,8 @@ class Settings(BaseSettings):
     llm_model_vlm: str = "qwen-vl-plus"
     llm_timeout_seconds: float = 25.0
     llm_max_retries: int = 1
+    # 离线部署声明（FRD：数据不出企业内网）：true 时启用云端 LLM 端点即拒绝启动（见 ops/checks.py）
+    offline_deploy: bool = False
     scheduler_enabled: bool = True
     # 启动时后台预热 OCR 引擎（模型首次加载 10-30s；未装 ocr extra 时为空转）
     ocr_preload: bool = True

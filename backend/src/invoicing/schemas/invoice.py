@@ -68,9 +68,12 @@ class InvoiceOut(BaseModel):
     @computed_field
     @property
     def verify_is_mock(self) -> bool:
-        """验真结果为模拟 provider 产出（国税资质未获批前）——展示/汇报必须注明模拟状态。"""
+        """验真结果为模拟 provider 产出（国税资质未获批前）——展示/汇报必须注明模拟状态。
+
+        结构化标志优先；reason 前缀回退仅覆盖 M1 之前已落库的历史 verify_detail。
+        """
         detail = self.verify_detail or {}
-        return str(detail.get("reason", "")).startswith("mock_")
+        return bool(detail.get("mock")) or str(detail.get("reason", "")).startswith("mock_")
 
 
 class InvoiceListResponse(BaseModel):

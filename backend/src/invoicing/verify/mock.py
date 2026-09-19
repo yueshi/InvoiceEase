@@ -8,6 +8,9 @@ from invoicing.verify.provider import VerifyProvider, VerifyResult
 class MockVerifyProvider(VerifyProvider):
     """规则引擎模拟验真：发票号码前缀命中 fail_prefixes 判失败、error_prefixes 判异常，否则通过。"""
 
+    # 结构化模拟标志：验真落库时写入 verify_detail["mock"]，披露判定不依赖 reason 文案
+    is_mock = True
+
     def __init__(self) -> None:
         rules = json.loads(settings.mock_verify_rules)
         self.fail_prefixes = rules.get("fail_prefixes", [])

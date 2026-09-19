@@ -498,3 +498,15 @@ def test_review_audit_records_ai_verdict_comparison(client, db):
     logs = db.query(AuditLog).filter(AuditLog.action == "REVIEW").all()
     assert logs[-1].detail["ai_verdict"] == "uncertain"
     assert logs[-1].detail["ai_confidence"] == 0.6
+
+
+def test_invoice_out_mock_flag_structured_not_text_coupled(client, db):
+    """M1：结构化 mock 标志优先——mock 规则 reason 文案改动不再影响披露判定。"""
+    _seed(db, "caiwu13", Role.finance_staff.value)
+    inv = _invoice(db, status="pending_submit")
+    inv.verify_detail = {"status": "passed", "mock": True, "reason": "文案改过了没有 mock_ 前缀"}
+    db.flush()
+    token = _login(client, "caiwu13")
+    resp = client.get(f"/api/v1/invoices/{inv.id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["verify_is_mock"] is True

@@ -82,3 +82,43 @@ def test_current_user_and_role_guard(db):
 def test_missing_token_401(db):
     client = TestClient(_build_app(lambda: db))
     assert client.get("/protected").status_code == 401
+
+
+# ---- M1：CORS / TrustedHost 中间件（空配置=关闭，同源部署零行为变化） --------------------
+
+
+def _fresh_app():
+    from invoicing.main import create_app
+
+    return TestClient(create_app())
+
+
+def test_cors_middleware_configurable(monkeypatch):
+    """cors_origins 空=无 CORS 头；配置后仅列出的来源拿到 allow-origin。"""
+    from invoicing.config import settings
+
+    monkeypatch.setattr(settings, "cors_origins", "")
+    client = _fresh_app()
+    r = client.get("/health", headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in r.headers
+
+    monkeypatch.setattr(settings, "cors_origins", "https://web.example.com")
+    client = _fresh_app()
+    r = client.get("/health", headers={"Origin": "https://web.example.com"})
+    assert r.headers.get("access-control-allow-origin") == "https://web.example.com"
+    r2 = client.get("/health", headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in r2.headers
+
+
+def test_trusted_host_middleware(monkeypatch):
+    """allowed_hosts 空=不校验 Host；配置后非白名单 Host 400。"""
+    from invoicing.config import settings
+
+    monkeypatch.setattr(settings, "allowed_hosts", "")
+    client = _fresh_app()
+    assert client.get("/health", headers={"Host": "evil.example"}).status_code == 200
+
+    monkeypatch.setattr(settings, "allowed_hosts", "invoice.example.com")
+    client = _fresh_app()
+    assert client.get("/health", headers={"Host": "invoice.example.com"}).status_code == 200
+    assert client.get("/health", headers={"Host": "evil.example"}).status_code == 400

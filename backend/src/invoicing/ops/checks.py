@@ -11,6 +11,11 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SECRETS = {"jwt_secret": "change-me", "mcp_token": "change-me", "admin_password": "admin123"}
 
 
+def _strict() -> bool:
+    """阻断判定：显式 strict 或 production 形态（弱配置一律拒绝启动）。"""
+    return settings.startup_checks_strict or settings.invoicing_env == "production"
+
+
 def check_dirs_writable() -> tuple[str, str]:
     for attr in ("storage_root", "log_dir", "ops_backup_dir"):
         d = Path(getattr(settings, attr))
@@ -57,7 +62,7 @@ def check_fernet_key() -> tuple[str, str]:
     except Exception:
         logger.exception("fernet_key 自检查询密文失败，退回 warn 评估")
     msg = f"fernet_key 未配置/非法（需 44 字符 urlsafe base64 / 32 字节）：{ciphertext_hint}"
-    return ("fail" if settings.startup_checks_strict else "warn"), msg
+    return ("fail" if _strict() else "warn"), msg
 
 
 def check_default_secrets() -> tuple[str, str]:
@@ -65,7 +70,7 @@ def check_default_secrets() -> tuple[str, str]:
     if not hits:
         return "ok", "安全配置已覆盖默认值"
     msg = f"仍为默认值: {','.join(hits)}（生产必须覆盖）"
-    return ("fail" if settings.startup_checks_strict else "warn"), msg
+    return ("fail" if _strict() else "warn"), msg
 
 
 def check_db_migration() -> tuple[str, str]:
@@ -110,6 +115,44 @@ def check_engines() -> tuple[str, str]:
     return "info", "能力现状： " + " ".join(parts)
 
 
+def check_inbox_dir() -> tuple[str, str]:
+    """MCP 文件级工具的路径信任边界（mcp/extract.py：非空才约束目录）。
+
+    生产为空 = Agent 可读服务器任意路径，必须配置；开发环境维持宽松。
+    """
+    if settings.workbuddy_inbox_dir:
+        return "ok", "workbuddy_inbox_dir 已配置"
+    if settings.invoicing_env == "production":
+        return "fail", "workbuddy_inbox_dir 未配置：MCP 文件级工具可读服务器任意路径，生产必须配置"
+    return "info", "workbuddy_inbox_dir 未配置（开发环境允许；生产必须配置）"
+
+
+def _llm_host_is_private(host: str) -> bool:
+    import ipaddress
+
+    if not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host == "localhost" or host.endswith(".local") or host.endswith(".internal")
+    return ip.is_private or ip.is_loopback
+
+
+def check_offline_llm() -> tuple[str, str]:
+    """离线部署（FRD：数据不出企业内网）声明与云端 LLM 端点互斥（R6）。"""
+    if not settings.offline_deploy:
+        return "info", "offline_deploy 未启用"
+    if not settings.llm_enabled:
+        return "ok", "离线部署：LLM 未启用"
+    from urllib.parse import urlparse
+
+    host = (urlparse(settings.llm_base_url).hostname or "").lower()
+    if _llm_host_is_private(host):
+        return "ok", f"离线部署：LLM 端点在内网（{host}）"
+    return "fail", f"离线部署禁止云端 LLM（当前端点 {host}）——换内网模型或置 llm_enabled=false"
+
+
 _CHECKS = [
     ("dirs_writable", check_dirs_writable),
     ("fernet_key", check_fernet_key),
@@ -117,6 +160,8 @@ _CHECKS = [
     ("db_migration", check_db_migration),
     ("disk_free", check_disk_free),
     ("engines", check_engines),
+    ("inbox_dir", check_inbox_dir),
+    ("offline_llm", check_offline_llm),
 ]
 
 
@@ -143,6 +188,6 @@ def run_startup_checks() -> list[dict]:
                                  f"{r['name']}: {r['message']}", cooldown=timedelta(hours=12))
             except Exception:
                 logger.exception("自检告警写入失败")
-    if settings.startup_checks_strict and any(r["level"] == "fail" for r in results):
-        raise RuntimeError("启动自检未通过（startup_checks_strict=true）：见自检日志")
+    if _strict() and any(r["level"] == "fail" for r in results):
+        raise RuntimeError("启动自检未通过（strict：startup_checks_strict=true 或 production 形态）：见自检日志")
     return results

@@ -57,6 +57,24 @@ def create_app() -> FastAPI:
     app = FastAPI(title="发票易 InvoiceEase", lifespan=lifespan)
     # /mcp 的鉴权由 SDK 认证栈负责（装配在 mcp/server.py），不再自研中间件：
     # 自研版本只认单一静态令牌，会挡在 SDK 前面把个人令牌全部 401。
+    # Web 防线（M1）：空配置=关闭（同源部署零行为变化），生产按部署拓扑配置 cors_origins/allowed_hosts
+    if settings.cors_origins:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    if settings.allowed_hosts:
+        from fastapi.middleware.trustedhost import TrustedHostMiddleware
+
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=[h.strip() for h in settings.allowed_hosts.split(",") if h.strip()],
+        )
 
     @app.get("/health")
     def health() -> dict:

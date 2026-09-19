@@ -454,3 +454,17 @@ def test_worker_classifies_receipt_on_ingest(db, storage, monkeypatch):
     r = db.query(BankReceipt).one()
     assert r.category == "tax"
     assert r.category_source == "rule"
+
+
+def test_verify_invoice_task_records_structured_mock_flag(db, storage):
+    """M1：验真落库写入结构化 mock 标志（披露判定与 reason 文案解耦）。"""
+    from invoicing.verify.mock import MockVerifyProvider
+    from invoicing.workers.tasks import _parse_invoice, _verify_invoice
+
+    assert MockVerifyProvider.is_mock is True  # provider 侧声明
+    inv = _make_invoice(db, storage)
+    _parse_invoice(inv.id)
+    db.refresh(inv)
+    _verify_invoice(inv.id)
+    db.refresh(inv)
+    assert inv.verify_detail["mock"] is True

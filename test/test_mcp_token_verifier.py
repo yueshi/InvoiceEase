@@ -139,3 +139,10 @@ def test_legacy_disabled_when_config_empty(db):
         assert _verify("") is None
     finally:
         monkey.undo()
+
+
+def test_legacy_token_default_off():
+    """M1：legacy 内建令牌默认关闭（config 默认空串）——钉死字段默认值，防回归。"""
+    from invoicing.config import Settings
+
+    assert Settings.model_fields["mcp_token"].default == ""

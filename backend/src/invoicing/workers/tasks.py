@@ -265,8 +265,14 @@ def _verify_invoice(invoice_id: int) -> None:
             db.commit()
             return
 
-        result = get_provider().verify(inv)
-        inv.verify_detail = {"status": result.status, **result.detail}
+        provider = get_provider()
+        result = provider.verify(inv)
+        # mock 标志结构化落库（verify_is_mock 判定不依赖 reason 文案，见 schemas/invoice.py）
+        inv.verify_detail = {
+            "status": result.status,
+            "mock": bool(getattr(provider, "is_mock", False)),
+            **result.detail,
+        }
         inv.verified_at = utcnow()
         if result.status == "passed":
             inv.verify_status = VerifyStatus.passed.value
