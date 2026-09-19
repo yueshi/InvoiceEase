@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · A4 真机冒烟操作单</title>
+<style>
+  :root {
+    --ink: #1f2937; --sub: #6b7280; --line: #e5e7eb;
+    --blue: #2563eb; --blue-bg: #eff6ff; --green: #059669; --green-bg: #ecfdf5;
+    --amber: #d97706; --amber-bg: #fffbeb; --red: #dc2626; --red-bg: #fef2f2;
+    --card-bg: #ffffff; --page-bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--page-bg); color: var(--ink); line-height: 1.65; padding: 32px 16px 64px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff;
+           border-radius: 14px; padding: 32px 36px; margin-bottom: 24px; }
+  header h1 { font-size: 26px; font-weight: 700; }
+  header .meta { margin-top: 10px; font-size: 13px; opacity: .92; }
+  header .meta span { display: inline-block; background: rgba(255,255,255,.18);
+                      border-radius: 999px; padding: 2px 12px; margin-right: 8px; margin-top: 6px; }
+  h2 { font-size: 19px; margin: 36px 0 14px; padding-left: 10px; border-left: 4px solid var(--blue); }
+  h3 { font-size: 15px; margin: 16px 0 8px; color: #111827; }
+  .card { background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 24px; margin-bottom: 16px; }
+  .card ul, .card ol { padding-left: 22px; font-size: 13.5px; }
+  .card ul li, .card ol li { margin: 5px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; white-space: nowrap; }
+  code { background: #f3f4f6; border-radius: 4px; padding: 1px 6px; font-size: 12.5px;
+         font-family: "SF Mono", Menlo, monospace; color: #111827; }
+  pre { background: #f3f4f6; border: 1px solid var(--line); border-radius: 10px;
+        padding: 14px 18px; font-size: 12.5px; font-family: "SF Mono", Menlo, monospace;
+        overflow-x: auto; line-height: 1.7; white-space: pre; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tag.blue { background: var(--blue-bg); color: var(--blue); }
+  .tag.green { background: var(--green-bg); color: var(--green); }
+  .tag.amber { background: var(--amber-bg); color: var(--amber); }
+  .tag.red { background: var(--red-bg); color: var(--red); }
+  .tag.gray { background: #f3f4f6; color: var(--sub); }
+  .note { background: var(--blue-bg); border-left: 3px solid var(--blue); border-radius: 8px;
+          padding: 12px 16px; font-size: 13.5px; margin: 12px 0; }
+  .warn { background: var(--amber-bg); border-left: 3px solid var(--amber); }
+  .danger { background: var(--red-bg); border-left: 3px solid var(--red); }
+  .ok { background: var(--green-bg); border-left: 3px solid var(--green); }
+  footer { margin-top: 40px; text-align: center; color: var(--sub); font-size: 12.5px; }
+  .blank { display: inline-block; border-bottom: 1px solid #9ca3af; min-width: 90px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 · A4 真机冒烟操作单</h1>
+  <div class="meta">
+    <span>2026-09-19</span>
+    <span>用途：PoC 检查清单 A4（上客户环境前的四项真机验证）</span>
+    <span>预估：1 天，需真实邮箱 / 企微群 / WorkBuddy 环境</span>
+  </div>
+</header>
+
+<div class="note">
+  <strong>执行口径：</strong>本机或预演服务器按序执行，每项记录「通过 / 不通过 + 现象」；
+  不通过项记入问题清单，修完重跑该项。全部通过后在《PoC 前检查清单》勾选 A4。
+</div>
+
+<div class="card">
+  <h3>通用准备</h3>
+  <ul>
+    <li>服务已启动（<code>cd backend && uv run uvicorn invoicing.main:app --reload</code>），后台可登录</li>
+    <li>开发环境用 <code>INVOICING_ENV=dev</code>；<b>如需按生产口径冒烟，先置 <code>production</code> 并确保弱默认已改</b>（否则拒绝启动，见运维手册 §6）</li>
+    <li>日志：<code>backend/logs/</code>；任务记录与告警：运维页 <code>/ops</code>（仅管理员）</li>
+    <li>每项冒烟后到「审计日志」页确认有对应记录（A4 同时验证审计完整性）</li>
+  </ul>
+</div>
+
+<h2>A4-1 · 真实邮箱 IMAP 收票全链路</h2>
+<div class="card">
+  <h3>前置</h3>
+  <ul>
+    <li>收票邮箱已开启 IMAP 并取得授权码（QQ 企业邮 / 163 / 飞书邮箱均可）</li>
+    <li><code>INVOICING_FERNET_KEY</code> 已配置（未配置时保存邮箱凭据会被 400 拒绝）</li>
+    <li>后台「系统配置 → 邮箱 → 新增」：类型 IMAP、主机/端口（如 <code>imap.exmail.qq.com:993</code>）、账号、授权码、主题关键词（如 <code>发票,Invoice</code>）</li>
+  </ul>
+  <h3>步骤</h3>
+  <ol>
+    <li>从外部邮箱向收票邮箱发 2 封邮件：① 附件为真实数电票 <b>XML</b>；② 附件为真实版式 <b>PDF</b>（主题含「发票」或正文含关键词）</li>
+    <li>等 ≤1 分钟（调度器每 60s 轮询）；着急可「运维 → 任务 → 手动执行 <code>mailbox_poll</code>」</li>
+    <li>打开「发票列表」，找到两张新票，逐张打开详情</li>
+  </ol>
+  <h3>预期结果（逐项勾）</h3>
+  <ul>
+    <li>☐ 两张票出现在列表，状态推进至「待提交」（低置信度时「待复核」也算正常）</li>
+    <li>☐ 详情字段完整：号码 / 开票日期 / 购销方 / 价税合计；XML 票解析来源显示 XML 直解</li>
+    <li>☐ 详情有橙色「模拟模式」tag（验真披露，国税资质到位前属预期）</li>
+    <li>☐ 原件已归档：<code>backend/data/originals/tenant-default/</code> 下新增文件</li>
+    <li>☐ 审计日志有 <code>FETCH</code> 记录；运维页任务记录 <code>mailbox_poll</code> 结果「成功」</li>
+  </ul>
+  <h3>可选加测（拒收合规路径）</h3>
+  <ul>
+    <li>发一封带 <b>图片（jpg/png）</b>附件的邮件 → 若配置了 SMTP 回信，发件人应收到「仅接受原件」提示邮件；未配 SMTP 则跳过此项</li>
+  </ul>
+  <h3>失败排查</h3>
+  <ul>
+    <li>任务记录里 <code>mailbox_poll</code> 的「错误」列；告警 <code>mailbox.stalled</code>（邮箱连续未成功收取）</li>
+    <li>密码类错误 → 检查授权码；「无法解密」→ FERNET_KEY 与录入时不一致（见运维手册 §5）</li>
+  </ul>
+  <p>结果：<span class="blank"></span>　现象/截图：<span class="blank" style="min-width:320px"></span></p>
+</div>
+
+<h2>A4-2 · 企微推送（告警通道 + 月报）</h2>
+<div class="card">
+  <h3>前置</h3>
+  <ul>
+    <li>企微群 → 添加「群机器人」→ 复制 Webhook 地址</li>
+    <li><code>INVOICING_NOTIFY_WEBHOOK_URL=&lt;地址&gt;</code> 写入 <code>backend/.env</code>，重启服务</li>
+  </ul>
+  <h3>步骤与预期</h3>
+  <ol>
+    <li><b>通道直发</b>（与告警同一函数，验证 webhook 可用）：
+<pre>cd backend
+uv run python -c "from invoicing.notify import notify; notify('发票易冒烟测试：告警通道 ✅')"</pre>
+        ☐ 企微群收到消息</li>
+    <li><b>月报真任务</b>：「运维 → 任务 → 手动执行 <code>monthly_health</code>」（每月 1 日 09:00 自动跑，手动可即验）
+        ☐ 群内收到月度健康报告（含验真模拟声明）</li>
+    <li>☐ 运维页任务记录里 <code>monthly_health</code> 结果「成功」</li>
+  </ol>
+  <h3>失败排查</h3>
+  <ul>
+    <li>推送失败只记日志、不影响任务结果：看 <code>backend/logs/</code> 中 <code>invoicing.notify</code></li>
+    <li>机器人被移出群 / URL 失效 → 重新生成</li>
+  </ul>
+  <p>结果：<span class="blank"></span>　现象/截图：<span class="blank" style="min-width:320px"></span></p>
+</div>
+
+<h2>A4-3 · WorkBuddy 真机挂载（个人令牌）</h2>
+<div class="card">
+  <h3>前置</h3>
+  <ul>
+    <li>后台「令牌管理」→ 签发新令牌：名称如「冒烟-张三」，权限按角色「一键填充」，90 天；<b>当场复制明文</b>（只显示一次）</li>
+    <li>WorkBuddy 的 <code>mcp.json</code>：URL <code>http://&lt;服务器IP&gt;:8000/mcp</code>，Header <code>Authorization: Bearer &lt;令牌明文&gt;</code></li>
+  </ul>
+  <div class="note warn"><b>安全收口（M1）变更提示</b>：legacy 全局令牌（<code>INVOICING_MCP_TOKEN</code>）已默认关闭——必须使用个人令牌接入。</div>
+  <h3>步骤与预期</h3>
+  <ol>
+    <li>让 Agent 调 <code>invoice_list</code> → ☐ 返回数据，且<b>只含该令牌归属人可见的发票</b>（员工看不到同事的与公共池）</li>
+    <li>让 Agent 调 <code>invoice_ingest</code> 导入一个本地 XML 原件 → ☐ 入库成功、列表可见
+      <br><span class="tag gray">注意</span> 若配置了 <code>INVOICING_WORKBUDDY_INBOX_DIR</code>，文件必须在该目录内</li>
+    <li>让 Agent 调 <code>expense_add_voucher</code>（无票凭证，A2 新工具）→ ☐ 返回 <code>deductible</code> 与原因字段</li>
+    <li>审计页（安全 tab）→ ☐ 有 <code>channel=mcp</code> 记录，带 <code>user_id</code> + <code>token_id</code>（能回答“谁干的”）</li>
+  </ol>
+  <h3>失败排查</h3>
+  <ul>
+    <li>401 → 令牌过期/被撤销/归属用户被暂停；「文件不在允许目录内」→ inbox_dir 未配或路径不对</li>
+    <li>工具被拒 → 令牌 scope 不含对应权限（令牌管理页核对）</li>
+  </ul>
+  <p>结果：<span class="blank"></span>　现象/截图：<span class="blank" style="min-width:320px"></span></p>
+</div>
+
+<h2>A4-4 · 员工上传 + 报销全流程（含 A2 两条新路径）</h2>
+<div class="card">
+  <h3>步骤与预期（员工账号）</h3>
+  <ol>
+    <li>发票列表 →「上传」一份 PDF/OFD/XML 原件 → ☐ 422 拦截图片（传图片试一次，应引导走邮箱）；原件上传成功并完成解析验真</li>
+    <li>报销管理 → 新建报销单（差旅）→ 添加事项 → ☐ 创建成功</li>
+    <li>事项行「加发票」→ 选上一步的票 → ☐ 加入成功、合计金额更新</li>
+    <li>事项行「<b>无票凭证</b>」→ 收款凭证：
+      <br>① 金额 300 + 收款人姓名/身份证号 → ☐ 加入成功且明细「税前扣除」列<b>绿标</b>
+      <br>② 金额 800 + 姓名/身份证号 → ☐ 提交后<b>当场橙色提示</b>「已超小额零星标准…需取得发票」，明细列橙标（悬停看原因）</li>
+    <li>提交审批 → ☐ 状态「待审批」</li>
+  </ol>
+  <h3>步骤与预期（财务账号）</h3>
+  <ol start="6">
+    <li>财务建自己的报销单（<b>注意</b>：财务不能改员工的单——owner-only 是设计边界，不是 bug），加事项后点「<b>引用回单</b>」→ ☐ 弹窗列出未配对回单</li>
+    <li>选中一张税费类回单确认 → ☐ 凭证类型自动为「缴款书回单」（其他性质为「银行回单」）、金额取自回单</li>
+    <li>审批员工那张单（通过/驳回各试一次）→ ☐ 状态流转正确、驳回带理由</li>
+    <li>审计页（业务 tab）→ ☐ 有 <code>EXPENSE_ADD_VOUCHER</code> / <code>EXPENSE_ADD_RECEIPT</code> / <code>EXPENSE_SUBMIT</code> 等记录</li>
+  </ol>
+  <h3>失败排查</h3>
+  <ul>
+    <li>「该回单已被占用」→ 一单一报，换一张；「回单金额缺失」→ 该回单解析未出金额，先补核对</li>
+    <li>「无权操作他人的报销单」→ 用单子的申请人账号操作</li>
+  </ul>
+  <p>结果：<span class="blank"></span>　现象/截图：<span class="blank" style="min-width:320px"></span></p>
+</div>
+
+<h2>结果汇总（冒烟结束填写）</h2>
+<div class="card">
+  <table>
+    <tr><th>项</th><th>通过</th><th>不通过的现象</th><th>截图/日志位置</th><th>复跑结果</th></tr>
+    <tr><td>A4-1 邮箱收票</td><td>☐</td><td></td><td></td><td></td></tr>
+    <tr><td>A4-2 企微推送</td><td>☐</td><td></td><td></td><td></td></tr>
+    <tr><td>A4-3 WorkBuddy</td><td>☐</td><td></td><td></td><td></td></tr>
+    <tr><td>A4-4 报销全流程</td><td>☐</td><td></td><td></td><td></td></tr>
+  </table>
+  <div class="note ok"><b>全部通过后</b>：在《2026-09-18-PoC前检查清单》勾选 A4，进入 B 流程侧（客户画像 / 约法三章 / 部署形态）。</div>
+</div>
+
+<footer>发票易 docs/A4真机冒烟操作单.html · 2026-09-19 · 关联：design/2026-09-18-PoC前检查清单.md</footer>
+</div>
+</body>
+</html>
