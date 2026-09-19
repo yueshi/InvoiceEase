@@ -84,11 +84,11 @@
 </div>
 
 <div class="card">
-  <h3><span class="tag blue">A2</span> 报销入口补齐（后端零改动，约 3 天）</h3>
+  <h3><span class="tag green">A2 ✅</span> 报销入口补齐（后端零改动）—— 2026-09-19 完成</h3>
   <ul class="check">
-    <li>无票支出人工凭证录入 UI（<code>addVoucherToClaim</code> client 已有，页面无入口；表单要点：收款凭证姓名+身份证号必填、超 500 元「需取得发票」提示前置到录入现场、note 引导为支出项目）</li>
-    <li>回单挂载入口（client 新增 <code>addReceiptToClaim</code> + 报销页「引用到报销」选单/事项交互；金额取自回单，凭证类型按交易性质自动建议）</li>
-    <li>MCP 两工具：<code>expense_add_receipt</code> / <code>expense_add_voucher</code>（套 <code>expense_add_invoices</code> 模式）</li>
+    <li class="done">无票支出人工凭证录入 UI：事项行「无票凭证」Modal（类型/金额/收款人姓名+身份证号/说明；要素本地拦截；<code>deductible=false</code> 当场提示原因；表单顶部显示小额零星阈值）</li>
+    <li class="done">回单挂载入口：client <code>addReceiptToClaim</code> + 财务限定「引用回单」Modal（未配对回单选号器，凭证类型由交易性质自动建议）</li>
+    <li class="done">MCP 两工具：<code>expense_add_receipt</code> / <code>expense_add_voucher</code>（套 <code>expense_add_invoices</code> 模式；工具数 36→38，设计附录 A 与功能清单已同步）</li>
   </ul>
 </div>
 

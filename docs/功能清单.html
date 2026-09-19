@@ -216,7 +216,7 @@
   <table>
     <tr><th>能力</th><th>说明</th><th class="st">状态</th></tr>
     <tr><td>MCP Server</td><td>Streamable HTTP，挂载于 <code>/mcp</code>；认证由 MCP SDK 内置栈承担（<code>TokenVerifier</code> → 401 invalid_token / 403 insufficient_scope + <code>WWW-Authenticate</code>，符合规范）</td><td class="st"><span class="tag green">已上线</span></td></tr>
-    <tr><td><b>身份与权限（一人一令牌）</b></td><td>Agent 调用以<b>令牌归属人</b>的身份执行：员工只看得到自己的发票与报销单，财务看全公司（FRD §380）；13 个 <b>scope</b> 覆盖 36 个工具，按角色预设；令牌可签发/撤销/设有效期，撤销即时生效；审计记到人（user_id + 令牌 + 租户）</td><td class="st"><span class="tag green">已上线</span></td></tr>
+    <tr><td><b>身份与权限（一人一令牌）</b></td><td>Agent 调用以<b>令牌归属人</b>的身份执行：员工只看得到自己的发票与报销单，财务看全公司（FRD §380）；13 个 <b>scope</b> 覆盖 38 个工具，按角色预设；令牌可签发/撤销/设有效期，撤销即时生效；审计记到人（user_id + 令牌 + 租户）</td><td class="st"><span class="tag green">已上线</span></td></tr>
     <tr><td><b>服务目录</b></td><td>MCP <code>tools/list</code> 即服务目录；每个工具描述写明<b>适用与不适用</b>（如发票工具明确「银行回单请改用 receipt_ingest」）</td><td class="st"><span class="tag green">已上线</span></td></tr>
     <tr><td>长任务异步模式</td><td>回单入库立即返回批次号，后台解析，<code>receipt_parse_status</code> 轮询进度</td><td class="st"><span class="tag green">已上线</span></td></tr>
     <tr><td>幂等与防重</td><td>文件 SHA256 唯一（重复 409 + 明确文案）；发票号唯一键兜底</td><td class="st"><span class="tag green">已上线</span></td></tr>
@@ -224,13 +224,13 @@
     <tr><td>批量工具</td><td>批量识别、按发票号批量加票，逐条返回 success / error 互不影响</td><td class="st"><span class="tag green">已上线</span></td></tr>
   </table>
 
-  <h3>工具目录（36 个，按域分组）</h3>
+  <h3>工具目录（38 个，按域分组）</h3>
   <table>
     <tr><th>分组</th><th>工具</th></tr>
     <tr><td>收取与查询</td><td><code>invoice_fetch</code> · <code>invoice_list</code> · <code>invoice_detail</code></td></tr>
     <tr><td>识别与校验</td><td><code>extract_invoice</code> · <code>batch_extract_invoices</code> · <code>validate_invoice</code></td></tr>
     <tr><td>入库与维护</td><td><code>invoice_ingest</code> · <code>invoice_update</code> · <code>invoice_delete</code> · <code>invoice_unblock</code> · <code>invoice_classify</code> · <code>invoice_ai_review</code></td></tr>
-    <tr><td>报销</td><td><code>expense_create</code> · <code>expense_add_entry</code> · <code>expense_add_invoices</code> · <code>expense_submit</code> · <code>expense_list</code> · <code>expense_approve</code> · <code>expense_eligible_invoices</code></td></tr>
+    <tr><td>报销</td><td><code>expense_create</code> · <code>expense_add_entry</code> · <code>expense_add_invoices</code> · <code>expense_add_receipt</code> · <code>expense_add_voucher</code> · <code>expense_submit</code> · <code>expense_list</code> · <code>expense_approve</code> · <code>expense_eligible_invoices</code></td></tr>
     <tr><td>销项与红字</td><td><code>sales_invoice_import</code> · <code>sales_invoice_import_list</code> · <code>red_invoice_list</code> · <code>red_invoice_link</code></td></tr>
     <tr><td>银行回单</td><td><code>receipt_ingest</code> · <code>receipt_parse_status</code> · <code>receipt_list</code> · <code>receipt_pair</code> · <code>receipt_report</code></td></tr>
     <tr><td>主数据</td><td><code>company_info_list</code> · <code>company_info_save</code> · <code>company_info_delete</code> · <code>bank_account_list</code> · <code>bank_account_save</code> · <code>bank_account_delete</code></td></tr>
