@@ -100,7 +100,8 @@ function onMenuClick(info: { key: string }) {
       <!-- 助手面板：第三列参与 flex 挤压（antd Layout 含 sider 时为 row 布局） -->
       <agent-drawer />
     </a-layout>
-    <floating-button v-if="route.path !== '/login' && !agent.drawerOpen" />
+    <!-- 悬浮球隐藏用 v-show：若并入下方 v-else 链，抽屉打开时会让 router-view 二次渲染整页 -->
+    <floating-button v-if="route.path !== '/login'" v-show="!agent.drawerOpen" />
     <router-view v-else />
   </a-config-provider>
 </template>
