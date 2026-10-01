@@ -36,6 +36,7 @@ class MessageOut(BaseModel):
     role: str
     content: str | None
     tool_calls: list | None
+    blocks: list | None = None  # 时间线（旧数据为 null）
     duration_ms: int | None
     input_tokens: int | None
     output_tokens: int | None

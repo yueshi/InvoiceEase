@@ -110,6 +110,7 @@ async def chat(
     stats: dict = {
         "tool_calls": [], "input_tokens": 0, "output_tokens": 0,
         "duration_ms": 0, "error_code": None, "assistant_reply": "",
+        "blocks": None,
     }
 
     async def _run_and_record() -> None:
@@ -137,6 +138,7 @@ async def chat(
                         output_tokens=stats.get("output_tokens") or 0,
                         duration_ms=stats.get("duration_ms") or 0,
                         error_code=stats.get("error_code"),
+                        blocks=stats.get("blocks") or None,
                     )
             except Exception:
                 logger.exception("agent 回合落库失败")

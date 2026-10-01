@@ -49,6 +49,7 @@ async def run_agent(
         return {
             "tool_calls": [], "input_tokens": 0, "output_tokens": 0,
             "duration_ms": 0, "error_code": None, "assistant_reply": _STATIC_FALLBACK,
+            "blocks": [{"type": "text", "text": _STATIC_FALLBACK}],
         }
 
     # 组装 loop 上下文（历史在前，当前轮带 [用户消息]/[页面上下文] 包装）
@@ -68,6 +69,7 @@ async def run_agent(
         max_tokens=settings.agent_max_tokens,
     )
     tool_calls_stats: list[dict] = []
+    blocks: list[dict] = []  # 有序时间线（思考/工具/文本），随事件到达顺序折叠
     error_code: str | None = None
 
     try:
@@ -76,7 +78,7 @@ async def run_agent(
                 driver, state, session_id=session_id,
                 cancel_event=cancel_event, on_turn_end=capability_guard,
             ),
-            emitter, tool_calls_stats,
+            emitter, tool_calls_stats, blocks,
         )
     except Exception as e:
         error_code = "AGENT_EXCEPTION"
@@ -92,6 +94,7 @@ async def run_agent(
     history_len = len(history)
     return {
         "tool_calls": tool_calls_stats,
+        "blocks": blocks,
         "input_tokens": state.total_input_tokens,
         "output_tokens": state.total_output_tokens,
         "duration_ms": total_ms,

@@ -42,6 +42,9 @@ class AgentMessage(Base):
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 本轮 tool_call 统计：[{"tool": str, "status": "done"|"failed", "ms": int}]
     tool_calls: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # 有序时间线：思考/工具/文本按事件到达顺序排列，相邻同类已合并（见 design 遗留单）。
+    # 旧行为 NULL，前端走兼容布局渲染，不回填。
+    blocks: Mapped[list | None] = mapped_column(JSON, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

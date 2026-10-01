@@ -19,6 +19,7 @@ def record_turn(
     output_tokens: int,
     duration_ms: int,
     error_code: str | None,
+    blocks: list | None = None,
 ) -> None:
     session = db.get(AgentSession, session_id)
     if session is None:
@@ -32,7 +33,7 @@ def record_turn(
     db.add(AgentMessage(session_id=session_id, role="user", content=user_message))
     db.add(AgentMessage(
         session_id=session_id, role="assistant", content=assistant_reply or "",
-        tool_calls=tool_calls, duration_ms=duration_ms,
+        tool_calls=tool_calls, blocks=blocks, duration_ms=duration_ms,
         input_tokens=input_tokens, output_tokens=output_tokens,
     ))
     write_audit(
