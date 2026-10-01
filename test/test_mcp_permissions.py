@@ -230,7 +230,7 @@ def test_every_registered_tool_declares_scope():
     server = build_server()
     tools = asyncio.run(server.list_tools())
     names = {t.name for t in tools}
-    assert len(names) == 38, f"工具数变化（{len(names)}），请同步更新设计附录 A"
+    assert len(names) == 39, f"工具数变化（{len(names)}），请同步更新设计附录 A"
 
     from invoicing.mcp import extract as mt_extract
     from invoicing.mcp import tools as mt
@@ -265,6 +265,7 @@ def test_every_registered_tool_declares_scope():
         "invoice_classify": mt.invoice_classify,
         "invoice_ai_review": mt.invoice_ai_review,
         "invoice_report": mt.invoice_report,
+        "invoice_stats": mt.invoice_stats,
         "sales_invoice_import": mt.sales_invoice_import,
         "sales_invoice_import_list": mt.sales_invoice_import_list,
         "red_invoice_list": mt.red_invoice_list,

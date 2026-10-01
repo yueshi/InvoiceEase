@@ -798,6 +798,26 @@ def invoice_report(month: str) -> str:
 
 
 @requires("report:read")
+def invoice_stats(month: str) -> dict:
+    """月度成本结构化统计（供图表与统计回答；单张明细用 invoice_list）。"""
+    if not re.fullmatch(r"\d{4}-\d{2}", month or ""):
+        raise ValueError(f"month 格式应为 YYYY-MM，收到: {month!r}")
+    from invoicing.reports import monthly_cost
+
+    with SessionLocal() as db:
+        data = monthly_cost(db, month)
+    return {
+        "month": data["month"],
+        "total_count": data["total_count"],
+        "total_amount": str(data["total_amount"]),
+        "total_without_tax": str(data["total_without_tax"]),
+        "total_tax": str(data["total_tax"]),
+        "by_type": {k: str(v) for k, v in data["by_type"].items()},
+        "by_center": {k: str(v) for k, v in data["by_center"].items()},
+    }
+
+
+@requires("report:read")
 def invoice_health_report(month: str) -> str:
     """月度健康报告（P3/R3）：老板视角收口文本，供数字员工直接引用推送。"""
     from invoicing.reports import monthly_health

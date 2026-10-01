@@ -206,6 +206,10 @@ def build_server() -> MCPServer:
     def invoice_report(month: str) -> str:
         return mcp_tools.invoice_report(month)
 
+    @server.tool(description="月度成本结构化统计（month 格式 YYYY-MM）：总额/不含税/税额/张数 + 费用类型分布(by_type) + 部门分布(by_center)。做图表与统计回答必须用本工具取数；单张发票明细请用 invoice_list。")
+    def invoice_stats(month: str) -> dict:
+        return mcp_tools.invoice_stats(month)
+
     @server.tool(description="导入已开票（销项发票，外部开票系统执行）：XML/OFD/PDF 文件解析入库，用于与收款回单对账；红字票自动关联原蓝票。")
     def sales_invoice_import(file_path: str) -> dict:
         return mcp_tools.sales_invoice_import(file_path)
