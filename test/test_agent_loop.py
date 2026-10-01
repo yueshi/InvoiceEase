@@ -127,3 +127,18 @@ async def test_cancel_stops():
         events.append(ev)
     assert events[-1].reason == "cancelled"
     assert driver.calls == 0
+
+
+async def test_hook_stop_skips_wrapup_when_answered():
+    """on_turn_end 强停（hook_stop）：本轮已产出可见 final 文本 → 不补收尾轮。"""
+    driver = FakeDriver([AssistantMessage(text="已作答")])
+    state = _state([])
+
+    def _stop_hook(_state):
+        return True
+
+    events = []
+    async for ev in run_agent_loop(driver, state, session_id="t", on_turn_end=_stop_hook):
+        events.append(ev)
+    assert events[-1].reason == "hook_stop"
+    assert driver.calls == 1  # 有可见文本 → 不补收尾轮

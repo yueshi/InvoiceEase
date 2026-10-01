@@ -34,6 +34,8 @@ export const useAgentStore = defineStore("agent", {
       this.streamingText = "";
       this.streamingTools = [];
       this.error = null;
+      this.streaming = false;
+      this.abort = null;
     },
     async loadSessions() {
       try {

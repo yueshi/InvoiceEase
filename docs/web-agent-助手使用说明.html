@@ -92,7 +92,7 @@
     <tr>
       <td><b>财务专员</b><br><span class="tag green">finance_staff</span></td>
       <td>员工全部能力 + 审批报销单、回单维护与配对、销项发票、报表统计</td>
-      <td>不能删除/放行发票（<code>invoice:admin</code> 专属）、不能改主数据</td>
+      <td>不能删除/放行发票（<code>invoice:admin</code> 专属）、不能查看/修改主数据</td>
     </tr>
     <tr>
       <td><b>财务主管</b><br><span class="tag green">finance_manager</span></td>
@@ -110,7 +110,7 @@
 
 <h2>四、写操作确认规则</h2>
 <div class="card">
-  <p><b>提交 / 删除 / 审批类</b>工具属于写操作，助手在调用前会先用文字复述「将要执行的操作 + 关键参数」，<b>等你回复「确认」之后</b>才真正执行。涉及：</p>
+  <p><b>提交 / 删除 / 审批类</b>工具属于写操作，助手在调用前会先用文字复述「将要执行的操作 + 关键参数」，<b>等你回复「确认」之后</b>才真正执行。该确认为助手提示词级约束（非界面强制弹框）。涉及：</p>
   <p><code>expense_submit</code>（提交报销单）、<code>expense_approve</code>（审批）、<code>invoice_delete</code>（删除发票）、<code>invoice_unblock</code>（放行拦截票）、<code>invoice_update</code>（修改发票字段）、<code>red_invoice_link</code>（补关联红字票）、<code>bank_account_delete</code> / <code>company_info_delete</code>（删除主数据）。</p>
   <p>其余<b>新增 / 导入 / 查询类</b>（建草稿报销单、加票、导入、查询等）直接执行，无需确认。每轮对话都会写入审计日志（<code>AGENT_CHAT</code>），操作全程可追溯。</p>
 </div>
@@ -119,7 +119,7 @@
 <div class="card">
   <ul>
     <li>大模型端点<b>由后端配置</b>（<code>INVOICING_LLM_BASE_URL</code> 等环境变量），浏览器只访问自家后端接口，前端不直连任何外部地址。</li>
-    <li>开启离线部署（<code>INVOICING_OFFLINE_DEPLOY=true</code>）时：若模型端点解析为公网地址，后端启动自检会直接<b>拒绝启动</b>；配置为企业内网模型（如 vLLM）即可正常使用助手。</li>
+    <li>开启离线部署（<code>INVOICING_OFFLINE_DEPLOY=true</code>）时：若模型端点解析为公网地址，后端启动自检会直接<b>拒绝启动</b>（生产/strict 模式；开发模式仅告警）；配置为企业内网模型（如 vLLM）即可正常使用助手。</li>
     <li>未启用大模型（<code>INVOICING_LLM_ENABLED=false</code>）时助手仍可打开，只回复静态功能说明，不执行任何工具。</li>
   </ul>
 </div>
@@ -133,7 +133,7 @@
   <p>默认保留 <b>90 天</b>（<code>agent_session_retention_days</code>，按会话最后更新时间计算）。后台每日 03:47 自动清理超期会话，消息随之删除且不可恢复；重要对话结论建议及时记录到其他系统。</p>
 
   <p class="q">Q3：助手回答「权限不足」怎么办？</p>
-  <p>说明该操作超出你当前角色的授权范围（工具返回被 <code>SCOPE_DENIED</code> 拦截）。请联系管理员确认角色配置，或改由有权限的同事执行。</p>
+  <p>说明该操作超出你当前角色的授权范围（工具调用被权限校验拦下，返回「权限不足」）。请联系管理员确认角色配置，或改由有权限的同事执行。</p>
 
   <p class="q">Q4：生成到一半想停下 / 答错了想重来？</p>
   <p>生成中点「停止」立即中止，已经生成的内容会保留；出错后点「重试」可用同一问题重新生成。</p>

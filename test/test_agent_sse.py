@@ -1,7 +1,7 @@
 # test/test_agent_sse.py
 """SSE emitter 帧契约 + 事件桥折叠。"""
 import pytest
-from invoicing.agent.core.context import AssistantMessage
+from invoicing.agent.core.context import AssistantMessage, ToolCall
 from invoicing.agent.core.events import (
     AgentEndEvent, MessageUpdateEvent, ToolEndEvent, ToolStartEvent,
 )
@@ -48,8 +48,7 @@ async def test_bridge_folds_events():
 
 def test_last_assistant_text_skips_tool_turns():
     msgs = [
-        AssistantMessage(text="", tool_calls=[]),
-        AssistantMessage(text="中间态"),
-        AssistantMessage(text="最终回答"),
+        AssistantMessage(text="更早的回答"),
+        AssistantMessage(text="工具轮的中间态", tool_calls=[ToolCall(id="1", name="x", args={})]),
     ]
-    assert last_assistant_text(msgs) == "最终回答"
+    assert last_assistant_text(msgs) == "更早的回答"

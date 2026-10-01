@@ -1,7 +1,12 @@
 // web/src/agent/__tests__/MessageList.spec.ts
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import MessageList from "../components/MessageList.vue";
+
+beforeAll(() => {
+  // jsdom 24 无 Element.prototype.scrollTo；MessageList 的滚动 watcher 在改 props 的用例中会调用
+  (Element.prototype as any).scrollTo = () => {};
+});
 
 describe("MessageList", () => {
   it("渲染消息文本与工具 chip（含失败态）", () => {

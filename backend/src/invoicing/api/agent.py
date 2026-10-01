@@ -121,6 +121,8 @@ async def chat(
             ))
         except Exception:
             logger.exception("agent run 失败")
+            # 落库的 error_code 必须与用户可见的 SSE error 帧同源，否则 classify_outcome 记 success
+            stats["error_code"] = "AGENT_INTERNAL"
             emitter.emit("error", {"code": "AGENT_INTERNAL", "message": "助手内部错误", "retryable": True})
             emitter.emit("done", {"total_ms": 0, "tool_count": 0})
         finally:

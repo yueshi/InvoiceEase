@@ -1,7 +1,7 @@
 <!-- 布局骨架：ConfigProvider 设计令牌 + 亮色侧栏（品牌区/菜单）+ 顶栏（页标题/用户菜单）+ .page 容器
      登录页外展示侧边栏 + 顶栏，菜单按角色收敛 -->
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "./stores/auth";
 import FloatingButton from "./agent/components/FloatingButton.vue";
@@ -33,6 +33,14 @@ const themeConfig = {
 
 // 顶栏页标题：路由 meta.title（router/index.ts 逐路由配置）
 const pageTitle = computed(() => (route.meta.title as string) || "发票易");
+
+// 身份切换（含直访 /login 重登录）时清空 Agent 状态，防止上一账号的会话残留显示
+watch(
+  () => auth.user?.id,
+  (id, prev) => {
+    if (prev != null && id !== prev) agent.reset();
+  },
+);
 
 // 菜单项按角色收敛（computed：登录后角色变化实时生效）
 const isFinance = () => ["finance_staff", "finance_manager", "admin"].includes(auth.role ?? "");

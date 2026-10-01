@@ -47,6 +47,18 @@ def test_history_skips_empty_assistant(db):
     assert [_txt(m) for m in msgs] == ["问题0", "回答0", "问题X", "回答X"]
 
 
+def test_history_empty_assistant_after_user_not_paired(db):
+    """user 后紧跟空文本 assistant（工具中间态）不成轮；同用户后续回答正确配对。"""
+    user, s = _mk_session(db, 1)
+    db.add(AgentMessage(session_id=s.id, role="user", content="问题Y"))
+    db.add(AgentMessage(session_id=s.id, role="assistant", content=""))
+    db.add(AgentMessage(session_id=s.id, role="assistant", content="回答Y"))
+    db.commit()
+    msgs = load_session_history(db, s.id, max_turns=10)
+    assert [m.role for m in msgs] == ["user", "assistant", "user", "assistant"]
+    assert msgs[-1].text == "回答Y"
+
+
 def test_record_turn_sets_title_and_audit(db):
     user, s = _mk_session(db, 0)
     record_turn(db, session_id=s.id, user_id=user.id, user_message="帮我查本月的发票",
