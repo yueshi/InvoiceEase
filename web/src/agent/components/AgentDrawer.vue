@@ -145,22 +145,25 @@ function resetWidth() {
   border-left: 1px solid #eef0f3;
   box-shadow: -2px 0 8px rgba(15, 23, 42, 0.04);
 }
-/* 左缘拖拽命中区：8px，hover 加宽到 16px（中心三条纹 pill 标记） */
+/* 左缘拖拽命中区：横跨分界线（主内容侧 5px + 面板内 17px）。
+   实测教训：原先是 8px 纯内侧条——用户瞄准的「分界线」本身恰是死区（elementFromPoint
+   命中 aside 边框而非手柄），抓不到。加宽横跨 + hover 淡蓝提示条解决可发现性。 */
 .resize-handle {
   position: absolute;
-  left: 0;
+  left: -6px;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 22px;
   cursor: col-resize;
   z-index: 5;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: width 0.12s;
+  transition: background-color 0.12s;
 }
-.resize-handle:hover {
-  width: 16px;
+.resize-handle:hover,
+.resize-handle:active {
+  background: rgba(37, 99, 235, 0.08);
 }
 .handle-pill {
   display: flex;
@@ -168,17 +171,17 @@ function resetWidth() {
 }
 .handle-pill i {
   display: block;
-  width: 2px;
-  height: 12px;
+  width: 3px;
+  height: 18px;
   background: #cbd5e1;
-  border-radius: 1px;
+  border-radius: 2px;
   margin: 0 1px;
 }
 .resize-handle:hover .handle-pill i {
-  background: #94a3b8;
+  background: #2563eb;
 }
 .handle-pill.dragging i {
-  background: #64748b;
+  background: #1d4ed8;
 }
 .panel-header {
   height: 48px;
