@@ -19,6 +19,7 @@ import {
 import { useAuthStore } from "../stores/auth";
 import { EXPENSE_TYPE_COLORS, EXPENSE_TYPE_LABELS, INVOICE_STATUS_LABELS, VERIFY_STATUS_LABELS, type InvoiceListResponse, type InvoiceOut } from "../types";
 import PageHeader from "../components/PageHeader.vue";
+import StickyXScroll from "../components/StickyXScroll.vue";
 import InvoiceDetailDrawer from "../components/InvoiceDetailDrawer.vue";
 import PreviewModal from "../components/PreviewModal.vue";
 import { formatMoney } from "../utils/format";
@@ -376,7 +377,7 @@ const columns = [
     <div v-else class="table-card">
     <a-table size="middle" :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size, showSizeChanger: true }"
-      :scroll="{ x: 1310, y: 'calc(100vh - 420px)' }"
+      :scroll="{ x: 1310 }"
       @change="(p: any) => onPageChange(p.current, p.pageSize)">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'status'">
@@ -436,6 +437,7 @@ const columns = [
         </template>
       </template>
     </a-table>
+    <StickyXScroll />
     </div>
     <InvoiceDetailDrawer v-model:open="drawerOpen" :invoice="current" @refresh="load" />
     <PreviewModal v-model:open="previewOpen" :invoice="previewTarget" />

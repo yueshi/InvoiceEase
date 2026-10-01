@@ -7,6 +7,7 @@ import { listAuditLogs } from "../api/audit";
 import dayjs from "dayjs";
 import { AUDIT_OUTCOME_LABELS, type AuditListResponse, type AuditOut } from "../types";
 import PageHeader from "../components/PageHeader.vue";
+import StickyXScroll from "../components/StickyXScroll.vue";
 
 const data = ref<AuditListResponse>({ items: [], total: 0, page: 1, page_size: 20 });
 const loading = ref(false);
@@ -113,7 +114,7 @@ const columns = computed(() => [
     <!-- 无数据时不渲染空表（避免「No data 空表 + 滚动条」的噪音；加载中仍显示表格骨架） -->
     <a-empty v-if="!loading && data.total === 0" description="当前筛选无审计记录。" />
     <div v-else class="table-card">
-    <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id" :scroll="{ x: 960, y: 'calc(100vh - 390px)' }"
+    <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id" :scroll="{ x: 960 }"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size }"
       @change="(p: any) => { data.page = p.current; data.page_size = p.pageSize; load(); }">
       <template #bodyCell="{ column, record }">
@@ -136,6 +137,7 @@ const columns = computed(() => [
         </template>
       </template>
     </a-table>
+    <StickyXScroll />
     </div>
     <a-modal v-model:open="detailOpen" title="审计详情" width="720px" :footer="null">
       <a-descriptions :column="1" size="small" bordered class="mb-3">

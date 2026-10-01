@@ -19,6 +19,7 @@ import {
 import { useAuthStore } from "../stores/auth";
 import { BANK_LABELS, type ReceiptOut } from "../types";
 import PageHeader from "../components/PageHeader.vue";
+import StickyXScroll from "../components/StickyXScroll.vue";
 import { formatMoney, receiptStatusColor, receiptStatusText } from "../utils/format";
 import ReceiptDetailDrawer from "../components/ReceiptDetailDrawer.vue";
 import ReceiptLocatePanel from "../components/ReceiptLocatePanel.vue";
@@ -286,7 +287,7 @@ onMounted(load);
       row-key="id"
       :pagination="{ pageSize: 20 }"
       :row-class-name="(r: ReceiptOut) => (r.needs_review ? 'receipt-review-row' : '')"
-      :scroll="{ x: 1340, y: 'calc(100vh - 390px)' }"
+      :scroll="{ x: 1340 }"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'bank_code'">
@@ -323,6 +324,7 @@ onMounted(load);
         </template>
       </template>
     </a-table>
+    <StickyXScroll />
     </div>
     <ReceiptDetailDrawer
       v-model:open="detailOpen"
