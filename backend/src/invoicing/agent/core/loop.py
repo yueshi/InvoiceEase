@@ -283,6 +283,10 @@ async def _call_llm_once(
             ):
                 if kind == "text_delta":
                     yield MessageUpdateEvent(turn_index=turn, kind="text_delta", delta=payload)
+                elif kind == "reasoning_delta":
+                    # 思考过程：映射成 thinking_delta 事件（bridge 转 reasoning SSE 帧，前端实时展示；
+                    # 不落库、不进 AssistantMessage 正文）
+                    yield MessageUpdateEvent(turn_index=turn, kind="thinking_delta", delta=payload)
                 elif kind == "assistant_message":
                     out["msg"] = payload
         else:

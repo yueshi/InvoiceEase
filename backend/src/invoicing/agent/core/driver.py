@@ -2,7 +2,8 @@
 
 设计（P3 起）：
 - Driver.chat(...)         非流式（保留给 unit test / 非实时场景）
-- Driver.stream_chat(...)  流式，async generator 出 ("text_delta", str) / ("assistant_message", AssistantMessage)
+- Driver.stream_chat(...)  流式，async generator 出 ("text_delta", str) / ("reasoning_delta", str)
+                           / ("assistant_message", AssistantMessage)
 
 用 prompt-engineered tool 调用（不用 provider native `tool_calls` streaming），
 原因见 design/pi-mono-python-integration-plan-2026-07-22.md：
@@ -78,6 +79,7 @@ def build_tools_manifest(tools: list) -> str:
 
 StreamChunk = Union[
     tuple[str, str],  # ("text_delta", chunk)  — final path 流式增量
+    tuple[str, str],  # ("reasoning_delta", chunk)  — 思考过程增量（独立通道，不进正文）
     tuple[str, AssistantMessage],  # ("assistant_message", msg)  — 流末最终消息
 ]
 
@@ -395,6 +397,11 @@ class OpenAIDriver:
                 choices = getattr(chunk, "choices", None) or []
                 delta = ""
                 if choices and choices[0].delta is not None:
+                    # reasoning_content（deepseek 等推理模型）：独立通道先于 content 产出，
+                    # 不进 buffer / mode 判定，也不混入 full_content
+                    rc = getattr(choices[0].delta, "reasoning_content", None)
+                    if rc:
+                        yield ("reasoning_delta", rc)
                     delta = choices[0].delta.content or ""
                 if not delta:
                     continue

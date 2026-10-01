@@ -39,7 +39,8 @@ async def bridge_events_to_sse(
     """消费 AgentEvent 流，转发到 emitter；返回最终 AgentEndEvent（如有）.
 
     映射规则：
-        MessageUpdate  → emit("token", {"text": delta})    只 text_delta，thinking 忽略
+        MessageUpdate  → emit("token", {"text": delta})      text_delta 走正文
+                       → emit("reasoning", {"text": delta})  thinking_delta 走思考过程（实时展示，不落库）
         ToolStart      → emit("tool_call", {"tool": ..., "status": "start"})
         ToolEnd        → emit("tool_call", {"tool": ..., "status": "done"|"failed", "ms": ...})
         AgentStart/TurnStart/MessageStart/AgentEnd  → 内部观测用，不 emit
@@ -55,7 +56,9 @@ async def bridge_events_to_sse(
         if isinstance(ev, MessageUpdateEvent):
             if ev.kind == "text_delta" and ev.delta:
                 emitter.emit("token", {"text": ev.delta})
-            # thinking_delta 暂不 emit，避免污染用户视野
+            elif ev.kind == "thinking_delta" and ev.delta:
+                # 思考过程：前端独立折叠块实时展示（纯文本渲染），不落库、不进正文
+                emitter.emit("reasoning", {"text": ev.delta})
             continue
         if isinstance(ev, ToolStartEvent):
             emitter.emit("tool_call", {"tool": ev.tool_name, "status": "start"})

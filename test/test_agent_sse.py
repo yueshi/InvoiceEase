@@ -32,7 +32,7 @@ async def test_bridge_folds_events():
 
     async def _events():
         yield MessageUpdateEvent(turn_index=0, kind="text_delta", delta="你")
-        yield MessageUpdateEvent(turn_index=0, kind="thinking_delta", delta="想")  # 不透出
+        yield MessageUpdateEvent(turn_index=0, kind="thinking_delta", delta="想")  # → reasoning 帧
         yield ToolStartEvent(turn_index=0, tool_call_id="1", tool_name="invoice_list", args={})
         yield ToolEndEvent(turn_index=0, tool_call_id="1", tool_name="invoice_list",
                            output="ok", is_error=False, duration_ms=8)
@@ -41,7 +41,9 @@ async def test_bridge_folds_events():
     end = await bridge_events_to_sse(_events(), em, stats)
     em.close()
     frames = [f async for f in em.stream()]
-    assert len(frames) == 3  # token + tool_start + tool_end（thinking 与内部事件不透出）
+    # token + reasoning + tool_start + tool_end（内部事件不透出）
+    assert len(frames) == 4
+    assert '"reasoning"' in frames[1]
     assert end is not None and end.reason == "no_more_tool_calls"
     assert stats == [{"tool": "invoice_list", "status": "done", "ms": 8}]
 

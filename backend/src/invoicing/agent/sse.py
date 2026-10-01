@@ -10,7 +10,7 @@ import asyncio
 import json
 from typing import AsyncGenerator
 
-EVENT_TYPES = {"token", "tool_call", "done", "error"}
+EVENT_TYPES = {"token", "tool_call", "reasoning", "done", "error"}
 
 _CHANNEL_END = object()
 
