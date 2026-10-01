@@ -1,5 +1,5 @@
 # invoicing/mcp/server.py
-"""MCP Server 装配：36 个 Tool 注册 + 认证链路。
+"""MCP Server 装配：39 个 Tool 注册 + 认证链路。
 
 认证交给 SDK 内置栈（`auth=AuthSettings` + `token_verifier`）：
 `AuthenticationMiddleware` → `AuthContextMiddleware` → `RequireAuthMiddleware`，

@@ -214,7 +214,7 @@ def test_audit_records_legacy_source(db, users, mcp_auth):
     assert log.detail["token_id"] is None
 
 
-# ---- 覆盖性：38 个工具一个都不能漏 ------------------------------------------
+# ---- 覆盖性：39 个工具一个都不能漏 ------------------------------------------
 
 
 def test_every_registered_tool_declares_scope():

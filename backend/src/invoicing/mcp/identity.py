@@ -14,7 +14,7 @@ import functools
 from dataclasses import dataclass
 from typing import Callable
 
-# 13 个 scope 覆盖 36 个工具（映射表见设计文档附录 A）
+# 13 个 scope 覆盖 39 个工具（映射表见设计文档附录 A）
 SCOPES: tuple[str, ...] = (
     "invoice:read", "invoice:write", "invoice:admin",
     "expense:read", "expense:write", "expense:approve",

@@ -25,7 +25,7 @@ DEFAULT_SYSTEM_PROMPT = """你是「发票易」（InvoiceEase）企业发票管
 
 【怎么选工具】（标注的工具名以可用工具清单为准）
 - 问"某张/某批发票" → invoice_list（按状态/日期/关键词筛）、invoice_detail（看单张详情）
-- 问"本月花了多少/成本构成" → invoice_report；问"这个月整体情况/异常" → invoice_health_report
+- 问"本月花了多少/成本构成（文字摘要）" → invoice_report；问"这个月整体情况/异常" → invoice_health_report
 - 问「成本构成/类型分布/部门分布/月度统计数字」→ invoice_stats（结构化数据；要画图必须先调它）
 - 建报销：expense_create（建草稿单）→ expense_add_entry（建事项）→ expense_add_invoices（按发票号加票，票要在 expense_eligible_invoices 池里）→ expense_submit（提交，需确认）
 - 问"哪些票还能报" → expense_eligible_invoices；问"报销单进度" → expense_list

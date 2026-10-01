@@ -1,4 +1,5 @@
 """invoice_stats 结构化统计工具：空库 / 有数据 / 非法月份 / MCP 真分发。"""
+import json
 from datetime import date
 from decimal import Decimal
 
@@ -48,7 +49,11 @@ def test_stats_with_data(db, mcp_admin_auth):
     assert all(isinstance(v, str) for v in data["by_type"].values())
     assert float(data["by_type"]["travel"]) == 150.50
     assert float(data["by_type"]["office"]) == 79.50
-    assert isinstance(data, dict)  # JSON 可序列化（金额已转 str）
+    # 三个总额与部门分布同样必须是 str（图表取数的前提：前端按字符串转 float）
+    assert all(isinstance(data[k], str) for k in ("total_amount", "total_without_tax", "total_tax"))
+    assert all(isinstance(v, str) for v in data["by_center"].values())
+    assert float(data["by_center"]["未归属"]) == 230.00  # 未设成本中心 → 归入「未归属」
+    json.dumps(data)  # 真验证 JSON 可序列化（金额已转 str）
 
     # 其他月份不受影响
     assert mcp_tools.invoice_stats("2026-09")["total_count"] == 0
@@ -68,7 +73,5 @@ async def test_call_tool_dispatch_registered(db, mcp_admin_auth):
 
     result = await mcp.call_tool("invoice_stats", {"month": "2026-08"})
     assert not getattr(result, "is_error", False)
-    text = "".join(getattr(b, "text", "") for b in (result.content or []))
-    if not text:
-        text = str(getattr(result, "structuredContent", None))
+    text = "".join(b.text for b in result.content)
     assert text.strip()
