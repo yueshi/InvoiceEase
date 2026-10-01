@@ -277,9 +277,11 @@ const columns = [
   { title: "发票号码", dataIndex: "invoice_number", key: "invoice_number", width: 180 },
   { title: "方向", key: "invoice_direction", width: 80 },
   { title: "销售方", dataIndex: "seller_name", key: "seller_name", width: 200, ellipsis: true },
+  { title: "提交人", dataIndex: "submitted_by_name", key: "submitted_by_name", width: 100 },
   { title: "开票日期", dataIndex: "issue_date", key: "issue_date", width: 110 },
   { title: "价税合计", dataIndex: "total_amount", key: "total_amount", width: 120, align: "right" as const },
   { title: "费用类型", key: "expense_type", width: 110 },
+  { title: "部门", dataIndex: "cost_center", key: "cost_center", width: 110 },
   { title: "状态", dataIndex: "status", key: "status", width: 110 },
   { title: "验真", dataIndex: "verify_status", key: "verify_status", width: 90 },
   { title: "操作", key: "actions", width: 170 },
@@ -415,8 +417,8 @@ const columns = [
         <template v-else-if="column.key === 'total_amount'">
           <span class="num">{{ formatMoney(record.total_amount) }}</span>
         </template>
-        <template v-else-if="column.key === 'invoice_number' || column.key === 'seller_name' || column.key === 'issue_date'">
-          <!-- 待复核/解析失败记录无结构化字段，显示占位符而非空白 -->
+        <template v-else-if="column.key === 'invoice_number' || column.key === 'seller_name' || column.key === 'issue_date' || column.key === 'submitted_by_name' || column.key === 'cost_center'">
+          <!-- 待复核/解析失败记录无结构化字段，显示占位符而非空白；提交人/部门为空（邮箱自动收取）同此 -->
           <span class="num" :style="record[column.dataIndex] ? {} : { color: '#bbb' }">{{ record[column.dataIndex] || "—" }}</span>
         </template>
         <template v-else-if="column.key === 'actions'">

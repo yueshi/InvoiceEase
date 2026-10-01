@@ -74,6 +74,7 @@ async function onCostCenter(e: Event) {
           <a-tag v-if="invoice.confidence_score !== null && invoice.confidence_score < 0.8" color="orange">需人工核对</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="来源邮件">{{ invoice.email_subject || "—" }}</a-descriptions-item>
+        <a-descriptions-item label="提交人">{{ invoice.submitted_by_name || "—" }}</a-descriptions-item>
         <a-descriptions-item label="重复标记">{{ invoice.duplicate_flag ? "是" : "否" }}</a-descriptions-item>
         <a-descriptions-item v-if="invoice.validation_errors && invoice.validation_errors.length" label="校验/解析问题">
           <ul class="err-list">

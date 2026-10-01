@@ -41,6 +41,7 @@ export interface InvoiceOut {
   id: number;
   tenant_id: string;
   user_id: number | null;
+  submitted_by_name?: string | null;
   mailbox_id: number | null;
   email_subject: string | null;
   invoice_code: string | null;
