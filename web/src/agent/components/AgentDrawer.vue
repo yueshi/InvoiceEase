@@ -1,6 +1,7 @@
-<!-- Agent 抽屉：会话切换 + 消息流 + 输入 + 页面上下文 chip -->
+<!-- Agent 面板：挤压式右侧栏（inline flex 列，不遮盖主内容）+ 左缘拖拽调宽
+     会话切换 + 消息流 + 输入 + 页面上下文 chip -->
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useAgentStore } from "../store";
 import MessageList from "./MessageList.vue";
@@ -10,7 +11,7 @@ import type { ChatContext } from "../types";
 const store = useAgentStore();
 const route = useRoute();
 
-// 每次打开抽屉刷新会话列表：ensureSession 只在无会话时创建，「首轮自动标题」需下次打开才可见
+// 每次打开面板刷新会话列表：ensureSession 只在无会话时创建，「首轮自动标题」需下次打开才可见
 watch(
   () => store.drawerOpen,
   (open) => {
@@ -45,18 +46,56 @@ function onRetry() {
   const lastUser = [...store.messages].reverse().find((m) => m.role === "user");
   if (lastUser) onSend(lastUser.content);
 }
+
+// ==== 拖拽调宽 ====
+const dragging = ref(false);
+let startX = 0;
+let startWidth = 0;
+
+function onDragStart(e: MouseEvent) {
+  dragging.value = true;
+  startX = e.clientX;
+  startWidth = store.drawerWidth;
+  // 拖拽期锁定全局 cursor + 禁用选择：鼠标移出手柄命中区后不变回默认光标
+  const prevCursor = document.body.style.cursor;
+  const prevSelect = document.body.style.userSelect;
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+  // 面板在右，往左拖 = 加宽，故 dx 取反
+  const onMove = (ev: MouseEvent) => store.setDrawerWidth(startWidth + (startX - ev.clientX));
+  const onUp = () => {
+    dragging.value = false;
+    document.body.style.cursor = prevCursor;
+    document.body.style.userSelect = prevSelect;
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
+
+/** 双击手柄复位默认宽度 */
+function resetWidth() {
+  store.setDrawerWidth(440);
+}
 </script>
 
 <template>
-  <a-drawer
-    :open="store.drawerOpen"
-    placement="right"
-    :width="440"
-    :closable="true"
-    :body-style="{ padding: 0, display: 'flex', flexDirection: 'column', height: '100%' }"
-    title="智能助手"
-    @close="store.closeDrawer()"
-  >
+  <aside v-if="store.drawerOpen" class="agent-panel" :style="{ width: store.drawerWidth + 'px' }">
+    <div
+      class="resize-handle"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="拖动调整助手面板宽度"
+      @mousedown.prevent="onDragStart"
+      @dblclick="resetWidth"
+    >
+      <div class="handle-pill" :class="{ dragging }"><i /><i /><i /></div>
+    </div>
+    <header class="panel-header">
+      <span class="panel-title">智能助手</span>
+      <button class="panel-close" aria-label="关闭" @click="store.closeDrawer()">✕</button>
+    </header>
     <div class="drawer-head">
       <select
         class="session-select"
@@ -92,10 +131,82 @@ function onRetry() {
       @cancel="store.cancel()"
       @retry="onRetry"
     />
-  </a-drawer>
+  </aside>
 </template>
 
 <style scoped>
+.agent-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  flex-shrink: 0;
+  background: #fff;
+  border-left: 1px solid #eef0f3;
+  box-shadow: -2px 0 8px rgba(15, 23, 42, 0.04);
+}
+/* 左缘拖拽命中区：8px，hover 加宽到 16px（中心三条纹 pill 标记） */
+.resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: width 0.12s;
+}
+.resize-handle:hover {
+  width: 16px;
+}
+.handle-pill {
+  display: flex;
+  align-items: center;
+}
+.handle-pill i {
+  display: block;
+  width: 2px;
+  height: 12px;
+  background: #cbd5e1;
+  border-radius: 1px;
+  margin: 0 1px;
+}
+.resize-handle:hover .handle-pill i {
+  background: #94a3b8;
+}
+.handle-pill.dragging i {
+  background: #64748b;
+}
+.panel-header {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid #eef0f3;
+  flex-shrink: 0;
+}
+.panel-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.panel-close {
+  border: none;
+  background: transparent;
+  color: #8a94a6;
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.panel-close:hover {
+  background: #f2f4f7;
+  color: #374151;
+}
 .drawer-head {
   display: flex;
   gap: 8px;

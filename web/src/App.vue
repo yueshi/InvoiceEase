@@ -75,7 +75,7 @@ function onMenuClick(info: { key: string }) {
         </div>
         <a-menu :selected-keys="[route.path]" :items="menuItems" @click="onMenuClick" />
       </a-layout-sider>
-      <a-layout>
+      <a-layout class="app-main">
         <a-layout-header class="app-header">
           <span class="app-header-title">{{ pageTitle }}</span>
           <a-dropdown :trigger="['click']">
@@ -97,11 +97,10 @@ function onMenuClick(info: { key: string }) {
           </div>
         </a-layout-content>
       </a-layout>
-    </a-layout>
-    <template v-if="route.path !== '/login'">
-      <floating-button />
+      <!-- 助手面板：第三列参与 flex 挤压（antd Layout 含 sider 时为 row 布局） -->
       <agent-drawer />
-    </template>
+    </a-layout>
+    <floating-button v-if="route.path !== '/login' && !agent.drawerOpen" />
     <router-view v-else />
   </a-config-provider>
 </template>
@@ -109,6 +108,10 @@ function onMenuClick(info: { key: string }) {
 <style scoped>
 .app-layout {
   min-height: 100vh;
+}
+/* 主列允许收缩：否则内容（表格等）把主列撑破，右侧助手面板挤压不生效 */
+.app-main {
+  min-width: 0;
 }
 /* 亮色侧栏：白底 + 右分隔线（替代 theme="dark"） */
 .app-sider {

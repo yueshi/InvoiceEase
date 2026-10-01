@@ -91,4 +91,38 @@ describe("agent store", () => {
     expect(store.messages.some((m) => m.role === "assistant")).toBe(false);
     expect(store.messages.some((m) => m.content.includes("旧会话回复"))).toBe(false);
   });
+
+  describe("面板宽度", () => {
+    beforeEach(() => {
+      localStorage.clear(); // 宽度偏好落 localStorage，需用例间隔离
+    });
+
+    it("下界：setDrawerWidth(100) → 320", () => {
+      const store = useAgentStore();
+      store.setDrawerWidth(100);
+      expect(store.drawerWidth).toBe(320);
+    });
+
+    it("上界：setDrawerWidth(9999) → round(min(720, innerWidth*0.6))（jsdom 1024 → 614）", () => {
+      const store = useAgentStore();
+      store.setDrawerWidth(9999);
+      expect(store.drawerWidth).toBe(Math.round(Math.min(720, window.innerWidth * 0.6)));
+    });
+
+    it("区间内原样：setDrawerWidth(500) → 500", () => {
+      const store = useAgentStore();
+      store.setDrawerWidth(500);
+      expect(store.drawerWidth).toBe(500);
+    });
+
+    it("调宽写入 localStorage；无存储时初值 440", () => {
+      const store = useAgentStore();
+      store.setDrawerWidth(500);
+      expect(localStorage.getItem("invoicing_agent_width")).toBe(String(store.drawerWidth));
+
+      localStorage.clear();
+      setActivePinia(createPinia()); // 新 store 实例才会重新读 localStorage
+      expect(useAgentStore().drawerWidth).toBe(440);
+    });
+  });
 });

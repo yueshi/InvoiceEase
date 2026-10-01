@@ -4,9 +4,38 @@ import { defineStore } from "pinia";
 import * as api from "./api";
 import type { AgentMessage, AgentSession, AgentToolCall, ChatContext, SSEEvent } from "./types";
 
+// ==== 面板宽度（用户偏好，localStorage 持久化；跨登出保留，reset() 不清） ====
+const AGENT_WIDTH_KEY = "invoicing_agent_width";
+const AGENT_WIDTH_DEFAULT = 440;
+const AGENT_WIDTH_MIN = 320;
+const AGENT_WIDTH_MAX = 720;
+
+/** 动态 clamp：上限 = min(720, 窗口宽 60%)，窗口极窄时保底 320 */
+function clampWidth(w: number): number {
+  const upper = Math.round(Math.min(AGENT_WIDTH_MAX, window.innerWidth * 0.6));
+  return Math.round(Math.min(Math.max(w, AGENT_WIDTH_MIN), Math.max(AGENT_WIDTH_MIN, upper)));
+}
+
+/**
+ * 初始读取：只做 Number.isFinite 校验 + 静态上下限。
+ * 不走 clampWidth——那会让 innerWidth 变小时静默改写用户存的偏好。
+ */
+function readStoredWidth(): number {
+  try {
+    const raw = localStorage.getItem(AGENT_WIDTH_KEY);
+    if (raw === null) return AGENT_WIDTH_DEFAULT;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return AGENT_WIDTH_DEFAULT;
+    return Math.min(Math.max(parsed, AGENT_WIDTH_MIN), AGENT_WIDTH_MAX);
+  } catch {
+    return AGENT_WIDTH_DEFAULT; // localStorage 不可用（隐私模式等）时用默认
+  }
+}
+
 export const useAgentStore = defineStore("agent", {
   state: () => ({
     drawerOpen: false,
+    drawerWidth: readStoredWidth(),
     sessions: [] as AgentSession[],
     currentSessionId: null as number | null,
     messages: [] as AgentMessage[],
@@ -23,6 +52,15 @@ export const useAgentStore = defineStore("agent", {
     },
     closeDrawer() {
       this.drawerOpen = false;
+    },
+    /** 拖拽调宽 / 双击复位：clamp 后写入 localStorage */
+    setDrawerWidth(w: number) {
+      this.drawerWidth = clampWidth(w);
+      try {
+        localStorage.setItem(AGENT_WIDTH_KEY, String(this.drawerWidth));
+      } catch {
+        /* 写入失败（隐私模式等）：本次会话内宽度仍生效 */
+      }
     },
     /** 登出/切换身份时清空（App.vue 调用）。 */
     reset() {
