@@ -1,8 +1,19 @@
 <!-- 布局骨架：ConfigProvider 设计令牌 + 亮色侧栏（品牌区/菜单）+ 顶栏（页标题/用户菜单）+ .page 容器
      登录页外展示侧边栏 + 顶栏，菜单按角色收敛 -->
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, h, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import {
+  AccountBookOutlined,
+  BankOutlined,
+  DashboardOutlined,
+  FileSearchOutlined,
+  KeyOutlined,
+  ProfileOutlined,
+  SettingOutlined,
+  SyncOutlined,
+  ToolOutlined,
+} from "@ant-design/icons-vue";
 import { useAuthStore } from "./stores/auth";
 import FloatingButton from "./agent/components/FloatingButton.vue";
 import AgentDrawer from "./agent/components/AgentDrawer.vue";
@@ -12,6 +23,17 @@ const router = useRouter();
 const route = useRoute();
 const auth = useAuthStore();
 const agent = useAgentStore();
+
+// 侧栏折叠（折叠后仅图标）：偏好持久化，刷新/重登保留
+const SIDER_COLLAPSED_KEY = "invoicing_sider_collapsed";
+const collapsed = ref(localStorage.getItem(SIDER_COLLAPSED_KEY) === "1");
+watch(collapsed, (v) => {
+  try {
+    localStorage.setItem(SIDER_COLLAPSED_KEY, v ? "1" : "0");
+  } catch {
+    /* 隐私模式等存储不可用：仅本次会话生效 */
+  }
+});
 
 // 设计令牌（design/2026-09-16-WebUI布局与样式优化设计.md §2.1）：主色/圆角/底色 + 亮色菜单
 const themeConfig = {
@@ -42,16 +64,23 @@ watch(
   },
 );
 
-// 菜单项按角色收敛（computed：登录后角色变化实时生效）
+// 菜单项按角色收敛（computed：登录后角色变化实时生效）；每项带图标（折叠态只显示图标）
+// 「令牌管理」固定置底（低频自助操作）
 const isFinance = () => ["finance_staff", "finance_manager", "admin"].includes(auth.role ?? "");
 const menuItems = computed(() => [
-  { key: "/", label: "工作台" },
-  { key: "/invoices", label: "发票列表" },
-  { key: "/expenses", label: "报销管理" },
-  { key: "/mcp-tokens", label: "令牌管理" },
-  ...(isFinance() ? [{ key: "/receipts", label: "银行回单" }] : []),
-  ...(isFinance() ? [{ key: "/tasks", label: "异步任务" }] : []),
-  ...(auth.isAdmin ? [{ key: "/audit", label: "审计日志" }, { key: "/ops", label: "运维管理" }, { key: "/settings", label: "系统配置" }] : []),
+  { key: "/", label: "工作台", icon: () => h(DashboardOutlined) },
+  { key: "/invoices", label: "发票列表", icon: () => h(ProfileOutlined) },
+  { key: "/expenses", label: "报销管理", icon: () => h(AccountBookOutlined) },
+  ...(isFinance() ? [{ key: "/receipts", label: "银行回单", icon: () => h(BankOutlined) }] : []),
+  ...(isFinance() ? [{ key: "/tasks", label: "异步任务", icon: () => h(SyncOutlined) }] : []),
+  ...(auth.isAdmin
+    ? [
+        { key: "/audit", label: "审计日志", icon: () => h(FileSearchOutlined) },
+        { key: "/ops", label: "运维管理", icon: () => h(ToolOutlined) },
+        { key: "/settings", label: "系统配置", icon: () => h(SettingOutlined) },
+      ]
+    : []),
+  { key: "/mcp-tokens", label: "令牌管理", icon: () => h(KeyOutlined) },
 ]);
 
 function onLogout() {
@@ -68,12 +97,23 @@ function onMenuClick(info: { key: string }) {
 <template>
   <a-config-provider :theme="themeConfig">
     <a-layout v-if="route.path !== '/login'" class="app-layout">
-      <a-layout-sider :width="208" class="app-sider">
+      <a-layout-sider
+        :width="208"
+        :collapsed-width="64"
+        collapsible
+        v-model:collapsed="collapsed"
+        class="app-sider"
+      >
         <div class="brand">
           <div class="brand-logo">发</div>
-          <span class="brand-name">发票易</span>
+          <span v-if="!collapsed" class="brand-name">发票易</span>
         </div>
-        <a-menu :selected-keys="[route.path]" :items="menuItems" @click="onMenuClick" />
+        <a-menu
+          :selected-keys="[route.path]"
+          :items="menuItems"
+          :inline-collapsed="collapsed"
+          @click="onMenuClick"
+        />
       </a-layout-sider>
       <a-layout class="app-main">
         <a-layout-header class="app-header">
@@ -118,6 +158,17 @@ function onMenuClick(info: { key: string }) {
 .app-sider {
   background: #fff;
   border-right: 1px solid #eef0f3;
+}
+/* 折叠触发器：antd 默认深色条与亮色侧栏不搭，改为浅色底 + 分隔线 */
+.app-sider :deep(.ant-layout-sider-trigger) {
+  background: #fff;
+  color: #5b6472;
+  border-top: 1px solid #eef0f3;
+  border-right: 1px solid #eef0f3;
+}
+.app-sider :deep(.ant-layout-sider-trigger:hover) {
+  color: #2563eb;
+  background: #eff6ff;
 }
 .brand {
   display: flex;
