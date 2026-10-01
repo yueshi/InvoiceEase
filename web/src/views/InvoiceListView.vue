@@ -270,14 +270,17 @@ onMounted(() => {
   loadUnlinkedRed();
 });
 
+// 注意：ellipsis 会让 antd 启用 table-layout: fixed——此时**每一列都必须有显式 width**，
+// 否则窄容器（小窗口/助手面板挤压）下无宽度列会被压成 0px（列标题消失、内容溢出重叠）。
+// 全列定宽后，容器不足时表格整体横向滚动（global.css 已配滚动条常显），不再塌缩。
 const columns = [
   { title: "发票号码", dataIndex: "invoice_number", key: "invoice_number", width: 180 },
   { title: "方向", key: "invoice_direction", width: 80 },
-  { title: "销售方", dataIndex: "seller_name", key: "seller_name", ellipsis: true },
+  { title: "销售方", dataIndex: "seller_name", key: "seller_name", width: 200, ellipsis: true },
   { title: "开票日期", dataIndex: "issue_date", key: "issue_date", width: 110 },
   { title: "价税合计", dataIndex: "total_amount", key: "total_amount", width: 120, align: "right" as const },
   { title: "费用类型", key: "expense_type", width: 110 },
-  { title: "状态", dataIndex: "status", key: "status" },
+  { title: "状态", dataIndex: "status", key: "status", width: 110 },
   { title: "验真", dataIndex: "verify_status", key: "verify_status", width: 90 },
   { title: "操作", key: "actions", width: 170 },
 ];
