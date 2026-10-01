@@ -43,6 +43,7 @@ export const useAgentStore = defineStore("agent", {
       }
     },
     async createSession() {
+      this.cancel(); // 裁决(a) 同源：新建即切走当前会话，先中止在途流，避免旧回复渲染进新会话视图
       const s = await api.createSession();
       this.sessions.unshift(s);
       this.currentSessionId = s.id;
