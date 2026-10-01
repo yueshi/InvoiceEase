@@ -274,12 +274,13 @@ onMounted(() => {
 // 否则窄容器（小窗口/助手面板挤压）下无宽度列会被压成 0px（列标题消失、内容溢出重叠）。
 // 全列定宽后，容器不足时表格整体横向滚动（global.css 已配滚动条常显），不再塌缩。
 const columns = [
-  { title: "发票号码", dataIndex: "invoice_number", key: "invoice_number", width: 180 },
+  // 单号/日期/金额为原子值：ellipsis（内含 nowrap）防折行；号码加宽到 210 容纳 20 位数字
+  { title: "发票号码", dataIndex: "invoice_number", key: "invoice_number", width: 210, ellipsis: true },
   { title: "方向", key: "invoice_direction", width: 80 },
   { title: "销售方", dataIndex: "seller_name", key: "seller_name", width: 200, ellipsis: true },
-  { title: "提交人", dataIndex: "submitted_by_name", key: "submitted_by_name", width: 100 },
-  { title: "开票日期", dataIndex: "issue_date", key: "issue_date", width: 110 },
-  { title: "价税合计", dataIndex: "total_amount", key: "total_amount", width: 120, align: "right" as const },
+  { title: "提交人", dataIndex: "submitted_by_name", key: "submitted_by_name", width: 100, ellipsis: true },
+  { title: "开票日期", dataIndex: "issue_date", key: "issue_date", width: 120, ellipsis: true },
+  { title: "价税合计", dataIndex: "total_amount", key: "total_amount", width: 120, align: "right" as const, ellipsis: true },
   { title: "费用类型", key: "expense_type", width: 110 },
   { title: "状态", dataIndex: "status", key: "status", width: 110 },
   { title: "验真", dataIndex: "verify_status", key: "verify_status", width: 90 },
@@ -374,7 +375,7 @@ const columns = [
     <div class="table-card">
     <a-table size="middle" :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size, showSizeChanger: true }"
-      :scroll="{ x: 1270, y: 'calc(100vh - 420px)' }"
+      :scroll="{ x: 1310, y: 'calc(100vh - 420px)' }"
       @change="(p: any) => onPageChange(p.current, p.pageSize)">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'status'">

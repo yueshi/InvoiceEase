@@ -54,13 +54,15 @@ function periodParam(): { month?: string; quarter?: string; year?: string } {
 // 质量问题不占列（细节收进详情抽屉），状态列的「待核对」标签 + 只看待核对筛选足够暴露
 // 全列显式 width：配合下方 scroll.x（antd 会启用 fixed 布局，无宽度列会塌缩）
 const columns = [
-  { title: "交易日期", dataIndex: "trade_date", key: "trade_date", width: 110 },
-  { title: "银行", dataIndex: "bank_code", key: "bank_code", width: 90 },
+  // 日期为原子值：默认单元格内边距 16×2，110px 列内容区仅 78px < 「2026-06-21」79px → 断在连字符。
+  // 加宽至 120（内容 88）+ ellipsis（内含 nowrap）双保险，杜绝折行。
+  { title: "交易日期", dataIndex: "trade_date", key: "trade_date", width: 120, ellipsis: true },
+  { title: "银行", dataIndex: "bank_code", key: "bank_code", width: 90, ellipsis: true },
   { title: "对方户名", dataIndex: "counterparty_name", key: "counterparty_name", width: 200, ellipsis: true },
-  { title: "金额", dataIndex: "amount", key: "amount", width: 110, align: "right" as const },
+  { title: "金额", dataIndex: "amount", key: "amount", width: 110, align: "right" as const, ellipsis: true },
   { title: "收付", dataIndex: "direction", key: "direction", width: 60 },
   { title: "摘要", dataIndex: "abstract", key: "abstract", width: 220, ellipsis: true },
-  { title: "发票配对", dataIndex: "paired_invoice_id", key: "paired_invoice_id", width: 140 },
+  { title: "发票配对", dataIndex: "paired_invoice_id", key: "paired_invoice_id", width: 140, ellipsis: true },
   { title: "状态", dataIndex: "status", key: "status", width: 110 },
   // 290：实测最长行（详情/定位 P6/自动配对/核对无误/删除 共 249px）+ 单元格内边距 32 + 余量 ≈ 290，
   // 保证操作链接单行不折行（折行/折字都会在此宽度下消除）
@@ -283,7 +285,7 @@ onMounted(load);
       row-key="id"
       :pagination="{ pageSize: 20 }"
       :row-class-name="(r: ReceiptOut) => (r.needs_review ? 'receipt-review-row' : '')"
-      :scroll="{ x: 1330, y: 'calc(100vh - 390px)' }"
+      :scroll="{ x: 1340, y: 'calc(100vh - 390px)' }"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'bank_code'">
