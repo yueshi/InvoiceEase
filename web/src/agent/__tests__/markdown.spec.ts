@@ -9,10 +9,11 @@ describe("renderMarkdown", () => {
     expect(out).not.toContain("<script>");
   });
 
-  it("javascript: 链接被拒（不产生 href）", () => {
+  it("javascript: 链接被拒（大小写无关：均不产生 href）", () => {
     const out = renderMarkdown("[x](javascript:alert(1))");
     expect(out).not.toContain('href="javascript:');
-    expect(renderMarkdown("[x](JaVaScRiPt:alert(1))")).not.toContain('href="javascript:'); // 大小写混杂同样拒
+    // 大小写无关：混写协议同样拒，任何 href= 都不应出现（validateLink 即便大小写敏感也被抓）
+    expect(renderMarkdown("[x](JaVaScRiPt:alert(1))")).not.toContain("href=");
   });
 
   it("https 链接正常成链", () => {
