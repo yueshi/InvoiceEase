@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · Web Agent 助手使用说明</title>
+<style>
+  :root { --ink:#1f2937; --sub:#6b7280; --line:#e5e7eb; --blue:#2563eb; --blue-bg:#eff6ff;
+          --green:#059669; --green-bg:#ecfdf5; --amber:#d97706; --amber-bg:#fffbeb; --red:#dc2626; --red-bg:#fef2f2; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f6f7f9;
+         color:var(--ink); line-height:1.7; padding:32px 16px 64px; }
+  .wrap { max-width:900px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a8a,#2563eb); color:#fff; border-radius:14px;
+           padding:28px 32px; margin-bottom:24px; }
+  header h1 { font-size:24px; }
+  header p { margin-top:6px; font-size:13px; opacity:.9; }
+  h2 { font-size:18px; margin:32px 0 12px; padding-left:10px; border-left:4px solid var(--blue); }
+  h3 { font-size:14.5px; margin:14px 0 6px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px 22px; margin-bottom:14px; }
+  .card p, .card li { font-size:13.5px; }
+  .card ul, .card ol { padding-left:22px; }
+  .card li { margin:4px 0; }
+  code { background:#f3f4f6; border-radius:4px; padding:1px 5px; font-size:12.5px; font-family:"SF Mono",Menlo,monospace; }
+  .tag { display:inline-block; border-radius:6px; padding:1px 8px; font-size:12px; font-weight:600; }
+  .tag.blue { background:var(--blue-bg); color:var(--blue); }
+  .tag.green { background:var(--green-bg); color:var(--green); }
+  .tag.amber { background:var(--amber-bg); color:var(--amber); }
+  .tag.red { background:var(--red-bg); color:var(--red); }
+  .note { background:var(--amber-bg); border-left:3px solid var(--amber); border-radius:8px; padding:10px 14px; font-size:13px; margin:10px 0; }
+  .note.blue { background:var(--blue-bg); border-left-color:var(--blue); }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top; }
+  th { background:#f9fafb; }
+  .q { font-weight:600; margin-top:12px; }
+  .q:first-child { margin-top:0; }
+  footer { margin-top:36px; text-align:center; font-size:12px; color:var(--sub); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>发票易 · Web Agent 助手使用说明</h1>
+  <p>右下角「AI」悬浮球 · 自然语言查发票 / 建报销 / 对回单 / 出报表 · 2026-10-01</p>
+</header>
+
+<h2>一、入口</h2>
+<div class="card">
+  <ul>
+    <li>登录后任意页面右下角都有蓝色圆形 <span class="tag blue">AI</span> 悬浮球，点击从右侧滑出「智能助手」抽屉，不打断当前页面操作。</li>
+    <li>抽屉顶部是<b>会话栏</b>：下拉切换历史会话、<b>新建</b>开启新对话、<b>删除</b>移除当前会话。每次打开抽屉会自动刷新会话列表（第一轮对话后自动生成的标题，下次打开时即可看到）。</li>
+    <li>会话栏下方是<b>上下文提示</b>，自动带上传当前页面地址与打开的发票 / 报销单编号，助手据此理解「这张发票」「这单」指的是什么。</li>
+    <li>输入区：<b>Enter 发送 / Shift+Enter 换行</b>；生成过程中按钮变「停止」可随时中止；出错后可点「重试」重发上一问。</li>
+  </ul>
+</div>
+
+<h2>二、能做什么（四类场景举例）</h2>
+<div class="card">
+  <table>
+    <tr><th style="width:130px">场景</th><th>可以直接说</th></tr>
+    <tr>
+      <td><span class="tag blue">发票查询</span></td>
+      <td>「列出本月待复核的发票」「发票 12 现在是什么状态」「这个月有哪些异常发票？」「查看发票 12 的详情」</td>
+    </tr>
+    <tr>
+      <td><span class="tag blue">报销单</span></td>
+      <td>「帮我建一个差旅报销单」「哪些发票还能报销？」「把发票 3、5 加进报销单 #42」「报销单 #42 走到哪一步了？」</td>
+    </tr>
+    <tr>
+      <td><span class="tag blue">银行回单</span></td>
+      <td>「查一下 9 月回单清单」「这个月哪些费用还没有发票？」「把回单 8 和发票 12 配个对」</td>
+    </tr>
+    <tr>
+      <td><span class="tag blue">报表</span></td>
+      <td>「出 9 月成本报表」「本月整体健康报告」「按费用类型看一下这个月的构成」</td>
+    </tr>
+  </table>
+  <div class="note blue">助手每一步操作都会显示工具执行过程（如 <code>invoice_list · 完成 · 12ms</code>），它给出的每个数字都来自真实查询，可随时对照网页核对。</div>
+</div>
+
+<h2>三、工具与权限（角色 → 能调什么）</h2>
+<div class="card">
+  <p>所有登录用户都能使用助手，但能调用的工具被你的<b>角色</b>锁死（与 MCP 工具层的授权范围一致），并且只能看到你本人范围内的数据。</p>
+  <table>
+    <tr><th style="width:150px">角色</th><th>助手能做什么</th><th style="width:210px">不能做什么</th></tr>
+    <tr>
+      <td><b>普通员工</b><br><span class="tag amber">employee</span></td>
+      <td>查发票、导入发票、建报销单 / 加票 / 提交（需确认）、查回单清单</td>
+      <td>不能审批报销单、不能删除/放行发票、不能看报表与主数据</td>
+    </tr>
+    <tr>
+      <td><b>财务专员</b><br><span class="tag green">finance_staff</span></td>
+      <td>员工全部能力 + 审批报销单、回单维护与配对、销项发票、报表统计</td>
+      <td>不能删除/放行发票（<code>invoice:admin</code> 专属）、不能改主数据</td>
+    </tr>
+    <tr>
+      <td><b>财务主管</b><br><span class="tag green">finance_manager</span></td>
+      <td>与财务专员相同</td>
+      <td>同上</td>
+    </tr>
+    <tr>
+      <td><b>系统管理员</b><br><span class="tag blue">admin</span></td>
+      <td>全部能力，含删除/放行发票、银行账户与公司信息维护</td>
+      <td>—</td>
+    </tr>
+  </table>
+  <div class="note">数据可见范围另由系统 RBAC 再次收窄：助手能看到的内容，不会超过你本人在网页上能看到的。</div>
+</div>
+
+<h2>四、写操作确认规则</h2>
+<div class="card">
+  <p><b>提交 / 删除 / 审批类</b>工具属于写操作，助手在调用前会先用文字复述「将要执行的操作 + 关键参数」，<b>等你回复「确认」之后</b>才真正执行。涉及：</p>
+  <p><code>expense_submit</code>（提交报销单）、<code>expense_approve</code>（审批）、<code>invoice_delete</code>（删除发票）、<code>invoice_unblock</code>（放行拦截票）、<code>invoice_update</code>（修改发票字段）、<code>red_invoice_link</code>（补关联红字票）、<code>bank_account_delete</code> / <code>company_info_delete</code>（删除主数据）。</p>
+  <p>其余<b>新增 / 导入 / 查询类</b>（建草稿报销单、加票、导入、查询等）直接执行，无需确认。每轮对话都会写入审计日志（<code>AGENT_CHAT</code>），操作全程可追溯。</p>
+</div>
+
+<h2>五、离线部署说明</h2>
+<div class="card">
+  <ul>
+    <li>大模型端点<b>由后端配置</b>（<code>INVOICING_LLM_BASE_URL</code> 等环境变量），浏览器只访问自家后端接口，前端不直连任何外部地址。</li>
+    <li>开启离线部署（<code>INVOICING_OFFLINE_DEPLOY=true</code>）时：若模型端点解析为公网地址，后端启动自检会直接<b>拒绝启动</b>；配置为企业内网模型（如 vLLM）即可正常使用助手。</li>
+    <li>未启用大模型（<code>INVOICING_LLM_ENABLED=false</code>）时助手仍可打开，只回复静态功能说明，不执行任何工具。</li>
+  </ul>
+</div>
+
+<h2>六、常见问题</h2>
+<div class="card">
+  <p class="q">Q1：提示「未启用大模型 / 只显示功能说明」，怎么开启？</p>
+  <p>这是静态兜底说明：助手当前只回答固定功能清单，不做真实查询。由管理员在后端启用 <code>INVOICING_LLM_ENABLED=true</code> 并配置 API Key（或内网模型端点）后重启服务即可。</p>
+
+  <p class="q">Q2：会话会保留多久？</p>
+  <p>默认保留 <b>90 天</b>（<code>agent_session_retention_days</code>，按会话最后更新时间计算）。后台每日 03:47 自动清理超期会话，消息随之删除且不可恢复；重要对话结论建议及时记录到其他系统。</p>
+
+  <p class="q">Q3：助手回答「权限不足」怎么办？</p>
+  <p>说明该操作超出你当前角色的授权范围（工具返回被 <code>SCOPE_DENIED</code> 拦截）。请联系管理员确认角色配置，或改由有权限的同事执行。</p>
+
+  <p class="q">Q4：生成到一半想停下 / 答错了想重来？</p>
+  <p>生成中点「停止」立即中止，已经生成的内容会保留；出错后点「重试」可用同一问题重新生成。</p>
+</div>
+
+<footer>
+  发票易 InvoiceEase · Web Agent 助手使用说明 · 2026-10-01 · 与 design/2026-10-01-web-agent-helper-design.md 同源
+</footer>
+
+</div>
+</body>
+</html>
