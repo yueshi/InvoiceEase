@@ -1,7 +1,8 @@
-<!-- 消息列表：用户/助手气泡 + 工具调用 chip（纯文本渲染，white-space: pre-wrap） -->
+<!-- 消息列表：用户/助手气泡 + 工具调用 chip（用户消息纯文本，助手消息走 AssistantMarkdown） -->
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
 import type { AgentMessage, AgentToolCall } from "../types";
+import AssistantMarkdown from "./AssistantMarkdown.vue";
 
 const props = defineProps<{
   messages: AgentMessage[];
@@ -26,7 +27,8 @@ const STATUS_TEXT: Record<string, string> = { start: "运行中", done: "完成"
       你好，我是发票易助手。试试问：「本月有哪些待复核的发票？」
     </div>
     <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
-      <div class="msg-text">{{ m.content }}</div>
+      <div v-if="m.role === 'user'" class="msg-text">{{ m.content }}</div>
+      <AssistantMarkdown v-else :text="m.content" />
       <div v-if="m.tool_calls?.length" class="tool-chips">
         <span v-for="(t, i) in m.tool_calls" :key="i" class="tool-chip" :class="t.status">
           {{ t.tool }} · {{ STATUS_TEXT[t.status] ?? t.status }}<template v-if="t.ms"> · {{ t.ms }}ms</template>
@@ -34,7 +36,7 @@ const STATUS_TEXT: Record<string, string> = { start: "运行中", done: "完成"
       </div>
     </div>
     <div v-if="streaming" class="msg assistant">
-      <div class="msg-text">{{ streamingText }}<span class="cursor">▍</span></div>
+      <AssistantMarkdown :text="streamingText" streaming />
       <div v-if="streamingTools.length" class="tool-chips">
         <span v-for="(t, i) in streamingTools" :key="i" class="tool-chip" :class="t.status">
           {{ t.tool }} · {{ STATUS_TEXT[t.status] ?? t.status }}<template v-if="t.ms"> · {{ t.ms }}ms</template>
@@ -76,16 +78,6 @@ const STATUS_TEXT: Record<string, string> = { start: "运行中", done: "完成"
 .msg.user .msg-text {
   background: #2563eb;
   color: #fff;
-}
-.msg.assistant .msg-text {
-  background: #f2f4f7;
-  color: #1f2937;
-}
-.cursor {
-  animation: blink 1s step-start infinite;
-}
-@keyframes blink {
-  50% { opacity: 0; }
 }
 .tool-chips {
   display: flex;

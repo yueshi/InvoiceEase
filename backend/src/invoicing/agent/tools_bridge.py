@@ -1,5 +1,5 @@
 # backend/src/invoicing/agent/tools_bridge.py
-"""把 38 个 MCP 工具包成 AgentTool（嵌入式直调，非 MCP 协议层）。
+"""把 39 个 MCP 工具包成 AgentTool（嵌入式直调，非 MCP 协议层）。
 
 身份注入：SDK 的 auth_context_var（生产由 AuthContextMiddleware 设置，
 测试由 conftest.mcp_auth fixture 设置）——这里用同一机制注入「当前登录用户」，
@@ -80,7 +80,7 @@ class McpToolAdapter:
 
 
 async def build_tools_for_user(user) -> list[McpToolAdapter]:
-    """当前用户可用工具全集（38 个；scope 守门在工具层 @requires）。"""
+    """当前用户可用工具全集（39 个；scope 守门在工具层 @requires）。"""
     from invoicing.mcp.server import mcp
 
     infos = await mcp.list_tools()

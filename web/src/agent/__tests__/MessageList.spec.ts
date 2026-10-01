@@ -33,6 +33,24 @@ describe("MessageList", () => {
     expect(wrapper.text()).toContain("invoice_detail · 失败");
   });
 
+  it("助手消息走 markdown，非图表 fence 走代码块（用户消息仍纯文本）", () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 1, role: "assistant", created_at: "", tool_calls: null,
+            content: "**重点**\n```json\n{}\n```",
+          },
+        ],
+        streamingText: "",
+        streamingTools: [],
+        streaming: false,
+      },
+    });
+    expect(wrapper.find(".md-bubble strong").text()).toBe("重点");
+    expect(wrapper.find("pre.code-block").text()).toBe("{}");
+  });
+
   it("流式期间显示光标", () => {
     const wrapper = mount(MessageList, {
       props: { messages: [], streamingText: "正在", streamingTools: [], streaming: true },
