@@ -1,3 +1,4 @@
+from invoicing.models.agent import AgentMessage, AgentSession
 from invoicing.models.audit import AuditLog
 from invoicing.models.bank_account import BankAccount
 from invoicing.models.company_info import CompanyInfo
@@ -26,6 +27,8 @@ from invoicing.models.receipt import BankReceipt, ReceiptUpload
 from invoicing.models.user import User, UserStatus
 
 __all__ = [
+    "AgentMessage",
+    "AgentSession",
     "AuditLog",
     "AuditAction",
     "BankAccount",

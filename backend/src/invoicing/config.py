@@ -82,6 +82,15 @@ class Settings(BaseSettings):
     notify_webhook_url: str = ""
     # 数字员工 P3：渐进自主阈值（0=观察期全人工；>0 时预判 approve 且 conf≥阈值自动通过；拦截永不自动）
     auto_review_threshold: float = 0.0
+    # Web Agent 助手（design/2026-10-01-web-agent-helper-design.md）
+    agent_enabled: bool = True            # false 时 /api/v1/agent/* 全 404
+    agent_max_steps: int = 8              # loop 最大轮数
+    agent_max_context_turns: int = 6      # 历史带入轮数上限
+    agent_max_context_tokens: int = 8000  # 历史 token 上限（估算）
+    agent_llm_model: str = ""             # 空 = 复用 llm_model_text
+    agent_llm_temperature: float = 0.3
+    agent_max_tokens: int = 2000          # 单轮输出上限（给推理模型留空间）
+    agent_session_retention_days: int = 90  # 会话保留天数（cron 清理）
 
 
 settings = Settings()
