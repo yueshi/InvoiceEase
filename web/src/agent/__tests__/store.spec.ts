@@ -67,4 +67,28 @@ describe("agent store", () => {
     expect(store.streaming).toBe(false);
     expect(store.error).toBeNull();
   });
+
+  it("流式中新建会话：旧流中止且不污染本地列表", async () => {
+    (api.streamMessage as Mock).mockImplementation(
+      (_sid: number, _body: unknown, onEvent: (e: SSEEvent) => void, signal: AbortSignal) =>
+        new Promise((_res, rej) => {
+          onEvent({ type: "token", data: { text: "旧会话回复" } });
+          signal.addEventListener("abort", () => rej(new DOMException("Aborted", "AbortError")));
+        }),
+    );
+    (api.createSession as Mock).mockResolvedValueOnce({ id: 2, title: null, created_at: "", updated_at: "" });
+    const store = useAgentStore();
+    store.currentSessionId = 1;
+    const p = store.sendMessage("hi", { page: "/" });
+    expect(store.streamingText).toBe("旧会话回复");
+
+    await store.createSession();
+    await p;
+
+    expect(store.currentSessionId).toBe(2);
+    expect(store.streaming).toBe(false);
+    expect(store.streamingText).toBe("");
+    expect(store.messages.some((m) => m.role === "assistant")).toBe(false);
+    expect(store.messages.some((m) => m.content.includes("旧会话回复"))).toBe(false);
+  });
 });

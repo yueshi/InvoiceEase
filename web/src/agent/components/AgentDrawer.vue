@@ -1,6 +1,6 @@
 <!-- Agent 抽屉：会话切换 + 消息流 + 输入 + 页面上下文 chip -->
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useAgentStore } from "../store";
 import MessageList from "./MessageList.vue";
@@ -9,6 +9,14 @@ import type { ChatContext } from "../types";
 
 const store = useAgentStore();
 const route = useRoute();
+
+// 每次打开抽屉刷新会话列表：ensureSession 只在无会话时创建，「首轮自动标题」需下次打开才可见
+watch(
+  () => store.drawerOpen,
+  (open) => {
+    if (open) void store.loadSessions();
+  },
+);
 
 const contextChip = computed(() => {
   const bits: string[] = [route.path];
