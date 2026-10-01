@@ -98,4 +98,26 @@
 .ant-table-content,
 .ant-table-body {
   overflow-x: auto;
+  /* 触控板横向滑动只滚表格，不触发浏览器历史导航（macOS 双指横滑=后退） */
+  overscroll-behavior-x: contain;
+}
+
+/* 横向滚动条「看得见」：macOS 浮层滚动条默认隐藏，用户会以为右侧列被完全遮挡。
+   自定义 ::-webkit-scrollbar 样式后 Chrome/Safari 固定渲染常显滚动条。 */
+.ant-table-content::-webkit-scrollbar,
+.ant-table-body::-webkit-scrollbar {
+  height: 8px;
+}
+.ant-table-content::-webkit-scrollbar-thumb,
+.ant-table-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+.ant-table-content::-webkit-scrollbar-thumb:hover,
+.ant-table-body::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+.ant-table-content::-webkit-scrollbar-track,
+.ant-table-body::-webkit-scrollbar-track {
+  background: #f1f5f9;
 }
