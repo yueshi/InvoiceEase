@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from invoicing.api import (
+    agent,
     audit,
     auth,
     bank_accounts,
@@ -17,6 +18,7 @@ from invoicing.api import (
 )
 
 api_router = APIRouter(prefix="/api/v1")
+api_router.include_router(agent.router)
 api_router.include_router(auth.router)
 api_router.include_router(invoices.router)
 api_router.include_router(mailboxes.router)
