@@ -510,3 +510,32 @@ def test_invoice_out_mock_flag_structured_not_text_coupled(client, db):
     resp = client.get(f"/api/v1/invoices/{inv.id}", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["verify_is_mock"] is True
+
+
+def test_list_invoices_includes_submitted_by_name(client, db):
+    """列表带提交人用户名；无归属（邮箱自动收取）为 None。"""
+    _seed(db, "caiwu14", Role.finance_staff.value)
+    emp = _seed(db, "zhangsan", Role.employee.value)
+    owned = _invoice(db, invoice_number="A1000000000000000001")
+    owned.user_id = emp.id
+    _invoice(db, invoice_number="A1000000000000000002")  # user_id 为空：无归属
+    db.flush()
+    token = _login(client, "caiwu14")
+    resp = client.get("/api/v1/invoices", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    items = {i["invoice_number"]: i for i in resp.json()["items"]}
+    assert items["A1000000000000000001"]["submitted_by_name"] == "zhangsan"
+    assert items["A1000000000000000002"]["submitted_by_name"] is None
+
+
+def test_get_invoice_detail_includes_submitted_by_name(client, db):
+    """详情同样附挂提交人用户名（抽屉与 MCP invoice_detail 共用此路径）。"""
+    _seed(db, "caiwu15", Role.finance_staff.value)
+    emp = _seed(db, "lisi", Role.employee.value)
+    inv = _invoice(db, invoice_number="A1000000000000000003")
+    inv.user_id = emp.id
+    db.flush()
+    token = _login(client, "caiwu15")
+    resp = client.get(f"/api/v1/invoices/{inv.id}", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["submitted_by_name"] == "lisi"

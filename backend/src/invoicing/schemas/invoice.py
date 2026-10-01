@@ -24,6 +24,8 @@ class InvoiceOut(BaseModel):
     id: int
     tenant_id: str
     user_id: int | None
+    # 提交人用户名（服务层瞬态附挂，非数据库列；邮箱自动收取且无归属时为 None）
+    submitted_by_name: str | None = None
     mailbox_id: int | None
     email_subject: str | None
     invoice_code: str | None

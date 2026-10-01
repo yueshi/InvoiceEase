@@ -62,7 +62,21 @@ def list_invoices(
         )
     total = q.count()
     items = q.order_by(Invoice.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    _attach_submitted_by_name(db, items)
     return InvoiceListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+def _attach_submitted_by_name(db: Session, items: list[Invoice]) -> None:
+    """批量附挂提交人用户名（瞬态属性，非数据库列）——单次查询，避免逐行 N+1。
+
+    InvoiceOut.submitted_by_name 经 from_attributes 读取该属性；未附挂时取默认 None。
+    """
+    ids = {i.user_id for i in items if i.user_id}
+    name_map: dict[int, str] = {}
+    if ids:
+        name_map = dict(db.query(User.id, User.username).filter(User.id.in_(ids)).all())
+    for i in items:
+        i.submitted_by_name = name_map.get(i.user_id) if i.user_id else None
 
 
 def get_invoice(db: Session, current_user: User, invoice_id: int) -> Invoice:
@@ -71,6 +85,7 @@ def get_invoice(db: Session, current_user: User, invoice_id: int) -> Invoice:
         from fastapi import HTTPException
 
         raise HTTPException(404, "发票不存在")
+    _attach_submitted_by_name(db, [inv])
     return inv
 
 
