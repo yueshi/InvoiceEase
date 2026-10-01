@@ -181,6 +181,38 @@ def _scheduled_audit_retention() -> None:
 register_task("audit_retention", _scheduled_audit_retention, trigger="cron", hour=3, minute=17)
 
 
+def _purge_expired_agent_sessions(db, retention_days: int | None = None) -> int:
+    """清理过期 Agent 会话（消息经 ON DELETE CASCADE 一并删除），返回删除条数。"""
+    from datetime import datetime, timedelta, timezone
+
+    from invoicing.models import AgentSession
+
+    days = retention_days if retention_days is not None else settings.agent_session_retention_days
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    q = db.query(AgentSession).filter(AgentSession.updated_at < cutoff)
+    count = q.count()
+    if count:
+        # 与 _purge_expired_login_audits 不同：SessionLocal 是 expire_on_commit=False，
+        # False 会把已删对象留在 identity map（调用方再 get 仍拿到幽灵对象），故用 fetch
+        q.delete(synchronize_session="fetch")
+        db.commit()
+    return count
+
+
+def _scheduled_agent_retention() -> None:
+    with SessionLocal() as db:
+        try:
+            removed = _purge_expired_agent_sessions(db)
+            if removed:
+                logger.info("Agent 会话保留期清理：删除 %s 个会话", removed)
+        except Exception:
+            logger.exception("Agent 会话保留期清理失败")
+
+
+# 每日 03:47（避开整点与既有任务 02:17/03:17）
+register_task("agent_retention", _scheduled_agent_retention, trigger="cron", hour=3, minute=47)
+
+
 def _scheduled_backup() -> None:
     from invoicing.ops.backup import create_backup
 

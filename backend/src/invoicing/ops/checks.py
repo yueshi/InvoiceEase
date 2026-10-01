@@ -153,6 +153,15 @@ def check_offline_llm() -> tuple[str, str]:
     return "fail", f"离线部署禁止云端 LLM（当前端点 {host}）——换内网模型或置 llm_enabled=false"
 
 
+def check_agent_llm() -> tuple[str, str]:
+    """Web Agent 助手开启但 LLM 未启用 → 助手只能显示静态说明（warn）。"""
+    if not settings.agent_enabled:
+        return "info", "agent_enabled 未启用"
+    if not settings.llm_enabled:
+        return "warn", "agent_enabled=true 但 llm_enabled=false：助手对话将只显示静态功能说明"
+    return "ok", "Web Agent 助手：LLM 已启用"
+
+
 _CHECKS = [
     ("dirs_writable", check_dirs_writable),
     ("fernet_key", check_fernet_key),
@@ -162,6 +171,7 @@ _CHECKS = [
     ("engines", check_engines),
     ("inbox_dir", check_inbox_dir),
     ("offline_llm", check_offline_llm),
+    ("agent_llm", check_agent_llm),
 ]
 
 
