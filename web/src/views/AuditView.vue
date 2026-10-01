@@ -111,7 +111,7 @@ const columns = computed(() => [
       <a-button type="primary" @click="load">查询</a-button>
     </div>
     <div class="table-card">
-    <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id" :scroll="{ x: 960 }"
+    <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id" :scroll="{ x: 960, y: 'calc(100vh - 390px)' }"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size }"
       @change="(p: any) => { data.page = p.current; data.page_size = p.pageSize; load(); }">
       <template #bodyCell="{ column, record }">

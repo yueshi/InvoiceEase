@@ -374,6 +374,7 @@ const columns = [
     <div class="table-card">
     <a-table size="middle" :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size, showSizeChanger: true }"
+      :scroll="{ x: 1270, y: 'calc(100vh - 420px)' }"
       @change="(p: any) => onPageChange(p.current, p.pageSize)">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'status'">

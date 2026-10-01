@@ -52,16 +52,17 @@ function periodParam(): { month?: string; quarter?: string; year?: string } {
 }
 
 // 质量问题不占列（细节收进详情抽屉），状态列的「待核对」标签 + 只看待核对筛选足够暴露
+// 全列显式 width：配合下方 scroll.x（antd 会启用 fixed 布局，无宽度列会塌缩）
 const columns = [
   { title: "交易日期", dataIndex: "trade_date", key: "trade_date", width: 110 },
   { title: "银行", dataIndex: "bank_code", key: "bank_code", width: 90 },
-  { title: "对方户名", dataIndex: "counterparty_name", key: "counterparty_name" },
+  { title: "对方户名", dataIndex: "counterparty_name", key: "counterparty_name", width: 200, ellipsis: true },
   { title: "金额", dataIndex: "amount", key: "amount", width: 110, align: "right" as const },
   { title: "收付", dataIndex: "direction", key: "direction", width: 60 },
-  { title: "摘要", dataIndex: "abstract", key: "abstract" },
-  { title: "发票配对", dataIndex: "paired_invoice_id", key: "paired_invoice_id" },
-  { title: "状态", dataIndex: "status", key: "status" },
-  { title: "操作", key: "action" },
+  { title: "摘要", dataIndex: "abstract", key: "abstract", width: 220, ellipsis: true },
+  { title: "发票配对", dataIndex: "paired_invoice_id", key: "paired_invoice_id", width: 140 },
+  { title: "状态", dataIndex: "status", key: "status", width: 110 },
+  { title: "操作", key: "action", width: 120 },
 ];
 
 // 详情抽屉
@@ -280,6 +281,7 @@ onMounted(load);
       row-key="id"
       :pagination="{ pageSize: 20 }"
       :row-class-name="(r: ReceiptOut) => (r.needs_review ? 'receipt-review-row' : '')"
+      :scroll="{ x: 1160, y: 'calc(100vh - 390px)' }"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'bank_code'">
