@@ -136,6 +136,12 @@ _STREAM_HARD_CAP = 8192
 # 前端是空白气泡，且 run_agent 会把上一轮答复误记成本轮结果（见 main_agent 侧切片修复）。
 _EMPTY_REPLY_TEXT = "（LLM 无输出）"
 
+# 截断兜底文案：finish_reason=length 且正文为空——推理模型（DeepSeek 等）的
+# 「思考 + 正文」共享 max_tokens，复杂问题思考可耗尽全部预算、正文没机会生成
+# （会话落库实证：单轮 completion=2000 恰好触顶、思考 8 千字、正文为空）。
+# 与「无输出」区分开，用户知道是长度受限而非模型故障，重试/拆小问题即可。
+_TRUNCATED_REPLY_TEXT = "（模型思考超长被截断，未及作答：请重试一次，或把问题拆小一点。）"
+
 
 # ============ 模型原生工具调用方言（兜底） ============
 # 背景（用户会话落库实证）：DeepSeek 类模型偶发把「原生工具调用标记」当纯文本输出
@@ -345,8 +351,11 @@ class OpenAIDriver:
 
         content = (resp.choices[0].message.content or "").strip()
         if not content:
-            print("[agent-driver] LLM 返回空 content", file=sys.stderr)
-            return AssistantMessage(text=_EMPTY_REPLY_TEXT)
+            finish = getattr(resp.choices[0], "finish_reason", None)
+            print(f"[agent-driver] LLM 返回空 content（finish_reason={finish}）", file=sys.stderr)
+            return AssistantMessage(
+                text=_TRUNCATED_REPLY_TEXT if finish == "length" else _EMPTY_REPLY_TEXT
+            )
 
         usage = getattr(resp, "usage", None)
         msg = _parse_assistant_reply(content)
@@ -375,6 +384,7 @@ class OpenAIDriver:
         mode: str | None = None  # None=探测中 | "tool_call" | "final"
         full_content = ""
         usage: dict = {}
+        finish_reason: str | None = None  # "stop" | "length" | ...；用于区分「截断」与「无输出」
 
         try:
             # ponytail: stream_options.include_usage 依赖 provider 支持；
@@ -395,6 +405,10 @@ class OpenAIDriver:
                         "completion_tokens": getattr(chunk_usage, "completion_tokens", 0) or 0,
                     }
                 choices = getattr(chunk, "choices", None) or []
+                if choices:
+                    fr = getattr(choices[0], "finish_reason", None)
+                    if fr:
+                        finish_reason = fr
                 delta = ""
                 if choices and choices[0].delta is not None:
                     # reasoning_content（deepseek 等推理模型）：独立通道先于 content 产出，
@@ -450,11 +464,17 @@ class OpenAIDriver:
         else:
             msg = AssistantMessage(text=full_content)
 
-        # 空响应兜底：整条流一个字符都没有（网关吞输出）
+        # 空响应兜底：整条流一个字符都没有。
+        # finish_reason=length → 推理内容耗尽预算、正文被截断，给可操作文案；
+        # 其它（网关吞输出等）→ 通用「无输出」。
         if not full_content.strip() and not msg.tool_calls:
-            print("[agent-driver] LLM 返回空 content（流式）", file=sys.stderr)
-            yield ("text_delta", _EMPTY_REPLY_TEXT)
-            msg = AssistantMessage(text=_EMPTY_REPLY_TEXT)
+            print(
+                f"[agent-driver] LLM 返回空 content（流式，finish_reason={finish_reason}）",
+                file=sys.stderr,
+            )
+            tail = _TRUNCATED_REPLY_TEXT if finish_reason == "length" else _EMPTY_REPLY_TEXT
+            yield ("text_delta", tail)
+            msg = AssistantMessage(text=tail)
 
         msg.usage = usage
         yield ("assistant_message", msg)

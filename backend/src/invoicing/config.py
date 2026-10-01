@@ -89,7 +89,8 @@ class Settings(BaseSettings):
     agent_max_context_tokens: int = 8000  # 历史 token 上限（估算）
     agent_llm_model: str = ""             # 空 = 复用 llm_model_text
     agent_llm_temperature: float = 0.3
-    agent_max_tokens: int = 2000          # 单轮输出上限（给推理模型留空间）
+    agent_max_tokens: int = 8192          # 单轮完成上限；DeepSeek 类推理模型的「思考+正文」共享该预算，
+                                          # 2000 实测被超长思考吃光导致正文为空（会话落库实证），按输出上限给足
     agent_session_retention_days: int = 90  # 会话保留天数（cron 清理）
 
 
