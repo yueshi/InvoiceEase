@@ -25,4 +25,20 @@ describe("renderMarkdown", () => {
     expect(renderMarkdown("**粗**")).toContain("<strong>粗</strong>");
     expect(renderMarkdown("- 一\n- 二")).toContain("<li>一</li>");
   });
+
+  it("表格后无空行的正文不被吞成表格行（normalizeTables）", () => {
+    const out = renderMarkdown("| a | b |\n|---|---|\n| 1 | 2 |\n后续 **文字**");
+    expect(out.match(/<tr>/g)?.length).toBe(2); // 表头 + 1 数据行（正文若被吞会变 3）
+    expect(out).toMatch(/<\/table>[\s\S]*<strong>文字<\/strong>/);
+  });
+
+  it("边界：`---` 行/表格后接列表 不被规范化破坏", () => {
+    // 无管道符的 --- 不是表格分隔行（setext 标题/分隔线场景），不得进入表格模式
+    const hr = renderMarkdown("文字\n---\n文字2");
+    expect(hr).not.toContain("<table>");
+    expect(hr).toContain("文字2");
+    // 表格后接列表（markdown-it 本就能识别列表；补空行后仍应正常）
+    const out = renderMarkdown("| a | b |\n|---|---|\n| 1 | 2 |\n- 一\n- 二");
+    expect(out).toMatch(/<\/table>[\s\S]*<li>一<\/li>/);
+  });
 });
