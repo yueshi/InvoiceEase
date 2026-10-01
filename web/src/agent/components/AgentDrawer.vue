@@ -118,6 +118,7 @@ function resetWidth() {
     <MessageList
       :messages="store.messages"
       :streaming-text="store.streamingText"
+      :streaming-reasoning="store.streamingReasoning"
       :streaming-tools="store.streamingTools"
       :streaming="store.streaming"
     />

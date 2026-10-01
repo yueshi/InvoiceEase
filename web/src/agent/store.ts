@@ -40,6 +40,7 @@ export const useAgentStore = defineStore("agent", {
     currentSessionId: null as number | null,
     messages: [] as AgentMessage[],
     streamingText: "",
+    streamingReasoning: "",
     streamingTools: [] as AgentToolCall[],
     streaming: false,
     error: null as { code: string; message: string } | null,
@@ -70,6 +71,7 @@ export const useAgentStore = defineStore("agent", {
       this.currentSessionId = null;
       this.messages = [];
       this.streamingText = "";
+      this.streamingReasoning = "";
       this.streamingTools = [];
       this.error = null;
       this.streaming = false;
@@ -119,6 +121,7 @@ export const useAgentStore = defineStore("agent", {
         id: -Date.now(), role: "user", content: text, created_at: "", tool_calls: null,
       });
       this.streamingText = "";
+      this.streamingReasoning = "";
       this.streamingTools = [];
       this.streaming = true;
       this.error = null;
@@ -128,6 +131,8 @@ export const useAgentStore = defineStore("agent", {
       const apply = (ev: SSEEvent) => {
         if (ev.type === "token") {
           this.streamingText += ev.data.text ?? "";
+        } else if (ev.type === "reasoning") {
+          this.streamingReasoning += ev.data.text ?? "";
         } else if (ev.type === "tool_call") {
           const d = ev.data;
           if (d.status === "start") {
@@ -161,10 +166,12 @@ export const useAgentStore = defineStore("agent", {
             role: "assistant",
             content: this.streamingText,
             tool_calls: this.streamingTools.map((t) => ({ ...t })),
+            reasoning: this.streamingReasoning || null, // 仅本地展示，不落库
             created_at: "",
           });
         }
         this.streamingText = "";
+        this.streamingReasoning = "";
         this.streamingTools = [];
         this.streaming = false;
         this.abort = null;

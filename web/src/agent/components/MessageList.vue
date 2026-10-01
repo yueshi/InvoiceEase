@@ -1,22 +1,31 @@
-<!-- 消息列表：用户/助手气泡 + 工具调用 chip（用户消息纯文本，助手消息走 AssistantMarkdown） -->
+<!-- 消息列表：用户/助手气泡 + 工具调用 chip（用户消息纯文本，助手消息走 AssistantMarkdown）。
+     助手侧展示顺序：思考过程 → 工具调用 → 最终回答正文 -->
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
 import type { AgentMessage, AgentToolCall } from "../types";
 import AssistantMarkdown from "./AssistantMarkdown.vue";
+import ReasoningBlock from "./ReasoningBlock.vue";
 
-const props = defineProps<{
-  messages: AgentMessage[];
-  streamingText: string;
-  streamingTools: AgentToolCall[];
-  streaming: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    messages: AgentMessage[];
+    streamingText: string;
+    streamingTools: AgentToolCall[];
+    streaming: boolean;
+    streamingReasoning?: string;
+  }>(),
+  { streamingReasoning: "" },
+);
 
 const scroller = ref<HTMLElement | null>(null);
 async function scrollToBottom() {
   await nextTick();
   scroller.value?.scrollTo({ top: scroller.value.scrollHeight });
 }
-watch(() => [props.messages.length, props.streamingText, props.streamingTools.length], scrollToBottom);
+watch(
+  () => [props.messages.length, props.streamingText, props.streamingReasoning.length, props.streamingTools.length],
+  scrollToBottom,
+);
 
 const STATUS_TEXT: Record<string, string> = { start: "运行中", done: "完成", failed: "失败" };
 </script>
@@ -28,20 +37,24 @@ const STATUS_TEXT: Record<string, string> = { start: "运行中", done: "完成"
     </div>
     <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
       <div v-if="m.role === 'user'" class="msg-text">{{ m.content }}</div>
-      <AssistantMarkdown v-else :text="m.content" />
-      <div v-if="m.tool_calls?.length" class="tool-chips">
-        <span v-for="(t, i) in m.tool_calls" :key="i" class="tool-chip" :class="t.status">
-          {{ t.tool }} · {{ STATUS_TEXT[t.status] ?? t.status }}<template v-if="t.ms"> · {{ t.ms }}ms</template>
-        </span>
-      </div>
+      <template v-else>
+        <ReasoningBlock v-if="m.reasoning" :text="m.reasoning" />
+        <div v-if="m.tool_calls?.length" class="tool-chips">
+          <span v-for="(t, i) in m.tool_calls" :key="i" class="tool-chip" :class="t.status">
+            {{ t.tool }} · {{ STATUS_TEXT[t.status] ?? t.status }}<template v-if="t.ms"> · {{ t.ms }}ms</template>
+          </span>
+        </div>
+        <AssistantMarkdown :text="m.content" />
+      </template>
     </div>
     <div v-if="streaming" class="msg assistant">
-      <AssistantMarkdown :text="streamingText" streaming />
+      <ReasoningBlock v-if="streamingReasoning" :text="streamingReasoning" streaming />
       <div v-if="streamingTools.length" class="tool-chips">
         <span v-for="(t, i) in streamingTools" :key="i" class="tool-chip" :class="t.status">
           {{ t.tool }} · {{ STATUS_TEXT[t.status] ?? t.status }}<template v-if="t.ms"> · {{ t.ms }}ms</template>
         </span>
       </div>
+      <AssistantMarkdown :text="streamingText" streaming />
     </div>
   </div>
 </template>

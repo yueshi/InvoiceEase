@@ -40,6 +40,27 @@ describe("agent store", () => {
     expect(store.streaming).toBe(false);
   });
 
+  it("reasoning 事件累积进 streamingReasoning，归档对象带 reasoning 且 finally 复位", async () => {
+    const seen: string[] = [];
+    const store = useAgentStore();
+    (api.streamMessage as Mock).mockImplementation(
+      async (_sid: number, _body: unknown, onEvent: (e: SSEEvent) => void) => {
+        onEvent({ type: "reasoning", data: { text: "先看" } });
+        onEvent({ type: "reasoning", data: { text: "再看" } });
+        seen.push(store.streamingReasoning);
+        onEvent({ type: "token", data: { text: "答案" } });
+      },
+    );
+    store.currentSessionId = 1;
+    await store.sendMessage("查发票", { page: "/invoices" });
+
+    expect(seen).toEqual(["先看再看"]); // 流式中实时累积
+    const last = store.messages.at(-1)!;
+    expect(last.content).toBe("答案");
+    expect(last.reasoning).toBe("先看再看"); // 归档进本地消息（仅展示，不落库）
+    expect(store.streamingReasoning).toBe(""); // finally 复位
+  });
+
   it("error 事件写入 error 状态", async () => {
     (api.streamMessage as Mock).mockImplementation(
       async (_sid: number, _body: unknown, onEvent: (e: SSEEvent) => void) => {

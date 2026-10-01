@@ -1,6 +1,6 @@
 // web/src/agent/types.ts
 export interface SSEEvent {
-  type: "token" | "tool_call" | "done" | "error";
+  type: "token" | "tool_call" | "reasoning" | "done" | "error";
   data: {
     text?: string;
     tool?: string;
@@ -30,6 +30,8 @@ export interface AgentMessage {
   role: "user" | "assistant";
   content: string;
   tool_calls: AgentToolCall[] | null;
+  /** 思考过程：仅流式会话内本地展示，不落库（历史消息无此字段） */
+  reasoning?: string | null;
   duration_ms?: number | null;
   created_at: string;
 }
