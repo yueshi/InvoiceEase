@@ -62,7 +62,9 @@ const columns = [
   { title: "摘要", dataIndex: "abstract", key: "abstract", width: 220, ellipsis: true },
   { title: "发票配对", dataIndex: "paired_invoice_id", key: "paired_invoice_id", width: 140 },
   { title: "状态", dataIndex: "status", key: "status", width: 110 },
-  { title: "操作", key: "action", width: 120 },
+  // 290：实测最长行（详情/定位 P6/自动配对/核对无误/删除 共 249px）+ 单元格内边距 32 + 余量 ≈ 290，
+  // 保证操作链接单行不折行（折行/折字都会在此宽度下消除）
+  { title: "操作", key: "action", width: 290 },
 ];
 
 // 详情抽屉
@@ -281,7 +283,7 @@ onMounted(load);
       row-key="id"
       :pagination="{ pageSize: 20 }"
       :row-class-name="(r: ReceiptOut) => (r.needs_review ? 'receipt-review-row' : '')"
-      :scroll="{ x: 1160, y: 'calc(100vh - 390px)' }"
+      :scroll="{ x: 1330, y: 'calc(100vh - 390px)' }"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'bank_code'">
@@ -300,7 +302,7 @@ onMounted(load);
           </a-tooltip>
         </template>
         <template v-if="column.key === 'action'">
-          <a-space>
+          <a-space class="action-nowrap">
             <a @click="onDetail(record)">详情</a>
             <a @click="onLocate(record)">定位{{ record.page_no ? ` P${record.page_no}` : "" }}</a>
             <a @click="onAutoPair(record)">自动配对</a>
@@ -358,6 +360,14 @@ onMounted(load);
 /* 行内静态样式归位（值一一对应，零视觉变化）：间距走全局刻度令牌 */
 .mb-3 {
   margin-bottom: var(--space-3);
+}
+/* 操作列链接单行不折行：容器不换行 + 链接内文本禁止折字
+   （flex 容器 nowrap 时项会被收缩到 min-content，若不锁 nowrap 会出现「逐字竖排」） */
+.action-nowrap {
+  flex-wrap: nowrap;
+}
+.action-nowrap :deep(a) {
+  white-space: nowrap;
 }
 .gap-tag {
   margin-left: var(--space-1);
