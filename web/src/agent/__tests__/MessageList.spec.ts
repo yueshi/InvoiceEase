@@ -2,6 +2,7 @@
 import { mount, type VueWrapper } from "@vue/test-utils";
 import { beforeAll, describe, expect, it } from "vitest";
 import MessageList from "../components/MessageList.vue";
+import type { AgentBlock } from "../types";
 
 beforeAll(() => {
   // jsdom 24 无 Element.prototype.scrollTo；MessageList 的滚动 watcher 在改 props 的用例中会调用
@@ -20,7 +21,7 @@ function blockOrder(wrapper: VueWrapper): string[] {
 }
 
 describe("MessageList", () => {
-  it("渲染消息文本与工具 chip（含失败态）", () => {
+  it("旧数据（无 blocks）兼容：渲染消息文本与工具 chip（含失败态）", () => {
     const wrapper = mount(MessageList, {
       props: {
         messages: [
@@ -33,8 +34,7 @@ describe("MessageList", () => {
             ],
           },
         ],
-        streamingText: "",
-        streamingTools: [],
+        streamingBlocks: [],
         streaming: false,
       },
     });
@@ -53,8 +53,7 @@ describe("MessageList", () => {
             content: "**重点**\n```json\n{}\n```",
           },
         ],
-        streamingText: "",
-        streamingTools: [],
+        streamingBlocks: [],
         streaming: false,
       },
     });
@@ -68,8 +67,7 @@ describe("MessageList", () => {
         messages: [
           { id: 1, role: "user", content: "含 **星号** 文本", tool_calls: null, created_at: "" },
         ],
-        streamingText: "",
-        streamingTools: [],
+        streamingBlocks: [],
         streaming: false,
       },
     });
@@ -79,7 +77,35 @@ describe("MessageList", () => {
     expect(bubble.find(".md-body").exists()).toBe(false); // 用户气泡不走 markdown 渲染容器
   });
 
-  it("归档消息 DOM 顺序：思考 → 工具 chip → 正文；思考默认折叠可展开", async () => {
+  it("时间线 blocks：DOM 节点顺序与块序一致（5 块交错）", () => {
+    const blocks: AgentBlock[] = [
+      { type: "reasoning", text: "想1" },
+      { type: "tool", tool: "invoice_stats", status: "done", ms: 15 },
+      { type: "reasoning", text: "想2" },
+      { type: "tool", tool: "invoice_list", status: "failed" },
+      { type: "text", text: "最终回答" },
+    ];
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          { id: 1, role: "assistant", content: "最终回答", tool_calls: null, blocks, created_at: "" },
+        ],
+        streamingBlocks: [],
+        streaming: false,
+      },
+    });
+    expect(
+      [...wrapper.element.querySelectorAll(".reasoning, .tool-chips, .md-body")].length,
+    ).toBe(5); // 每个工具块独立一行
+    expect(blockOrder(wrapper)).toEqual([
+      "reasoning", "tool-chips", "reasoning", "tool-chips", "md-body",
+    ]);
+    expect(wrapper.text()).toContain("invoice_stats · 完成 · 15ms");
+    expect(wrapper.text()).toContain("invoice_list · 失败");
+    expect(wrapper.find(".md-bubble").text()).toContain("最终回答");
+  });
+
+  it("旧数据兼容布局：reasoning + tool_calls + content（思考默认折叠可展开）", async () => {
     const wrapper = mount(MessageList, {
       props: {
         messages: [
@@ -89,10 +115,8 @@ describe("MessageList", () => {
             tool_calls: [{ tool: "invoice_list", status: "done", ms: 12 }],
           },
         ],
-        streamingText: "",
-        streamingTools: [],
+        streamingBlocks: [],
         streaming: false,
-        streamingReasoning: "",
       },
     });
     expect(blockOrder(wrapper)).toEqual(["reasoning", "tool-chips", "md-body"]);
@@ -103,20 +127,46 @@ describe("MessageList", () => {
     expect(wrapper.find(".reasoning-body").text()).toContain("先查列表，再汇总。");
   });
 
-  it("流式 DOM 顺序：思考 → 工具 chip → 正文（光标仍在正文尾）", () => {
+  it("流式时间线：思考 → 工具 chip → 正文，末块 text 时光标在正文尾", () => {
     const wrapper = mount(MessageList, {
       props: {
         messages: [],
-        streamingText: "正在汇总",
-        streamingTools: [{ tool: "invoice_list", status: "done", ms: 5 }],
+        streamingBlocks: [
+          { type: "reasoning", text: "思考中文本" },
+          { type: "tool", tool: "invoice_list", status: "done", ms: 5 },
+          { type: "text", text: "正在汇总" },
+        ],
         streaming: true,
-        streamingReasoning: "思考中文本",
       },
     });
     expect(blockOrder(wrapper)).toEqual(["reasoning", "tool-chips", "md-body"]);
+    // 非末块：已翻篇的思考折叠展示
+    expect(wrapper.find(".reasoning").text()).toContain("已深度思考");
+    expect(wrapper.find(".md-bubble .cursor").exists()).toBe(true);
+  });
+
+  it("流式时间线：末块为思考时展开显示「思考中…」", () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [],
+        streamingBlocks: [{ type: "reasoning", text: "思考中文本" }],
+        streaming: true,
+      },
+    });
     expect(wrapper.find(".reasoning").text()).toContain("思考中…");
     expect(wrapper.find(".reasoning-body").text()).toBe("思考中文本");
-    expect(wrapper.find(".md-bubble .cursor").exists()).toBe(true);
+  });
+
+  it("流式时间线：末块为工具时，光标独立追加在块列表尾", () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [],
+        streamingBlocks: [{ type: "tool", tool: "invoice_list", status: "start" }],
+        streaming: true,
+      },
+    });
+    expect(wrapper.find(".md-bubble").exists()).toBe(false);
+    expect(wrapper.find(".msg.assistant > .cursor").exists()).toBe(true);
   });
 
   it("思考内容纯文本渲染：标签/星号按字面显示，不注入 DOM", async () => {
@@ -126,10 +176,8 @@ describe("MessageList", () => {
         messages: [
           { id: 1, role: "assistant", created_at: "", content: "答", reasoning: evil, tool_calls: null },
         ],
-        streamingText: "",
-        streamingTools: [],
+        streamingBlocks: [],
         streaming: false,
-        streamingReasoning: "",
       },
     });
     await wrapper.find(".reasoning-head").trigger("click");
@@ -139,11 +187,10 @@ describe("MessageList", () => {
     expect(body.text()).toContain(evil);
   });
 
-  it("流式期间显示光标", () => {
+  it("流式期间显示光标（尚未产出任何块时独立显示）", () => {
     const wrapper = mount(MessageList, {
-      props: { messages: [], streamingText: "正在", streamingTools: [], streaming: true },
+      props: { messages: [], streamingBlocks: [], streaming: true },
     });
-    expect(wrapper.text()).toContain("正在");
     expect(wrapper.text()).toContain("▍"); // 流式光标
   });
 });

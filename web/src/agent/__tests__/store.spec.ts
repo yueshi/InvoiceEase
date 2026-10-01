@@ -2,7 +2,7 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import * as api from "../api";
-import { useAgentStore } from "../store";
+import { appendStreamBlock, useAgentStore } from "../store";
 import type { SSEEvent } from "../types";
 
 vi.mock("../api", () => ({
@@ -40,25 +40,64 @@ describe("agent store", () => {
     expect(store.streaming).toBe(false);
   });
 
-  it("reasoning 事件累积进 streamingReasoning，归档对象带 reasoning 且 finally 复位", async () => {
+  it("交错事件 → streamingBlocks 按到达顺序成块（tool 状态机 + 相邻合并）", async () => {
     const seen: string[] = [];
     const store = useAgentStore();
     (api.streamMessage as Mock).mockImplementation(
       async (_sid: number, _body: unknown, onEvent: (e: SSEEvent) => void) => {
         onEvent({ type: "reasoning", data: { text: "先看" } });
+        onEvent({ type: "tool_call", data: { tool: "invoice_stats", status: "start" } });
+        onEvent({ type: "tool_call", data: { tool: "invoice_stats", status: "done", ms: 15 } });
         onEvent({ type: "reasoning", data: { text: "再看" } });
-        seen.push(store.streamingReasoning);
         onEvent({ type: "token", data: { text: "答案" } });
+        seen.push(store.streamingBlocks.map((b) => b.type).join(","));
       },
     );
     store.currentSessionId = 1;
     await store.sendMessage("查发票", { page: "/invoices" });
 
-    expect(seen).toEqual(["先看再看"]); // 流式中实时累积
+    expect(seen).toEqual(["reasoning,tool,reasoning,text"]); // 流式中即按交错顺序可断言
     const last = store.messages.at(-1)!;
-    expect(last.content).toBe("答案");
-    expect(last.reasoning).toBe("先看再看"); // 归档进本地消息（仅展示，不落库）
-    expect(store.streamingReasoning).toBe(""); // finally 复位
+    expect(last.blocks?.map((b) => b.type)).toEqual(["reasoning", "tool", "reasoning", "text"]);
+    expect(last.blocks?.[1]).toMatchObject({ tool: "invoice_stats", status: "done", ms: 15 });
+    expect(last.content).toBe("答案"); // 旧字段 = text 块拼接
+    expect(last.tool_calls?.[0]).toMatchObject({ tool: "invoice_stats", status: "done", ms: 15 });
+    expect(store.streamingBlocks).toEqual([]); // finally 复位
+  });
+
+  it("相邻同类合并：流式期间同一块文本续接", async () => {
+    const store = useAgentStore();
+    (api.streamMessage as Mock).mockImplementation(
+      async (_sid: number, _body: unknown, onEvent: (e: SSEEvent) => void) => {
+        onEvent({ type: "reasoning", data: { text: "先" } });
+        onEvent({ type: "reasoning", data: { text: "看" } });
+        onEvent({ type: "token", data: { text: "答" } });
+        onEvent({ type: "token", data: { text: "案" } });
+      },
+    );
+    store.currentSessionId = 1;
+    await store.sendMessage("查发票", { page: "/invoices" });
+
+    const blocks = store.messages.at(-1)!.blocks!;
+    expect(blocks).toEqual([
+      { type: "reasoning", text: "先看" },
+      { type: "text", text: "答案" },
+    ]);
+  });
+
+  it("appendStreamBlock：同类文本续接，换类或工具块新起", () => {
+    const blocks: Parameters<typeof appendStreamBlock>[0] = [];
+    appendStreamBlock(blocks, { type: "reasoning", text: "A" });
+    appendStreamBlock(blocks, { type: "reasoning", text: "B" });
+    appendStreamBlock(blocks, { type: "tool", tool: "invoice_list", status: "start" });
+    appendStreamBlock(blocks, { type: "tool", tool: "invoice_stats", status: "start" });
+    appendStreamBlock(blocks, { type: "text", text: "C" });
+    expect(blocks).toEqual([
+      { type: "reasoning", text: "AB" },
+      { type: "tool", tool: "invoice_list", status: "start" },
+      { type: "tool", tool: "invoice_stats", status: "start" },
+      { type: "text", text: "C" },
+    ]);
   });
 
   it("error 事件写入 error 状态", async () => {
@@ -101,14 +140,14 @@ describe("agent store", () => {
     const store = useAgentStore();
     store.currentSessionId = 1;
     const p = store.sendMessage("hi", { page: "/" });
-    expect(store.streamingText).toBe("旧会话回复");
+    expect(store.streamingBlocks).toEqual([{ type: "text", text: "旧会话回复" }]);
 
     await store.createSession();
     await p;
 
     expect(store.currentSessionId).toBe(2);
     expect(store.streaming).toBe(false);
-    expect(store.streamingText).toBe("");
+    expect(store.streamingBlocks).toEqual([]);
     expect(store.messages.some((m) => m.role === "assistant")).toBe(false);
     expect(store.messages.some((m) => m.content.includes("旧会话回复"))).toBe(false);
   });

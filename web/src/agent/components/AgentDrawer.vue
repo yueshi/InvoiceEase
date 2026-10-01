@@ -117,9 +117,7 @@ function resetWidth() {
     <div class="ctx-chip">上下文：{{ contextChip }}</div>
     <MessageList
       :messages="store.messages"
-      :streaming-text="store.streamingText"
-      :streaming-reasoning="store.streamingReasoning"
-      :streaming-tools="store.streamingTools"
+      :streaming-blocks="store.streamingBlocks"
       :streaming="store.streaming"
     />
     <div v-if="store.error" class="err-banner">

@@ -2,7 +2,15 @@
 // Agent 会话 store：消息列表 + 流式状态机（token 合并 / tool_call start→done|failed）。
 import { defineStore } from "pinia";
 import * as api from "./api";
-import type { AgentMessage, AgentSession, AgentToolCall, ChatContext, SSEEvent } from "./types";
+import type { AgentBlock, AgentMessage, AgentSession, AgentToolCall, ChatContext, SSEEvent } from "./types";
+
+/** 时间线追加：reasoning/text 相邻同类合并文本，其余（工具块/换类）直接入列。 */
+export function appendStreamBlock(blocks: AgentBlock[], block: AgentBlock): void {
+  const tail = blocks[blocks.length - 1];
+  if (block.type === "reasoning" && tail?.type === "reasoning") tail.text += block.text;
+  else if (block.type === "text" && tail?.type === "text") tail.text += block.text;
+  else blocks.push(block);
+}
 
 // ==== 面板宽度（用户偏好，localStorage 持久化；跨登出保留，reset() 不清） ====
 const AGENT_WIDTH_KEY = "invoicing_agent_width";
@@ -39,9 +47,8 @@ export const useAgentStore = defineStore("agent", {
     sessions: [] as AgentSession[],
     currentSessionId: null as number | null,
     messages: [] as AgentMessage[],
-    streamingText: "",
-    streamingReasoning: "",
-    streamingTools: [] as AgentToolCall[],
+    /** 流式时间线：思考/工具/文本按事件到达顺序（相邻同类合并） */
+    streamingBlocks: [] as AgentBlock[],
     streaming: false,
     error: null as { code: string; message: string } | null,
     abort: null as AbortController | null,
@@ -70,9 +77,7 @@ export const useAgentStore = defineStore("agent", {
       this.sessions = [];
       this.currentSessionId = null;
       this.messages = [];
-      this.streamingText = "";
-      this.streamingReasoning = "";
-      this.streamingTools = [];
+      this.streamingBlocks = [];
       this.error = null;
       this.streaming = false;
       this.abort = null;
@@ -120,9 +125,7 @@ export const useAgentStore = defineStore("agent", {
       this.messages.push({
         id: -Date.now(), role: "user", content: text, created_at: "", tool_calls: null,
       });
-      this.streamingText = "";
-      this.streamingReasoning = "";
-      this.streamingTools = [];
+      this.streamingBlocks = [];
       this.streaming = true;
       this.error = null;
       const ac = new AbortController();
@@ -130,21 +133,21 @@ export const useAgentStore = defineStore("agent", {
 
       const apply = (ev: SSEEvent) => {
         if (ev.type === "token") {
-          this.streamingText += ev.data.text ?? "";
+          appendStreamBlock(this.streamingBlocks, { type: "text", text: ev.data.text ?? "" });
         } else if (ev.type === "reasoning") {
-          this.streamingReasoning += ev.data.text ?? "";
+          appendStreamBlock(this.streamingBlocks, { type: "reasoning", text: ev.data.text ?? "" });
         } else if (ev.type === "tool_call") {
           const d = ev.data;
           if (d.status === "start") {
-            this.streamingTools.push({ tool: d.tool ?? "?", status: "start" });
+            this.streamingBlocks.push({ type: "tool", tool: d.tool ?? "?", status: "start", ms: null });
           } else {
             // 匹配最近一个还在 start 的同名工具（同一工具可能多轮调用）
-            const pending = [...this.streamingTools]
+            const pending = [...this.streamingBlocks]
               .reverse()
-              .find((t) => t.tool === d.tool && t.status === "start");
-            if (pending) {
+              .find((b) => b.type === "tool" && b.tool === d.tool && b.status === "start");
+            if (pending && pending.type === "tool") {
               pending.status = d.status === "failed" ? "failed" : "done";
-              pending.ms = d.ms;
+              pending.ms = d.ms ?? null;
             }
           }
         } else if (ev.type === "error") {
@@ -160,19 +163,24 @@ export const useAgentStore = defineStore("agent", {
         }
       } finally {
         // 会话已切走时不再归档（后端已持久化，切回时 loadMessages 会拉回）
-        if (this.currentSessionId === sid && (this.streamingText || this.streamingTools.length)) {
+        if (this.currentSessionId === sid && this.streamingBlocks.length) {
+          // content/tool_calls 为旧字段，供旧渲染路径与兼容逻辑消费；blocks 是新的时间线
+          let content = "";
+          const toolCalls: AgentToolCall[] = [];
+          for (const b of this.streamingBlocks) {
+            if (b.type === "text") content += b.text;
+            else if (b.type === "tool") toolCalls.push({ tool: b.tool, status: b.status, ms: b.ms ?? undefined });
+          }
           this.messages.push({
             id: -Date.now() - 1,
             role: "assistant",
-            content: this.streamingText,
-            tool_calls: this.streamingTools.map((t) => ({ ...t })),
-            reasoning: this.streamingReasoning || null, // 仅本地展示，不落库
+            content,
+            tool_calls: toolCalls,
+            blocks: this.streamingBlocks.map((b) => ({ ...b })),
             created_at: "",
           });
         }
-        this.streamingText = "";
-        this.streamingReasoning = "";
-        this.streamingTools = [];
+        this.streamingBlocks = [];
         this.streaming = false;
         this.abort = null;
       }

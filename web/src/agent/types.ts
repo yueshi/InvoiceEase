@@ -25,12 +25,20 @@ export interface AgentToolCall {
   ms?: number;
 }
 
+/** 助手消息时间线块：思考/工具/文本，按事件到达顺序排列（相邻同类已合并） */
+export type AgentBlock =
+  | { type: "reasoning"; text: string }
+  | { type: "text"; text: string }
+  | { type: "tool"; tool: string; status: "start" | "done" | "failed"; ms?: number | null };
+
 export interface AgentMessage {
   id: number;
   role: "user" | "assistant";
   content: string;
   tool_calls: AgentToolCall[] | null;
-  /** 思考过程：仅流式会话内本地展示，不落库（历史消息无此字段） */
+  /** 时间线（旧数据/旧本地消息无此字段，走兼容布局） */
+  blocks?: AgentBlock[] | null;
+  /** 思考过程：旧本地消息的兼容字段（新数据统一进 blocks） */
   reasoning?: string | null;
   duration_ms?: number | null;
   created_at: string;
