@@ -372,7 +372,8 @@ const columns = [
       </template>
     </a-alert>
     <a-empty v-else-if="!loading && data.total === 0" description="当前筛选无发票；可切换周期或选「全部」（不做日期过滤）。" />
-    <div class="table-card">
+    <!-- 无数据时不渲染空表（避免「No data 空表 + 滚动条」的噪音；加载中仍显示表格骨架） -->
+    <div v-else class="table-card">
     <a-table size="middle" :columns="columns" :data-source="data.items" :loading="loading" row-key="id"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size, showSizeChanger: true }"
       :scroll="{ x: 1310, y: 'calc(100vh - 420px)' }"

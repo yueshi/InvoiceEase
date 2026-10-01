@@ -277,7 +277,8 @@ onMounted(load);
     </a-alert>
     <a-empty v-else-if="!loading && rows.length === 0" description="当前筛选无回单；可切换周期或选「全部」（不做日期过滤）。" />
     <a-empty v-else-if="!loading && displayRows.length === 0" :description="`当前周期有 ${rows.length} 条回单，但都被「只看待核对」筛掉了。`" />
-    <div class="table-card">
+    <!-- 无数据时不渲染空表（避免「No data 空表 + 滚动条」的噪音；加载中仍显示表格骨架） -->
+    <div v-else class="table-card">
     <a-table
       :columns="columns"
       :data-source="displayRows"

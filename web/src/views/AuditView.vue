@@ -110,7 +110,9 @@ const columns = computed(() => [
       <a-range-picker v-model:value="filters.dateRange" @change="reloadFirst" />
       <a-button type="primary" @click="load">查询</a-button>
     </div>
-    <div class="table-card">
+    <!-- 无数据时不渲染空表（避免「No data 空表 + 滚动条」的噪音；加载中仍显示表格骨架） -->
+    <a-empty v-if="!loading && data.total === 0" description="当前筛选无审计记录。" />
+    <div v-else class="table-card">
     <a-table :columns="columns" :data-source="data.items" :loading="loading" row-key="id" :scroll="{ x: 960, y: 'calc(100vh - 390px)' }"
       :pagination="{ total: data.total, current: data.page, pageSize: data.page_size }"
       @change="(p: any) => { data.page = p.current; data.page_size = p.pageSize; load(); }">
