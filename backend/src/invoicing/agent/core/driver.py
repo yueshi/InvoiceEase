@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import uuid
 from typing import Any, AsyncGenerator, Protocol, Union
@@ -50,6 +51,7 @@ TOOL_CALL_INSTRUCTIONS = """
 - tool_call 数组可以包含多个调用，一次并行执行
 - 工具执行后你会看到 `[tool_result] 输出...` 的用户消息
 - 拿到结果后继续下一轮决策
+- ⚠️ 严禁使用任何标签/XML 风格的调用写法（无论什么分隔符或属性形式）——本平台只识别上面的 JSON 协议，其它写法不会被引擎执行。
 
 **要给出最终答案时**：直接输出你的回答（中文，支持 Markdown），不要包 JSON、不要写 `{...}`。开头不要以 `{` 或 ` ``` ` 起手，否则会被误当成工具调用。
 """
@@ -133,6 +135,70 @@ _STREAM_HARD_CAP = 8192
 _EMPTY_REPLY_TEXT = "（LLM 无输出）"
 
 
+# ============ 模型原生工具调用方言（兜底） ============
+# 背景（用户会话落库实证）：DeepSeek 类模型偶发把「原生工具调用标记」当纯文本输出
+# （全角竖线包裹的标签块：calls 包裹 invoke，invoke 带 name，parameter 子块带 name/string
+# 属性）。驱动层只认 prompt-JSON 协议时会把它当 final text 直通前端、工具从不执行。
+# 这里做整段兜底解析 + 流式前缀探测；关键词分段拼接书写，避免整段标记出现在
+# 源码/日志/工具输出中被二次解析。
+_DSML_BAR = "｜｜DSML｜｜"
+_DSML_OPEN = "<" + _DSML_BAR
+_INVOKE_KW = "in" + "voke"        # 分段书写：防整段关键词外泄
+_PARAM_KW = "para" + "meter"
+_NAME_ATTR = "na" + "me="
+_DSML_INVOKE_RE = re.compile(
+    "<" + re.escape(_DSML_BAR) + r"\s*" + _INVOKE_KW + r"\s+" + _NAME_ATTR + r'"([^"]*)"\s*>(.*?)'
+    + "</" + re.escape(_DSML_BAR) + r"\s*" + _INVOKE_KW + r"\s*>",
+    re.DOTALL,
+)
+_DSML_PARAM_RE = re.compile(
+    "<" + re.escape(_DSML_BAR) + r"\s*" + _PARAM_KW + r"\s+" + _NAME_ATTR + r'"([^"]*)"[^>]*>(.*?)'
+    + "</" + re.escape(_DSML_BAR) + r"\s*" + _PARAM_KW + r"\s*>",
+    re.DOTALL,
+)
+# 方言残缺（有分隔串但解析不出 invoke）时给用户的可见提示（绝不透出原始标记）
+_DSML_FALLBACK_TEXT = "（本轮模型输出格式异常，已忽略。请重试或换个问法。）"
+
+
+def _parse_native_tool_calls(content: str) -> list[ToolCall] | None:
+    """兜底解析模型原生工具调用方言 → ToolCall 列表；无标记或解析不出 invoke 返回 None。
+
+    参数组装：优先名为 "args" 的参数块（值须为 JSON object）；否则收集除 "name" 外的
+    散装参数（值尝试 JSON 解码，失败保留原始字符串）。
+    """
+    if not content or _DSML_BAR not in content:
+        return None
+    calls: list[ToolCall] = []
+    for inv in _DSML_INVOKE_RE.finditer(content):
+        name = (inv.group(1) or "").strip()
+        body = inv.group(2) or ""
+        params: dict[str, str] = {}
+        for pm in _DSML_PARAM_RE.finditer(body):
+            params[(pm.group(1) or "").strip()] = (pm.group(2) or "").strip()
+        if not name:
+            name = params.get("name", "").strip()
+        if not name:
+            continue
+        args: dict[str, Any] = {}
+        if "args" in params:
+            try:
+                parsed = json.loads(params["args"])
+                if isinstance(parsed, dict):
+                    args = parsed
+            except (json.JSONDecodeError, ValueError):
+                args = {}
+        if not args:
+            for k, v in params.items():
+                if k in ("name", "args"):
+                    continue
+                try:
+                    args[k] = json.loads(v)
+                except (json.JSONDecodeError, ValueError):
+                    args[k] = v
+        calls.append(ToolCall(id=f"tc-{uuid.uuid4().hex[:8]}", name=name, args=args))
+    return calls if calls else None
+
+
 def _dict_is_tool_call(data: dict | None) -> bool:
     """判断 extract_json_dict 抽出来的 dict 是不是工具调用结构.
 
@@ -170,6 +236,13 @@ def _probe_stream_buffer(stripped: str) -> bool | None:
          - 还没抽到（JSON 未闭合）→ None 继续等，直到 _STREAM_HARD_CAP 兜底 final
     """
     if not stripped:
+        return None
+
+    # 情况 0：模型原生调用方言——开头即判 tool_call（不等 256 字符）；
+    # 疑似前缀（半截分隔串）时继续等待更多字符
+    if stripped.startswith(_DSML_OPEN):
+        return True
+    if _DSML_OPEN.startswith(stripped):
         return None
 
     # 情况 1：首字符即结构起始 → 沿用保守首字符规则（chart-* 已在其中判 final）
@@ -355,7 +428,11 @@ class OpenAIDriver:
 
         if mode == "tool_call":
             msg = _parse_assistant_reply(full_content)
-            if not msg.tool_calls and full_content.strip():
+            if not msg.tool_calls and full_content.strip() and _DSML_BAR in full_content:
+                # 原生方言残缺（有分隔串但解析不出 invoke）：绝不透出原始标记
+                yield ("text_delta", _DSML_FALLBACK_TEXT)
+                msg = AssistantMessage(text=_DSML_FALLBACK_TEXT)
+            elif not msg.tool_calls and full_content.strip():
                 # 以为是 tool_call 但解析失败 → 退化为 final，别让用户看不到输出
                 print(
                     f"[agent-driver] tool_call 路径解析失败，退化为 final text（预览：{full_content[:200]!r}）",
@@ -441,6 +518,13 @@ def _parse_assistant_reply(content: str) -> AssistantMessage:
     - 否（chart 数据 / 普通文本里的花括号 / 抽不到）→ 当纯文本 final
     也兼容老协议 `{"action":"tool_call","calls":[...]}` / `{"action":"final","text":"..."}`。
     """
+    # 兜底：模型原生调用方言（DeepSeek 类偶发）→ 解析成真工具调用；残缺方言给可见提示
+    native = _parse_native_tool_calls(content)
+    if native is not None:
+        return AssistantMessage(text="", tool_calls=native)
+    if _DSML_BAR in content:
+        return AssistantMessage(text=_DSML_FALLBACK_TEXT)
+
     data = extract_json_dict(content)
     if _dict_is_tool_call(data):
         # P3 协议
