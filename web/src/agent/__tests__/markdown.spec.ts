@@ -12,6 +12,7 @@ describe("renderMarkdown", () => {
   it("javascript: 链接被拒（不产生 href）", () => {
     const out = renderMarkdown("[x](javascript:alert(1))");
     expect(out).not.toContain('href="javascript:');
+    expect(renderMarkdown("[x](JaVaScRiPt:alert(1))")).not.toContain('href="javascript:'); // 大小写混杂同样拒
   });
 
   it("https 链接正常成链", () => {

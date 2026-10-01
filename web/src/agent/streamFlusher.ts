@@ -16,8 +16,8 @@ const WATERMARK = 200;
 const PARA = "\n\n";
 /** 中文句末（含紧随的换行或空格） */
 const SENTENCE_ENDS = ["。\n", "。 ", "！\n", "？\n"];
-/** fence 行：行首（可缩进）的 ``` ，捕获 info string */
-const FENCE_LINE = /^[ \t]*```(.*)$/gm;
+/** fence 行：行首（可缩进）的 ≥3 个反引号；组 1 是反引号串（长度即 fence 长度），组 2 是 info string */
+const FENCE_LINE = /^[ \t]*(`{3,})(.*)$/gm;
 
 /** 非重叠统计 token 出现次数 */
 function countAll(s: string, token: string): number {
@@ -37,6 +37,7 @@ function boundaryPoints(text: string): number[] {
 
 /**
  * 按 ``` fence 切段：fence 开始行 ```` ```lang ```` 的 lang 取 info string 首个词；
+ * 闭合遵循 CommonMark——闭合行反引号数必须 ≥ 开启数，更短的反引号行按内容处理；
  * 文本中未闭合的尾部 fence → closed:false；fence 之外为 md 段（空段省略）。
  */
 export function splitSegments(text: string): Segment[] {
@@ -49,18 +50,19 @@ export function splitSegments(text: string): Segment[] {
 
   const re = new RegExp(FENCE_LINE.source, "gm"); // 每次新建正则，避免 lastIndex 残留
   let mdStart = 0;
-  let open: { lang: string; bodyStart: number } | null = null;
+  let open: { lang: string; ticks: number; bodyStart: number } | null = null;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     const afterLine = m.index + m[0].length + 1; // 跳过 fence 行末尾换行
     if (open) {
+      if (m[1].length < open.ticks) continue; // 反引号更短 → 不是闭合行，按内容处理
       // 闭合 fence：剥掉正文末尾那个换行（它是 fence 行的分隔符，不是内容）
       pushFence(open.lang, text.slice(open.bodyStart, m.index).replace(/\n$/, ""), true);
       open = null;
       mdStart = afterLine;
     } else {
       pushMd(text.slice(mdStart, m.index));
-      open = { lang: (m[1].trim().split(/\s+/)[0] ?? ""), bodyStart: afterLine };
+      open = { lang: (m[2].trim().split(/\s+/)[0] ?? ""), ticks: m[1].length, bodyStart: afterLine };
     }
   }
   if (open) pushFence(open.lang, text.slice(open.bodyStart), false);

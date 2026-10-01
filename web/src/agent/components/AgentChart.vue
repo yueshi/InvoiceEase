@@ -101,7 +101,7 @@ onBeforeUnmount(() => {
   height: 260px;
 }
 .chart-skeleton {
-  height: 200px;
+  height: 260px; /* 与 .chart-box 一致，骨架切真图不跳版 */
   display: flex;
   align-items: center;
   justify-content: center;

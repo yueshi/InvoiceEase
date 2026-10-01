@@ -51,6 +51,23 @@ describe("MessageList", () => {
     expect(wrapper.find("pre.code-block").text()).toBe("{}");
   });
 
+  it("用户消息原样纯文本：** 不渲染为 markdown", () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          { id: 1, role: "user", content: "含 **星号** 文本", tool_calls: null, created_at: "" },
+        ],
+        streamingText: "",
+        streamingTools: [],
+        streaming: false,
+      },
+    });
+    const bubble = wrapper.find(".msg.user");
+    expect(bubble.text()).toContain("含 **星号** 文本"); // 星号原样，未被吃掉
+    expect(bubble.find("strong").exists()).toBe(false);
+    expect(bubble.find(".md-body").exists()).toBe(false); // 用户气泡不走 markdown 渲染容器
+  });
+
   it("流式期间显示光标", () => {
     const wrapper = mount(MessageList, {
       props: { messages: [], streamingText: "正在", streamingTools: [], streaming: true },

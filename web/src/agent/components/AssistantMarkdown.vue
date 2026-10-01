@@ -1,11 +1,12 @@
 <!-- 助手消息渲染：md 段走 markdown、chart-* fence 走 ECharts、其它 fence 走代码块；
      流式时最后一段只在「安全点」前渲染 markdown，余量按纯文本展示（防半开语法闪烁） -->
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, defineAsyncComponent } from "vue";
 import { flushablePrefix, splitSegments, type Segment } from "../streamFlusher";
 import { parseChartSpec, type ChartKind, type ChartSpec } from "../chartSpec";
 import { renderMarkdown } from "../markdown";
-import AgentChart from "./AgentChart.vue";
+// echarts 体积大（gzip ~184KB），异步分块：仅真出图时才拉取，不进首屏主 chunk
+const AgentChart = defineAsyncComponent(() => import("./AgentChart.vue"));
 
 const props = defineProps<{
   text: string;
@@ -48,7 +49,7 @@ const segments = computed<RenderSeg[]>(() => {
       </div>
       <AgentChart v-else-if="seg.chart" :kind="seg.chart.kind" :spec="seg.chart.spec" />
       <AgentChart
-        v-else-if="isChartFence(seg.lang) && !seg.closed"
+        v-else-if="isChartFence(seg.lang) && !seg.closed && streaming"
         loading
         :kind="kindFromLang(seg.lang)"
         :spec="{}"

@@ -95,4 +95,12 @@ describe("splitSegments", () => {
   it("``` 无 lang → lang 为空串", () => {
     expect(splitSegments("```\nx\n```")[0]).toMatchObject({ lang: "", closed: true, content: "x" });
   });
+
+  it("四反引号 fence：内部三个反引号行按内容，不提前闭合（CommonMark）", () => {
+    const segs = splitSegments("````json\n```\nfoo\n```\n````");
+    expect(segs).toHaveLength(1);
+    expect(segs[0]).toMatchObject({ kind: "fence", lang: "json", closed: true });
+    expect(segs[0].content).toContain("```");
+    expect(segs[0].content).toContain("foo");
+  });
 });
