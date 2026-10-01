@@ -67,3 +67,4 @@ class AuditAction(str, Enum):
     CONFIG_CHANGE = "CONFIG_CHANGE"
     REVERIFY = "REVERIFY"
     INGEST = "INGEST"
+    AGENT_CHAT = "AGENT_CHAT"

@@ -88,6 +88,9 @@ def classify_outcome(action: str, detail: dict | None) -> str | None:
             return "error"
         return "success"
 
+    if action == "AGENT_CHAT":
+        return "error" if (detail or {}).get("error_code") else "success"
+
     # 上传/删除/更新/归类/放行/配置变更等：完成即成功，但配置变更无成败语义
     if action == "CONFIG_CHANGE":
         return None
