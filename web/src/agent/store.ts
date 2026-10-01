@@ -50,11 +50,13 @@ export const useAgentStore = defineStore("agent", {
       this.error = null;
     },
     async switchSession(id: number) {
+      this.cancel(); // 裁决(a)：切换会话先中止在途流，避免回复落入错误会话的本地列表
       this.currentSessionId = id;
       this.error = null;
       this.messages = await api.listMessages(id);
     },
     async removeSession(id: number) {
+      this.cancel(); // 裁决(a)：删除会话先中止在途流
       await api.deleteSession(id);
       this.sessions = this.sessions.filter((s) => s.id !== id);
       if (this.currentSessionId === id) {
@@ -71,6 +73,7 @@ export const useAgentStore = defineStore("agent", {
     },
     async sendMessage(text: string, context: ChatContext) {
       if (!this.currentSessionId || this.streaming) return;
+      const sid = this.currentSessionId; // 裁决(b)：流式期间可能切换会话，归档时需比对
       this.messages.push({
         id: -Date.now(), role: "user", content: text, created_at: "", tool_calls: null,
       });
@@ -104,13 +107,14 @@ export const useAgentStore = defineStore("agent", {
       };
 
       try {
-        await api.streamMessage(this.currentSessionId, { message: text, context }, apply, ac.signal);
+        await api.streamMessage(sid, { message: text, context }, apply, ac.signal);
       } catch (e) {
         if (!ac.signal.aborted) {
           this.error = { code: "NETWORK", message: e instanceof Error ? e.message : "网络错误" };
         }
       } finally {
-        if (this.streamingText || this.streamingTools.length) {
+        // 会话已切走时不再归档（后端已持久化，切回时 loadMessages 会拉回）
+        if (this.currentSessionId === sid && (this.streamingText || this.streamingTools.length)) {
           this.messages.push({
             id: -Date.now() - 1,
             role: "assistant",

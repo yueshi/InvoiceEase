@@ -4,10 +4,14 @@
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "./stores/auth";
+import FloatingButton from "./agent/components/FloatingButton.vue";
+import AgentDrawer from "./agent/components/AgentDrawer.vue";
+import { useAgentStore } from "./agent/store";
 
 const router = useRouter();
 const route = useRoute();
 const auth = useAuthStore();
+const agent = useAgentStore();
 
 // 设计令牌（design/2026-09-16-WebUI布局与样式优化设计.md §2.1）：主色/圆角/底色 + 亮色菜单
 const themeConfig = {
@@ -43,6 +47,7 @@ const menuItems = computed(() => [
 ]);
 
 function onLogout() {
+  agent.reset(); // 登出清空 Agent 会话与在途流（避免换身份后残留上一账号的消息）
   auth.logout().finally(() => router.push("/login"));
 }
 
@@ -85,6 +90,10 @@ function onMenuClick(info: { key: string }) {
         </a-layout-content>
       </a-layout>
     </a-layout>
+    <template v-if="route.path !== '/login'">
+      <floating-button />
+      <agent-drawer />
+    </template>
     <router-view v-else />
   </a-config-provider>
 </template>
