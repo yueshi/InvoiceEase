@@ -159,7 +159,14 @@ export const useAgentStore = defineStore("agent", {
         await api.streamMessage(sid, { message: text, context }, apply, ac.signal);
       } catch (e) {
         if (!ac.signal.aborted) {
-          this.error = { code: "NETWORK", message: e instanceof Error ? e.message : "网络错误" };
+          // fetch 网络层失败抛 TypeError（"Failed to fetch"）→ 给可操作提示，与 axios 侧文案一致
+          const msg =
+            e instanceof TypeError
+              ? "无法连接服务器，请确认后端服务已启动"
+              : e instanceof Error
+                ? e.message
+                : "网络错误";
+          this.error = { code: "NETWORK", message: msg };
         }
       } finally {
         // 会话已切走时不再归档（后端已持久化，切回时 loadMessages 会拉回）

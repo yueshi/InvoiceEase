@@ -68,8 +68,19 @@ function normalizeDetail(detail: unknown): string | null {
  * （如 ExpensesView 批量加发票时逐条收集失败原因，避免双重弹窗）。
  */
 export function errorText(e: unknown, fallback = "请求失败"): string {
-  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-  return normalizeDetail(detail) || fallback;
+  const err = e as { response?: { data?: { detail?: unknown } }; code?: string } | null;
+  const detail = err?.response?.data?.detail;
+  const normalized = normalizeDetail(detail);
+  if (normalized) return normalized;
+  // 网络层错误（后端未启动 / 断网 / 超时）：给可操作提示，不再笼统兜底
+  // （历史体验：后端一停，任何筛选都只显示「列表加载失败」，排查方向不明）
+  if (!err?.response) {
+    if (err?.code === "ECONNABORTED") return "请求超时：服务器响应过慢或不可达";
+    if (err?.code === "ERR_NETWORK" || err?.code === "ERR_CONNECTION_REFUSED") {
+      return "无法连接服务器，请确认后端服务已启动";
+    }
+  }
+  return fallback;
 }
 
 /**

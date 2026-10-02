@@ -66,4 +66,16 @@ describe("errorMessage", () => {
     errorMessage({ response: { data: { detail: [] } } }, "重置失败");
     expect(seen).toEqual(["重置失败"]);
   });
+
+  it("axios 网络错误（ERR_NETWORK，无 response）→ 提示无法连接服务器（而非笼统兜底）", () => {
+    const seen = captureMessage();
+    errorMessage({ code: "ERR_NETWORK", message: "Network Error" }, "列表加载失败");
+    expect(seen).toEqual(["无法连接服务器，请确认后端服务已启动"]);
+  });
+
+  it("axios 超时（ECONNABORTED）→ 提示请求超时", () => {
+    const seen = captureMessage();
+    errorMessage({ code: "ECONNABORTED", message: "timeout of 15000ms exceeded" }, "列表加载失败");
+    expect(seen).toEqual(["请求超时：服务器响应过慢或不可达"]);
+  });
 });
