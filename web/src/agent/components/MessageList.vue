@@ -84,6 +84,8 @@ const trailingCursor = computed(() => props.streamingBlocks[props.streamingBlock
 .msg-scroller {
   flex: 1;
   overflow-y: auto;
+  /* 滚动独立控制：面板内滚到边界不再把滚动链传给页面（否则聊天时页面/表格跟着动） */
+  overscroll-behavior: contain;
   padding: 12px 16px;
 }
 .msg-empty {

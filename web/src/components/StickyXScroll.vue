@@ -12,6 +12,8 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 const bar = ref<HTMLDivElement | null>(null);
 const contentWidth = ref(0);
 const windowWidth = ref(0);
+/** 表格底部（自带横向条所在处）在视口内时隐藏吸底条——任意时刻只有一根滚动条 */
+const ownBarVisible = ref(false);
 let parent: HTMLElement | null = null;
 let syncing = false;
 let ro: ResizeObserver | null = null;
@@ -33,6 +35,14 @@ function measure() {
   if (!c) return;
   contentWidth.value = c.scrollWidth;
   windowWidth.value = c.clientWidth;
+  updateVisibility();
+}
+
+/** 表格底部（含自带横向条）是否已在视口内——在则吸底条让位于自带条 */
+function updateVisibility() {
+  const c = findContent();
+  if (!c) return;
+  ownBarVisible.value = c.getBoundingClientRect().bottom <= window.innerHeight + 2;
 }
 
 /** 捕获阶段收到卡片内任意元素的 scroll：只处理表格容器 */
@@ -61,20 +71,23 @@ onMounted(() => {
     ro.observe(parent);
   }
   window.addEventListener("resize", measure);
+  window.addEventListener("scroll", updateVisibility, { passive: true });
 });
 
 onBeforeUnmount(() => {
   parent?.removeEventListener("scroll", onAnyScroll, { capture: true });
   window.removeEventListener("resize", measure);
+  window.removeEventListener("scroll", updateVisibility);
   ro?.disconnect();
   ro = null;
 });
 </script>
 
 <template>
-  <!-- 仅当表格真的横向溢出时显示；宽度=表格滚动宽度，滚动条本身在视口底部吸住 -->
+  <!-- 仅当表格真的横向溢出、且表格自带横向条不在视口内时显示（任意时刻只一根）；
+       宽度=表格滚动宽度，滚动条本身在视口底部吸住 -->
   <div
-    v-show="contentWidth > windowWidth + 1"
+    v-show="contentWidth > windowWidth + 1 && !ownBarVisible"
     ref="bar"
     class="sticky-xscroll"
     aria-hidden="true"

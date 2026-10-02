@@ -92,6 +92,13 @@
   white-space: nowrap;
 }
 
+/* 抽屉/弹窗内容区：滚动独立控制——滚到边界不再把滚动链传给背后页面
+   （助手面板的 .msg-scroller 在组件内单独配置） */
+.ant-drawer-body,
+.ant-modal-body {
+  overscroll-behavior: contain;
+}
+
 /* 表格横向滚动兜底：窄容器（助手面板挤压 / 小窗口）下，表格内容超宽时
    必须可滚动——否则溢出部分被面板盖住且无滚动条（实测 scrollLeft 恒 0）。
    表头 nowrap 保证 min-content 超宽时会真实触发滚动。 */
