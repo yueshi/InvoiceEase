@@ -56,18 +56,30 @@ watch(expanded, (open) => {
 
 function buildOption(): echarts.EChartsCoreOption {
   const { kind, spec } = props;
-  const title = spec.title ? { text: spec.title, left: "center", textStyle: { fontSize: 13 } } : undefined;
+  // 有标题时为标题预留顶部空间：饼/雷达的图心下移、半径收缩，避免小图（260px 高）下
+  // 图形顶到标题（实测重叠）；网格类图形 top 也随之上移。
+  const hasTitle = Boolean(spec.title);
+  const title = hasTitle
+    ? { text: spec.title, left: "center", top: 6, textStyle: { fontSize: 13 } }
+    : undefined;
   const base = {
     title,
     tooltip: { trigger: kind === "pie" ? "item" : "axis" },
     legend: { bottom: 0, type: "scroll", textStyle: { fontSize: 11 } },
   };
-  const grid = { left: 8, right: 8, top: title ? 34 : 12, bottom: 26, containLabel: true };
+  const grid = { left: 8, right: 8, top: hasTitle ? 42 : 12, bottom: 26, containLabel: true };
 
   if (kind === "pie") {
     return {
       ...base,
-      series: [{ type: "pie", radius: ["40%", "70%"], center: ["50%", "45%"], data: spec.data ?? [] }],
+      series: [
+        {
+          type: "pie",
+          radius: hasTitle ? ["34%", "58%"] : ["40%", "70%"],
+          center: ["50%", hasTitle ? "57%" : "45%"],
+          data: spec.data ?? [],
+        },
+      ],
     };
   }
   if (kind === "bar") {
@@ -98,7 +110,11 @@ function buildOption(): echarts.EChartsCoreOption {
   }));
   return {
     ...base,
-    radar: { indicator },
+    radar: {
+      indicator,
+      center: ["50%", hasTitle ? "58%" : "50%"],
+      radius: hasTitle ? "58%" : "70%",
+    },
     series: [{ type: "radar", data: series.map((s) => ({ name: s.name, value: s.values })) }],
   };
 }
@@ -159,7 +175,7 @@ onBeforeUnmount(() => {
 }
 .chart-box {
   width: 100%;
-  height: 260px;
+  height: 280px; /* 给标题预留呼吸空间（原 260 收紧时标题易与图形相碰） */
 }
 /* 悬停图表时显示展开按钮（键盘 focus 同样可见） */
 .expand-btn {
@@ -235,7 +251,7 @@ onBeforeUnmount(() => {
   min-height: 0; /* flex 子项允许收缩，ECharts 才能拿到正确高度 */
 }
 .chart-skeleton {
-  height: 260px; /* 与 .chart-box 一致，骨架切真图不跳版 */
+  height: 280px; /* 与 .chart-box 一致，骨架切真图不跳版 */
   display: flex;
   align-items: center;
   justify-content: center;
