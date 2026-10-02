@@ -71,13 +71,14 @@ onMounted(() => {
     ro.observe(parent);
   }
   window.addEventListener("resize", measure);
-  window.addEventListener("scroll", updateVisibility, { passive: true });
+  // 页面滚动发生在 .app-content 内部（非 window）→ 用 document 捕获阶段统一监听
+  document.addEventListener("scroll", updateVisibility, { capture: true, passive: true });
 });
 
 onBeforeUnmount(() => {
   parent?.removeEventListener("scroll", onAnyScroll, { capture: true });
   window.removeEventListener("resize", measure);
-  window.removeEventListener("scroll", updateVisibility);
+  document.removeEventListener("scroll", updateVisibility, { capture: true });
   ro?.disconnect();
   ro = null;
 });

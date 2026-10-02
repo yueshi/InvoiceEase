@@ -147,17 +147,25 @@ function onMenuClick(info: { key: string }) {
 </template>
 
 <style scoped>
+/* 外壳锁定一屏高度：滚动下沉到各列内部——左菜单 / 页面内容 / 助手面板
+   各自拥有独立纵向滚动条（此前整页 body 一起滚，侧栏会跟着滚走） */
 .app-layout {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
-/* 主列允许收缩：否则内容（表格等）把主列撑破，右侧助手面板挤压不生效 */
+/* 主列允许收缩：否则内容（表格等）把主列撑破，右侧助手面板挤压不生效；
+   固定一屏高，让内容区自己滚 */
 .app-main {
   min-width: 0;
+  height: 100vh;
 }
 /* 亮色侧栏：白底 + 右分隔线（替代 theme="dark"） */
 .app-sider {
   background: #fff;
   border-right: 1px solid #eef0f3;
+  /* 菜单独立纵向滚动：窗口变矮/展开折叠触发器时，菜单自己在侧栏内滚动 */
+  height: 100vh;
+  overflow-y: auto;
 }
 /* 折叠触发器：antd 默认深色条与亮色侧栏不搭，改为浅色底 + 分隔线 */
 .app-sider :deep(.ant-layout-sider-trigger) {
@@ -225,5 +233,8 @@ function onMenuClick(info: { key: string }) {
 }
 .app-content {
   padding: 0; /* .page 自带内边距 */
+  /* 页面内容独立纵向滚动（与菜单/助手互不影响）；min-height:0 允许在 flex 列内收缩 */
+  overflow-y: auto;
+  min-height: 0;
 }
 </style>
