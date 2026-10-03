@@ -3,8 +3,10 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
+import { useRoute } from "vue-router";
 import { downloadFile, errorMessage } from "../api/client";
 import {
+  getInvoice,
   importSalesInvoices,
   importSalesList,
   linkOriginalInvoice,
@@ -266,9 +268,51 @@ async function onReVerify(record: InvoiceOut) {
   }
 }
 
-onMounted(() => {
+const route = useRoute();
+
+/** Agent 深链（design/2026-10-03）：链接是「定位型」——缺省全部时间；裸进页面保持浏览默认（本月）。
+ *  `route?.`：组件测试裸挂载（无 router 插件）时 useRoute() 为 undefined，取空参走默认视图。 */
+function initFromQuery() {
+  const q = route?.query ?? {};
+  const hasBiz = ["status", "keyword", "expense_type", "invoice_direction", "period", "invoice_id"]
+    .some((k) => q[k] !== undefined);
+  if (!hasBiz) return;
+  if (typeof q.status === "string") filters.status = q.status;
+  if (typeof q.keyword === "string") filters.keyword = q.keyword;
+  if (typeof q.expense_type === "string") filters.expense_type = q.expense_type;
+  if (typeof q.invoice_direction === "string") filters.invoice_direction = q.invoice_direction;
+  const period = typeof q.period === "string" ? q.period : "";
+  const asMonth = period.match(/^(\d{4})-(\d{2})$/);
+  const asQuarter = period.match(/^(\d{4})-Q([1-4])$/);
+  if (asMonth) {
+    periodType.value = "month";
+    anchor.value = dayjs(`${period}-01`);
+  } else if (asQuarter) {
+    periodType.value = "quarter";
+    const startMonth = String((Number(asQuarter[2]) - 1) * 3 + 1).padStart(2, "0");
+    anchor.value = dayjs(`${asQuarter[1]}-${startMonth}-01`);
+  } else if (/^\d{4}$/.test(period)) {
+    periodType.value = "year";
+    anchor.value = dayjs(`${period}-01-01`);
+  } else {
+    periodType.value = "all";
+  }
+}
+
+onMounted(async () => {
+  initFromQuery();
   load();
   loadUnlinkedRed();
+  const rawId = route?.query?.invoice_id;
+  const invoiceId = typeof rawId === "string" ? Number(rawId) : NaN;
+  if (Number.isFinite(invoiceId) && invoiceId > 0) {
+    try {
+      current.value = await getInvoice(invoiceId);
+      drawerOpen.value = true;
+    } catch (e) {
+      errorMessage(e, "发票加载失败");
+    }
+  }
 });
 
 // 注意：ellipsis 会让 antd 启用 table-layout: fixed——此时**每一列都必须有显式 width**，

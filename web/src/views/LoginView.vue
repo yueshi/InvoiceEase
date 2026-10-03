@@ -33,6 +33,13 @@ async function onSubmit(u?: string, p?: string) {
         <h1 class="login-title">发票易</h1>
         <p class="login-desc">电子发票自动化：收取 · 解析 · 验真 · 归档</p>
       </div>
+      <a-alert
+        v-if="route?.query?.expired"
+        type="warning"
+        show-icon
+        message="登录链接已失效，请重新登录"
+        style="margin-bottom: var(--space-4)"
+      />
       <a-form :model="formState" @finish="() => onSubmit()">
         <a-form-item>
           <a-input v-model:value="formState.username" placeholder="用户名" size="large" />

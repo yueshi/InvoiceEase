@@ -25,6 +25,7 @@ from invoicing.models.mcp_token import McpToken
 from invoicing.models.ops import OpsAlert, TaskRun
 from invoicing.models.receipt import BankReceipt, ReceiptUpload
 from invoicing.models.user import User, UserStatus
+from invoicing.models.web_ticket import WebTicket
 
 __all__ = [
     "AgentMessage",
@@ -54,4 +55,5 @@ __all__ = [
     "User",
     "UserStatus",
     "VerifyStatus",
+    "WebTicket",
 ]

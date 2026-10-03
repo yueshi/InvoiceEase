@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Web 防线：空串=关闭（同源部署零行为变化）；逗号分列，生产按部署拓扑配置
     cors_origins: str = ""  # 允许跨域的来源，如 https://invoice.example.com
     allowed_hosts: str = ""  # 允许的 Host 头，如 invoice.example.com（不含端口也可含）
+    # Agent 深链跳转 Web 后台（design/2026-10-03-Agent跳转Web后台-深链与免登票据设计.md）
+    web_base_url: str = ""  # Web 后台对外地址；空=不产出链接（MCP 出参 web_url=None，全链路零变化）
+    web_ticket_ttl_minutes: int = 480  # 免登票据有效期（分钟）；0=关闭票据（链接仍产出，落登录页）
     mcp_token: str = ""  # legacy 内建令牌，默认关闭；仅为兼容旧 WorkBuddy 配置时显式设置（建议改用个人令牌）
     # MCP 身份与权限（design/2026-09-13-MCP身份与权限设计.md）
     mcp_issuer_url: str = "http://localhost:8000"  # 阶段 1 仅作 claims["iss"]；阶段 2 接 IdP 时替换

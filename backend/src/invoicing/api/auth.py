@@ -1,15 +1,20 @@
 import time
+from datetime import datetime, timezone
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 
 from invoicing.audit import write_audit
 from invoicing.config import settings
 from invoicing.db import get_db
-from invoicing.models import User, UserStatus
-from invoicing.schemas.auth import LoginRequest, TokenResponse
+from invoicing.models import User, UserStatus, WebTicket
+from invoicing.models.fields import utcnow
+from invoicing.schemas.auth import LoginRequest, TicketLoginRequest, TokenResponse
 from invoicing.schemas.user import UserOut
 from invoicing.security import create_access_token, get_current_user, verify_password
+from invoicing.web_links import decode_ticket
 from invoicing.workflow import users as users_svc
 from sqlalchemy.orm import Session
 
@@ -94,6 +99,50 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "账号已暂停，请联系管理员")
     write_audit(db, action="LOGIN", user_id=user.id, channel="web", ip_address=ip)
     _login_failures.pop(key, None)  # 成功登录清零失败计数
+    db.commit()
+    return TokenResponse(access_token=create_access_token(user), user=user)
+
+
+@router.post("/ticket-login", response_model=TokenResponse)
+def ticket_login(body: TicketLoginRequest, request: Request, db: Session = Depends(get_db)):
+    """Agent 深链免登票据兑换（design/2026-10-03-Agent跳转Web后台-深链与免登票据设计.md §5）。
+
+    一次性：兑换即用 jti 抢占写表（主键冲突=已用过）；过期/无效/用途不符统一 401 不泄漏细节。
+    成功走与普通登录同一闸门（SUSPENDED 拒），审计 channel="web_link"；**票据原文不入审计**。
+    """
+    ip = request.client.host if request.client else None
+
+    def _fail(reason: str) -> HTTPException:
+        write_audit(db, action="LOGIN_FAILED", user_id=None, channel="web_link",
+                    ip_address=ip, detail={"reason": reason})
+        db.commit()
+        return HTTPException(status.HTTP_401_UNAUTHORIZED, "登录链接已失效，请重新登录")
+
+    try:
+        payload = decode_ticket(body.ticket)
+        user_id = int(payload["sub"])
+        expires_at = datetime.fromtimestamp(
+            int(payload["exp"]), tz=timezone.utc
+        ).replace(tzinfo=None)  # naive-UTC 入库，与 utcnow() 一致
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError):
+        raise _fail("invalid_ticket") from None
+    user = db.get(User, user_id)
+    if user is None:
+        raise _fail("unknown_user") from None
+    if user.status == UserStatus.SUSPENDED.value:
+        write_audit(db, action="LOGIN_FAILED", user_id=user.id, channel="web_link",
+                    ip_address=ip, detail={"reason": "suspended"})
+        db.commit()
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "账号已暂停，请联系管理员")
+    # 一次性抢占：主键冲突即「已用过」；顺手清理过期行（量级极小，无需 cron）
+    db.query(WebTicket).filter(WebTicket.expires_at < utcnow()).delete()
+    try:
+        db.add(WebTicket(jti=payload["jti"], user_id=user_id, expires_at=expires_at))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise _fail("ticket_used") from None
+    write_audit(db, action="LOGIN", user_id=user.id, channel="web_link", ip_address=ip)
     db.commit()
     return TokenResponse(access_token=create_access_token(user), user=user)
 

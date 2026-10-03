@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from invoicing.db import get_db
 from invoicing.main import create_app
 from invoicing.models import BankReceipt, Invoice, Role, User
+from invoicing.models.fields import utcnow
 from invoicing.parse.receipt import parse_receipt_text, parse_receipts_text, suggest_pair
 from invoicing.reports import receipts_to_csv
 from invoicing.security import hash_password
@@ -80,7 +81,8 @@ def test_list_receipts_includes_null_trade_date_in_created_month(client, db):
     db.add(r)
     db.commit()
     # created_at 为当前月（utcnow），当月查询必须可见
-    resp = client.get("/api/v1/receipts?month=2026-09", headers=auth)
+    # 月份按运行时刻取：写死月份跨月即腐烂（2026-10 已复现）
+    resp = client.get(f"/api/v1/receipts?month={utcnow():%Y-%m}", headers=auth)
     assert resp.status_code == 200
     ids = [row["id"] for row in resp.json()]
     assert r.id in ids
@@ -94,7 +96,7 @@ def test_receipts_csv_includes_null_trade_date_row(db):
     )
     db.add(r)
     db.commit()
-    csv_data = receipts_to_csv(db, "2026-09").decode("utf-8-sig")
+    csv_data = receipts_to_csv(db, f"{utcnow():%Y-%m}").decode("utf-8-sig")
     assert "1116.00" in csv_data
 
 

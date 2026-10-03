@@ -7,6 +7,12 @@ export async function login(username: string, password: string): Promise<LoginRe
   return data;
 }
 
+/** Agent 深链免登票据兑换（一次性；design/2026-10-03 深链与免登票据设计） */
+export async function ticketLogin(ticket: string): Promise<LoginResponse> {
+  const { data } = await api.post<LoginResponse>("/auth/ticket-login", { ticket });
+  return data;
+}
+
 export async function logout(): Promise<void> {
   await api.post("/auth/logout");
 }

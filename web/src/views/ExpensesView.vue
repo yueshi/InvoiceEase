@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
+import { useRoute } from "vue-router";
 import { errorMessage, errorText } from "../api/client";
 import {
   addInvoiceToClaim,
@@ -203,8 +204,13 @@ async function onCreate() {
 }
 
 async function openDetail(claim: ClaimOut) {
+  await openClaimById(claim.id);
+}
+
+/** 深链直达某单（design/2026-10-03）：不依赖列表行，直接拉详情开抽屉。 */
+async function openClaimById(id: number) {
   try {
-    detail.value = await getClaim(claim.id);
+    detail.value = await getClaim(id);
     detailOpen.value = true;
   } catch (e) {
     errorMessage(e, "详情加载失败");
@@ -428,9 +434,17 @@ const detailStatus = computed(() =>
   detail.value ? CLAIM_STATUS_LABELS[detail.value.claim.status] : undefined,
 );
 
-onMounted(() => {
-  load();
+const route = useRoute();
+
+onMounted(async () => {
+  // route?.：组件测试裸挂载（无 router 插件）时 useRoute() 为 undefined
+  const q = route?.query ?? {};
+  if (typeof q.status === "string") statusFilter.value = q.status;
+  await load();
   loadExpenseConfig();
+  const rawId = q.claim_id;
+  const claimId = typeof rawId === "string" ? Number(rawId) : NaN;
+  if (Number.isFinite(claimId) && claimId > 0) await openClaimById(claimId);
 });
 </script>
 

@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../../stores/auth";
 
 describe("路由守卫逻辑", () => {
@@ -42,5 +42,52 @@ describe("路由守卫逻辑", () => {
     };
     const result = await router.push("/audit");
     expect(router.currentRoute.value.path).toBe("/");
+  });
+
+  // ---- Agent 深链票据（design/2026-10-03） ----
+
+  it("带 ticket 无会话 → 兑换成功后进目标页且剥票", async () => {
+    const router = (await import("../index")).default;
+    const auth = useAuthStore();
+    auth.token = null;
+    vi.spyOn(auth, "ticketLogin").mockImplementation(async () => {
+      auth.token = "t";
+      auth.user = {
+        id: 1, username: "u", role: "finance_staff", created_at: "",
+        status: "active", must_change_password: false,
+      };
+    });
+    await router.push("/invoices?ticket=T1&status=pending_review");
+    expect(router.currentRoute.value.path).toBe("/invoices");
+    expect(router.currentRoute.value.query.ticket).toBeUndefined();
+    expect(router.currentRoute.value.query.status).toBe("pending_review");
+  });
+
+  it("带 ticket 无会话且兑换失败 → 落登录页，redirect 保留目标、带 expired", async () => {
+    const router = (await import("../index")).default;
+    const auth = useAuthStore();
+    auth.token = null;
+    vi.spyOn(auth, "ticketLogin").mockRejectedValue(new Error("401"));
+    await router.push("/invoices?ticket=T1&status=pending_review");
+    expect(router.currentRoute.value.path).toBe("/login");
+    expect(router.currentRoute.value.query.expired).toBe("1");
+    expect(String(router.currentRoute.value.query.redirect)).toBe(
+      "/invoices?status=pending_review",
+    );
+  });
+
+  it("带 ticket 已有会话 → 不兑换，直接剥票进入", async () => {
+    const router = (await import("../index")).default;
+    const auth = useAuthStore();
+    auth.token = "t";
+    auth.user = {
+      id: 1, username: "u", role: "finance_staff", created_at: "",
+      status: "active", must_change_password: false,
+    };
+    const spy = vi.spyOn(auth, "ticketLogin");
+    await router.push("/invoices?ticket=T1");
+    expect(router.currentRoute.value.path).toBe("/invoices");
+    expect(router.currentRoute.value.query.ticket).toBeUndefined();
+    expect(spy).not.toHaveBeenCalled();
   });
 });

@@ -66,6 +66,8 @@ class InvoiceOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     xml_url: str | None = None  # 合规硬约束：含数字签名的 XML 原件存档地址（财会〔2025〕9 号）
+    # Agent 深链：MCP invoice_detail 附单张链接；列表 items 与 REST 恒 None（见 mcp/tools.py）
+    web_url: str | None = None
 
     @computed_field
     @property
@@ -83,6 +85,8 @@ class InvoiceListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    # Agent 深链：MCP invoice_list 附列表级链接（带同组筛选）；REST 恒 None
+    web_url: str | None = None
 
 
 class ReviewRequest(BaseModel):

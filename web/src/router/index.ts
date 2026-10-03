@@ -24,6 +24,27 @@ const router = createRouter({ history: createWebHistory(), routes });
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
+
+  // Agent 深链票据（design/2026-10-03）：有会话直接剥票进入；无会话先兑换；
+  // 兑换失败落登录页并保留原目标（redirect）；票据不留在地址栏（防复制/转发）
+  const ticket = to.query.ticket;
+  if (typeof ticket === "string" && ticket) {
+    const rest = { ...to.query };
+    delete rest.ticket;
+    if (!auth.token) {
+      try {
+        await auth.ticketLogin(ticket);
+      } catch {
+        const qs = new URLSearchParams(rest as Record<string, string>).toString();
+        return {
+          path: "/login",
+          query: { redirect: to.path + (qs ? `?${qs}` : ""), expired: "1" },
+        };
+      }
+    }
+    return { path: to.path, query: rest };
+  }
+
   if (to.path !== "/login" && !auth.token) {
     return { path: "/login", query: { redirect: to.fullPath } };
   }

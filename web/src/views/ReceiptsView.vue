@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from "vue";
 import dayjs, { type Dayjs } from "dayjs";
 import { message } from "ant-design-vue";
+import { useRoute } from "vue-router";
 import { errorMessage } from "../api/client";
 import {
   autoPairReceipt,
@@ -231,7 +232,40 @@ function onExport() {
   exportReceipts(periodParam()).catch((e) => errorMessage(e));
 }
 
-onMounted(load);
+const route = useRoute();
+
+/** Agent 深链（design/2026-10-03）：显式给 period（month/quarter/year）按它定位；
+ *  只带 receipt_id 时缺省全部时间——定位型链接跨周期也要找得到。 */
+onMounted(async () => {
+  // route?.：组件测试裸挂载（无 router 插件）时 useRoute() 为 undefined
+  const q = route?.query ?? {};
+  const monthQ = typeof q.month === "string" ? q.month : "";
+  const quarterQ = typeof q.quarter === "string" ? q.quarter : "";
+  const yearQ = typeof q.year === "string" ? q.year : "";
+  const rawId = q.receipt_id;
+  const receiptId = typeof rawId === "string" ? Number(rawId) : NaN;
+  if (monthQ) {
+    periodType.value = "month";
+    month.value = dayjs(`${monthQ}-01`);
+  } else if (quarterQ) {
+    const m = quarterQ.match(/^(\d{4})-Q([1-4])$/);
+    if (m) {
+      periodType.value = "quarter";
+      quarter.value = dayjs(`${m[1]}-${String((Number(m[2]) - 1) * 3 + 1).padStart(2, "0")}-01`);
+    }
+  } else if (yearQ) {
+    periodType.value = "year";
+    year.value = dayjs(`${yearQ}-01-01`);
+  } else if (Number.isFinite(receiptId)) {
+    periodType.value = "all";
+  }
+  await load();
+  if (Number.isFinite(receiptId)) {
+    detailRecord.value = rows.value.find((r) => r.id === receiptId) ?? null;
+    if (detailRecord.value) detailOpen.value = true;
+    else message.warning("未找到该回单，可能已删除或不在可查范围");
+  }
+});
 </script>
 
 <template>

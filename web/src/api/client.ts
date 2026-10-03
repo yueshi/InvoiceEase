@@ -15,7 +15,13 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (resp) => resp,
   (error) => {
-    if (error.response?.status === 401 && !error.config?.url?.includes("/auth/login")) {
+    // ticket-login 与 login 同为「会话前」端点：401 由调用方（路由守卫）处理
+    // ——它要保留 redirect/expired 参数；此处硬跳会把这些参数冲掉。
+    if (
+      error.response?.status === 401 &&
+      !error.config?.url?.includes("/auth/login") &&
+      !error.config?.url?.includes("/auth/ticket-login")
+    ) {
       localStorage.removeItem(TOKEN_KEY);
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";

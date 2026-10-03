@@ -20,6 +20,13 @@ export const useAuthStore = defineStore("auth", {
       this.user = resp.user;
       localStorage.setItem(TOKEN_KEY, resp.access_token);
     },
+    /** Agent 深链票据兑换：与普通登录同款状态落地（token + user 持久化） */
+    async ticketLogin(ticket: string) {
+      const resp = await authApi.ticketLogin(ticket);
+      this.token = resp.access_token;
+      this.user = resp.user;
+      localStorage.setItem(TOKEN_KEY, resp.access_token);
+    },
     async logout() {
       try {
         await authApi.logout();

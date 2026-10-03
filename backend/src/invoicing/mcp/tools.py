@@ -5,6 +5,7 @@ from datetime import date
 
 from fastapi import HTTPException
 
+from invoicing import web_links
 from invoicing.audit import write_audit
 from invoicing.db import SessionLocal
 from invoicing.fetch.service import poll_mailbox
@@ -95,26 +96,35 @@ def list_invoices_mcp(
     page_size: int = 20,
 ) -> InvoiceListResponse:
     with SessionLocal() as db:
+        user = _current_user(db)
         # 关键字参数：避免签名扩展（如新增 expense_type）导致位置参数错位
         result = services.list_invoices(
-            db, _current_user(db), status=status, date_from=date_from, date_to=date_to,
+            db, user, status=status, date_from=date_from, date_to=date_to,
             keyword=keyword, expense_type=expense_type, page=page, page_size=page_size,
         )
     # MCP 返回需 pydantic 模型（REST 由 response_model 转换，MCP 无此层）
     result.items = [InvoiceOut.model_validate(item, from_attributes=True) for item in result.items]
+    # 深链：列表级给一条带同组筛选的链接（items 不逐条出票——防 N 张票与响应膨胀）
+    result.web_url = web_links.web_link(
+        "/invoices", user_id=user.id, status=status, keyword=keyword,
+        expense_type=expense_type, period=web_links.period_of(date_from, date_to),
+    )
     return result
 
 
 @requires("invoice:read")
 def get_invoice_mcp(invoice_id: int) -> InvoiceOut:
     with SessionLocal() as db:
+        user = _current_user(db)
         try:
             # get_invoice 走 scoped_invoices：员工查他人发票得 404（数据范围隔离生效点）
-            inv = services.get_invoice(db, _current_user(db), invoice_id)
+            inv = services.get_invoice(db, user, invoice_id)
         except HTTPException as e:
             # service 层 404 泄漏到 MCP 层，映射为协议友好的错误信息
             raise ValueError(f"发票不存在或无权访问: {invoice_id}") from e
-        return InvoiceOut.model_validate(inv, from_attributes=True)
+        out = InvoiceOut.model_validate(inv, from_attributes=True)
+        out.web_url = web_links.web_link("/invoices", user_id=user.id, invoice_id=invoice_id)
+        return out
 
 
 def _not_invoice_reason(data: bytes, kind: str) -> str:
@@ -444,7 +454,8 @@ def expense_list(status: str | None = None, claim_type: str | None = None) -> li
     from invoicing.workflow import expenses as svc
 
     with SessionLocal() as db:
-        rows = svc.list_claims(db, _current_user(db), status, claim_type)
+        user = _current_user(db)
+        rows = svc.list_claims(db, user, status, claim_type)
         return [
             {
                 "id": c.id, "claim_no": c.claim_no, "title": c.title,
@@ -458,6 +469,8 @@ def expense_list(status: str | None = None, claim_type: str | None = None) -> li
                 ],
                 "submitted_at": str(c.submitted_at) if c.submitted_at else None,
                 "rejected_reason": c.rejected_reason,
+                # 深链：报销单基数小，逐单附链接（讨论某张单时可直达）
+                "web_url": web_links.web_link("/expenses", user_id=user.id, claim_id=c.id),
             }
             for c in rows
         ]
