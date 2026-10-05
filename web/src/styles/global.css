@@ -17,11 +17,13 @@
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
 }
 
-/* 页面内容容器（App.vue 布局骨架统一包裹；宽屏不无限拉伸） */
+/* 页面内容容器（App.vue 布局骨架统一包裹；宽屏不无限拉伸）。
+   底部 88px：给右下角悬浮 AI 球留净空（fixed，占 bottom 32~80px）——
+   否则滚到底时小球会盖住分页右端；宽屏下 .page 居中让开的只是侧边，底部同样需要 */
 .page {
   max-width: 1280px;
   margin: 0 auto;
-  padding: var(--space-5) var(--space-5) 48px;
+  padding: var(--space-5) var(--space-5) 88px;
 }
 
 /* 页头模式：标题 20px/600 + 描述 13px + 右侧动作区 */
@@ -138,8 +140,7 @@
 /* ---- 窄窗口（≤640px：桌面窄窗/分屏）----
    共享模式在此一次性收敛：页头/筛选栏/分页/容器，4 个列表页（发票/报销/回单/审计）一并生效 */
 @media (max-width: 640px) {
-  /* 容器内边距 24→12，把宽度让给内容；底部 88px 给右下角悬浮 AI 球留净空
-     （小球 fixed 占 bottom 32~80px / 右 76px，不留空会盖住分页右端） */
+  /* 容器内边距 24→12，把宽度让给内容（底部 88px 见 .page 基规则注释） */
   .page {
     padding: var(--space-3) var(--space-3) 88px;
   }

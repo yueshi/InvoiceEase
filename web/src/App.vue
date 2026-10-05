@@ -26,8 +26,24 @@ const agent = useAgentStore();
 
 // 侧栏折叠（折叠后仅图标）：偏好持久化，刷新/重登保留
 const SIDER_COLLAPSED_KEY = "invoicing_sider_collapsed";
-const collapsed = ref(localStorage.getItem(SIDER_COLLAPSED_KEY) === "1");
+const readCollapsedPref = () => localStorage.getItem(SIDER_COLLAPSED_KEY) === "1";
+const collapsed = ref(readCollapsedPref());
+
+// 窄屏自动折叠（≤767px：此时侧栏 208px 会吃掉近半内容宽度）：
+// 进入窄屏折叠为图标模式，回宽屏恢复用户上次偏好；
+// 窄屏下手动展开仍然有效（本次会话内），但不写入偏好，避免污染桌面状态
+const NARROW_QUERY = "(max-width: 767px)";
+const narrowMatch = window.matchMedia?.(NARROW_QUERY);
+const narrow = ref(narrowMatch?.matches ?? false);
+if (narrow.value) collapsed.value = true;
+
+narrowMatch?.addEventListener?.("change", (e: MediaQueryListEvent) => {
+  narrow.value = e.matches;
+  collapsed.value = e.matches ? true : readCollapsedPref();
+});
+
 watch(collapsed, (v) => {
+  if (narrow.value) return; // 窄屏的自动折叠/临时展开不写偏好
   try {
     localStorage.setItem(SIDER_COLLAPSED_KEY, v ? "1" : "0");
   } catch {
