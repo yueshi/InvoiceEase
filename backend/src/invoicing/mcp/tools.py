@@ -50,6 +50,46 @@ def _current_user(db) -> User:
     return user
 
 
+# 注册名 → 实现函数名（少数不一致；与 server.py 注册一一对应）
+_REGISTERED_ALIASES = {
+    "invoice_fetch": "fetch_invoices",
+    "invoice_list": "list_invoices_mcp",
+    "invoice_detail": "get_invoice_mcp",
+    "invoice_ingest": "ingest_invoice",
+    "receipt_parse_status": "receipt_upload_status",
+    "extract_invoice": "extract_invoice_file",
+    "batch_extract_invoices": "batch_extract_invoice_files",
+    "validate_invoice": "validate_invoice_data",
+}
+
+
+def _impl_of(registered_name: str):
+    """注册名 → 实现函数；未知工具返回 None（过滤时按"无要求"放行，执行层仍有 @requires 兜底）。"""
+    impl_name = _REGISTERED_ALIASES.get(registered_name, registered_name)
+    fn = globals().get(impl_name)
+    if fn is None:
+        from invoicing.mcp import extract as extract_mod
+
+        fn = getattr(extract_mod, impl_name, None)
+    return fn
+
+
+def permissions_of(registered_name: str) -> tuple[frozenset[str], tuple[str, ...]]:
+    """按注册名取工具的权限要求（scope 集 + 角色白名单）。
+
+    数据源 = 装饰器元数据（@requires/@requires_role 写入），无第二份手抄表；
+    供 Web 助手在「调用前」过滤工具清单（tools_bridge），
+    覆盖性由 test_mcp_permissions 的交叉校验用例防漂移。
+    """
+    fn = _impl_of(registered_name)
+    if fn is None:
+        return frozenset(), ()
+    return (
+        frozenset(getattr(fn, "__requires_scopes__", ())),
+        tuple(getattr(fn, "__requires_roles__", ()) or ()),
+    )
+
+
 def _audit(db, action: str, *, invoice_id: int | None = None, detail: dict | None = None):
     """MCP 审计：**带上主体**（谁、用哪个令牌、哪个租户）。
 

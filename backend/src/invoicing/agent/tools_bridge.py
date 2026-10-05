@@ -80,11 +80,25 @@ class McpToolAdapter:
 
 
 async def build_tools_for_user(user) -> list[McpToolAdapter]:
-    """当前用户可用工具全集（39 个；scope 守门在工具层 @requires）。"""
-    from invoicing.mcp.server import mcp
+    """当前用户可用工具（调用前按权限过滤，2026-10-05）。
 
+    过滤 = scope 集 ⊆ 角色预设 ∩ 角色白名单（数据源为 @requires/@requires_role
+    的装饰器元数据），使 LLM 的工具清单与用户权限一致——不再先调用再吃
+    RoleDenied/ScopeDenied。执行层的门保持不动，作为纵深防御。
+    """
+    from invoicing.mcp.server import mcp
+    from invoicing.mcp.tools import permissions_of
+
+    scopes = frozenset(ROLE_DEFAULT_SCOPES.get(user.role, ()))
     infos = await mcp.list_tools()
-    return [
-        McpToolAdapter(info, user_id=user.id, username=user.username, role=user.role)
-        for info in infos
-    ]
+    allowed: list[McpToolAdapter] = []
+    for info in infos:
+        need_scopes, need_roles = permissions_of(info.name)
+        if not need_scopes <= scopes:
+            continue
+        if need_roles and user.role not in need_roles:
+            continue
+        allowed.append(
+            McpToolAdapter(info, user_id=user.id, username=user.username, role=user.role)
+        )
+    return allowed

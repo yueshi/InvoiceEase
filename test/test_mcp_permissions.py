@@ -259,6 +259,34 @@ def test_finance_can_call_finance_tools(db, users, mcp_auth):
     assert mt.fetch_invoices().received == 0  # 无邮箱配置：可执行即算通过
 
 
+def test_agent_tool_list_filtered_by_permissions(db, users):
+    """Web 助手的工具清单按权限过滤（调用前检查）：清单 = 用户真能用的集合。
+
+    目标（2026-10-05）：员工问「看回单」时助手不该先调用再吃 RoleDenied，
+    而是清单里就没有 receipt_list，直接告知无权限。
+    """
+    import asyncio
+
+    from invoicing.agent.tools_bridge import build_tools_for_user
+
+    emp_tools = {t.name for t in asyncio.run(build_tools_for_user(users["emp"]))}
+    fin_tools = {t.name for t in asyncio.run(build_tools_for_user(users["fin"]))}
+    adm_tools = {t.name for t in asyncio.run(build_tools_for_user(users["admin"]))}
+
+    # 员工：财务专属（角色门）与 report/sales/masterdata/admin 类全部不可见
+    assert not {"receipt_list", "invoice_update", "invoice_fetch",
+                "invoice_stats", "invoice_delete"} & emp_tools
+    # 合法能力保留（交票/查自己的票/报销）
+    assert {"invoice_list", "invoice_detail", "expense_create", "extract_invoice"} <= emp_tools
+
+    # 财务：财务专属可见；管理员专属（收票、删票）仍不可见
+    assert {"receipt_list", "invoice_update", "invoice_stats"} <= fin_tools
+    assert not {"invoice_fetch", "invoice_delete"} & fin_tools
+
+    # 管理员：全集
+    assert len(adm_tools) == 39
+
+
 # ---- 覆盖性：39 个工具一个都不能漏 ------------------------------------------
 
 
@@ -329,3 +357,8 @@ def test_every_registered_tool_declares_scope():
     # requires 用 functools.wraps，被包裹的函数带 __wrapped__
     unprotected = [reg for reg, fn in impl_map.items() if not hasattr(fn, "__wrapped__")]
     assert unprotected == [], f"以下工具未声明 scope：{unprotected}"
+
+    # 权限过滤解析器（Web 助手调用前过滤的数据源）必须与注册一一对应——
+    # 别名表漂移会让过滤放行/误藏错误的对象，这里逐名核对到函数本体
+    for reg, fn in impl_map.items():
+        assert mt._impl_of(reg) is fn, f"{reg} 的过滤解析指向了错误的实现函数"

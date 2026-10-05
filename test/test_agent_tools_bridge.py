@@ -17,7 +17,8 @@ async def test_build_and_call_list_invoices(db):
 
     tools = await build_tools_for_user(user)
     names = [t.name for t in tools]
-    assert "invoice_list" in names and "invoice_delete" in names  # 全集都在 manifest
+    # 2026-10-05：清单按权限过滤——员工有查票/交票能力，但没有 invoice:admin 工具
+    assert "invoice_list" in names and "invoice_delete" not in names
 
     t = next(t for t in tools if t.name == "invoice_list")
     res = await t.execute("tc-1", {"page": 1, "page_size": 5}, asyncio.Event(), _noop)
@@ -25,14 +26,18 @@ async def test_build_and_call_list_invoices(db):
     assert "total" in res.content[0].text or "items" in res.content[0].text  # 空库也是合法 JSON
 
 
-async def test_scope_denied_for_employee(db):
-    """employee 调 invoice_delete（invoice:admin）→ is_error + 权限字样。"""
+async def test_scope_denied_at_execution_layer(db):
+    """纵深防御：即使绕过清单过滤手工构造适配器，执行层 scope 门仍然拒绝。"""
+    from invoicing.agent.tools_bridge import McpToolAdapter
+    from invoicing.mcp.server import mcp
+
     user = User(username="bridge_u2", password_hash="x", role="employee")
     db.add(user)
     db.commit()
 
-    tools = await build_tools_for_user(user)
-    t = next(t for t in tools if t.name == "invoice_delete")
+    infos = await mcp.list_tools()
+    info = next(i for i in infos if i.name == "invoice_delete")
+    t = McpToolAdapter(info, user_id=user.id, username=user.username, role=user.role)
     res = await t.execute("tc-2", {"invoice_id": 999}, asyncio.Event(), _noop)
     assert res.is_error is True
     assert "权限" in res.content[0].text

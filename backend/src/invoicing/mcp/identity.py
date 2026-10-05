@@ -117,6 +117,7 @@ def requires(*scopes: str) -> Callable:
                 )
             return fn(*args, **kwargs)
 
+        wrapper.__requires_scopes__ = tuple(scopes)  # 供调用前过滤（tools.permissions_of）
         return wrapper
 
     return deco
@@ -158,6 +159,7 @@ def requires_role(*roles: str) -> Callable:
                 )
             return fn(*args, **kwargs)
 
+        wrapper.__requires_roles__ = tuple(roles)  # 供调用前过滤（tools.permissions_of）
         return wrapper
 
     return deco
