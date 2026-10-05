@@ -29,8 +29,9 @@ const auth = useAuthStore();
 // 删除与后端口径一致：仅 manager/admin（staff 不出删除入口）
 const canDelete = computed(() => ["finance_manager", "admin"].includes(auth.role ?? ""));
 
-// a-month-picker / a-date-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()）
-const periodType = ref<"all" | "month" | "quarter" | "year">("month");
+// a-month-picker / a-date-picker 的 value 必须是 dayjs 对象（组件内部会调 .locale()）。
+// 默认「全部」：裸进页面即见全量回单（此前默认本月，跨月补录的回单看不见被误当上传失败）
+const periodType = ref<"all" | "month" | "quarter" | "year">("all");
 const month = ref<Dayjs>(dayjs());
 const quarter = ref<Dayjs>(dayjs());
 const year = ref<Dayjs>(dayjs());
@@ -81,7 +82,8 @@ function onDetail(r: ReceiptOut) {
 }
 
 // 周期外提示：当前周期查不到时，告诉用户"全部时间还有 N 条"
-// （历史痛点：回单页默认「本月」，跨月补录的回单看不见也无提示，被当成上传失败）
+// （历史痛点：回单页曾默认「本月」，跨月补录的回单看不见也无提示，被当成上传失败；
+//  默认已改「全部」根治，本探测保留用于用户手动选了具体周期却为空的场景）
 const outsidePeriodCount = ref(0);
 
 async function probeOutsidePeriod() {
@@ -294,7 +296,14 @@ onMounted(async () => {
         :allow-clear="false"
         @change="load"
       />
-      <a-date-picker v-else v-model:value="year" picker="year" :allow-clear="false" @change="load" />
+      <!-- 显式 v-else-if：v-else 会把「全部」也兜住，显示一个改了没反应的年份选择器 -->
+      <a-date-picker
+        v-else-if="periodType === 'year'"
+        v-model:value="year"
+        picker="year"
+        :allow-clear="false"
+        @change="load"
+      />
       <a-checkbox v-model:checked="unmatchedOnly" @change="load">只看无票支出</a-checkbox>
       <a-checkbox v-model:checked="reviewOnly">只看待核对</a-checkbox>
     </div>

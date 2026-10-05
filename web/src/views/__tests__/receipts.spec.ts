@@ -71,14 +71,24 @@ describe("ReceiptsView", () => {
     expect(listReceipts).toHaveBeenCalled();
   });
 
-  it("当前周期无回单但其他周期有 → 提示条数并可切到「全部」（P1-4）", async () => {
+  it("手动选「按月」且无回单时提示其他周期条数，可切回「全部」（P1-4）", async () => {
     const api = await import("../../api/receipts");
     vi.mocked(api.listReceipts).mockResolvedValue([]);
     vi.mocked(api.probeReceiptsPeriod).mockResolvedValue(3);
 
     const wrapper = await mountWithAntd();
     await flushPromises();
+    // 默认「全部」：全量可见，不触发跨周期探测
+    expect(wrapper.text()).not.toContain("其他周期有");
 
+    // 手动切到「按月」且本月无数据 → 提示其他周期条数
+    const monthBtn = wrapper.findAll(".ant-radio-button-wrapper").find((l) => l.text().includes("按月"));
+    expect(monthBtn, "未渲染「按月」周期切换").toBeTruthy();
+    // 显式派发 change：jsdom 对 radio 原生 click 的激活行为不可靠（未触发 change）
+    await monthBtn!.find("input").trigger("change");
+    await flushPromises();
+
+    expect((wrapper.vm as any).periodType, "周期未切到按月").toBe("month");
     expect(wrapper.text()).toContain("其他周期有 3 条");
     const link = wrapper.findAll("a").filter((a) => a.text().includes("查看全部时间"));
     expect(link).toHaveLength(1);

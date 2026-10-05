@@ -38,7 +38,8 @@ const filters = reactive({
   expense_type: undefined as string | undefined, // unclassified = 未归类
   invoice_direction: undefined as string | undefined, // input 进项 / output 销项
 });
-const periodType = ref<"all" | "month" | "quarter" | "year">("month");
+// 默认「全部」：裸进页面即见全量数据（此前默认本月，跨月数据看不见被误当数据丢失）
+const periodType = ref<"all" | "month" | "quarter" | "year">("all");
 const anchor = ref<Dayjs>(dayjs()); // 唯一时间锚点：类型切换按它换算，选择器改动回写它
 
 /** 锚点 → 当前周期的选择器值（clone，避免 dayjs 的 .month() 原地修改污染锚点） */
@@ -270,7 +271,7 @@ async function onReVerify(record: InvoiceOut) {
 
 const route = useRoute();
 
-/** Agent 深链（design/2026-10-03）：链接是「定位型」——缺省全部时间；裸进页面保持浏览默认（本月）。
+/** Agent 深链（design/2026-10-03）：链接是「定位型」——缺省全部时间；页面默认同为「全部」，口径一致。
  *  `route?.`：组件测试裸挂载（无 router 插件）时 useRoute() 为 undefined，取空参走默认视图。 */
 function initFromQuery() {
   const q = route?.query ?? {};
