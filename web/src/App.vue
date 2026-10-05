@@ -121,7 +121,7 @@ function onMenuClick(info: { key: string }) {
           <a-dropdown :trigger="['click']">
             <span class="user-chip">
               <span class="user-avatar">{{ (auth.user?.username || "?").slice(0, 1) }}</span>
-              <span>{{ auth.user?.username }}</span>
+              <span class="user-name">{{ auth.user?.username }}</span>
             </span>
             <template #overlay>
               <a-menu>
@@ -213,12 +213,20 @@ function onMenuClick(info: { key: string }) {
 .app-header-title {
   font-size: 15px;
   font-weight: 600;
+  /* 窄宽度下省略号截断，不折成竖排（min-width:0 允许 flex 收缩到内容以下） */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: var(--space-3);
 }
 .user-chip {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   cursor: pointer;
+  flex-shrink: 0;
 }
 .user-avatar {
   width: 28px;
@@ -236,5 +244,14 @@ function onMenuClick(info: { key: string }) {
   /* 页面内容独立纵向滚动（与菜单/助手互不影响）；min-height:0 允许在 flex 列内收缩 */
   overflow-y: auto;
   min-height: 0;
+}
+/* 窄窗口（≤640px）：顶栏收窄、用户名只留头像（悬浮菜单仍可退出/改密） */
+@media (max-width: 640px) {
+  .app-header {
+    padding: 0 var(--space-3);
+  }
+  .user-name {
+    display: none;
+  }
 }
 </style>

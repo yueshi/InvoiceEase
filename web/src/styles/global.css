@@ -29,8 +29,14 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-wrap: wrap; /* 窄宽度：动作区换行整行，标题不再被挤成逐字竖排 */
   gap: var(--space-2);
   margin-bottom: var(--space-4);
+}
+/* 标题块：flex-basis 260px 是"优雅换行阈值"——标题可用宽不足 260 时动作区下一行 */
+.page-header-main {
+  flex: 1 1 260px;
+  min-width: 0;
 }
 .page-header-title {
   margin: 0;
@@ -127,4 +133,38 @@
 .ant-table-content::-webkit-scrollbar-track,
 .ant-table-body::-webkit-scrollbar-track {
   background: #f1f5f9;
+}
+
+/* ---- 窄窗口（≤640px：桌面窄窗/分屏）----
+   共享模式在此一次性收敛：页头/筛选栏/分页/容器，4 个列表页（发票/报销/回单/审计）一并生效 */
+@media (max-width: 640px) {
+  /* 容器内边距 24→12，把宽度让给内容；底部 88px 给右下角悬浮 AI 球留净空
+     （小球 fixed 占 bottom 32~80px / 右 76px，不留空会盖住分页右端） */
+  .page {
+    padding: var(--space-3) var(--space-3) 88px;
+  }
+  /* 页头动作区换行后占满整行（按钮自身继续按 .page-header-extra 的 wrap 换行） */
+  .page-header-extra {
+    width: 100%;
+  }
+  /* 筛选栏子控件一律整行纵向堆叠，不再参差。
+     !important 是刻意为之：各页控件宽度写在内联 style（width:160px 等）上，
+     常规规则赢不过内联——这里正是「覆盖内联」的合法场景，作用域限定为容器直接子项 */
+  .filter-toolbar > * {
+    width: 100% !important;
+  }
+  /* 分页：允许换行（对齐维持 antd 默认右对齐）；每页条数选择器窄屏放不下，
+     隐藏（维持默认 20 条/页） */
+  .ant-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+  .ant-pagination-options {
+    display: none;
+  }
+  /* 表格白卡内边距收窄，给表格横滚留宽度 */
+  .table-card {
+    padding: var(--space-3);
+  }
 }

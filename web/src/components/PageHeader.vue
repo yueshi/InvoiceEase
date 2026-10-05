@@ -5,7 +5,7 @@ defineProps<{ title: string; desc?: string }>();
 
 <template>
   <div class="page-header">
-    <div>
+    <div class="page-header-main">
       <h2 class="page-header-title">{{ title }}</h2>
       <p v-if="desc" class="page-header-desc">{{ desc }}</p>
     </div>
