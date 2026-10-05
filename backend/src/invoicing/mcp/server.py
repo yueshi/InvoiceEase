@@ -16,7 +16,11 @@ from invoicing.config import settings
 from invoicing.mcp import tools as mcp_tools
 from invoicing.mcp.verifier import MCPTokenVerifier
 from invoicing.schemas.company_info import CompanyInfoOut
-from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut
+from invoicing.schemas.invoice import (
+    InvoiceListResponse,
+    InvoiceOut,
+    ReceiptListResponse,
+)
 from invoicing.schemas.mailbox import PollResultOut
 
 
@@ -234,8 +238,8 @@ def build_server() -> MCPServer:
     def receipt_parse_status(upload_id: int) -> dict:
         return mcp_tools.receipt_upload_status(upload_id)
 
-    @server.tool(description="银行回单清单（month 格式 YYYY-MM）。")
-    def receipt_list(month: str) -> list[dict]:
+    @server.tool(description="银行回单清单（month 格式 YYYY-MM）。返回 items（回单条目列表）+ month + web_url（Agent 免登深链，直达前端 /receipts 同月视图）。")
+    def receipt_list(month: str) -> ReceiptListResponse:
         return mcp_tools.receipt_list(month)
 
     @server.tool(description="手动配对回单与发票（覆盖自动建议）。")

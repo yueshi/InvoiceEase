@@ -21,7 +21,12 @@ from invoicing.models import (
 )
 from invoicing.mcp.identity import requires
 from invoicing.schemas.company_info import CompanyInfoOut, TAX_ID_PATTERN
-from invoicing.schemas.invoice import InvoiceListResponse, InvoiceOut
+from invoicing.schemas.invoice import (
+    InvoiceListResponse,
+    InvoiceOut,
+    ReceiptListResponse,
+    ReceiptOut,
+)
 from invoicing.schemas.mailbox import PollResultOut
 from invoicing.workflow import services
 from invoicing.workers.queue import enqueue_receipt_parse_sync
@@ -907,37 +912,43 @@ def receipt_upload_status(upload_id: int) -> dict:
 
 
 @requires("receipt:read")
-def receipt_list(month: str) -> list[dict]:
+def receipt_list(month: str) -> ReceiptListResponse:
     """回单清单（P3/R1）：month=YYYY-MM。
 
     带 `category` / `invoice_requirement`（终审 7，与 API `_receipt_out` 同源派生）：
     Agent 侧不能只靠 status 推「无需发票 / 待开票」——status 是配对面孔，
     发票要求由交易性质派生。
+
+    返回新增 `web_url`：列表级免登深链，落前端 /receipts 并带同月周期筛选。
     """
     from invoicing.reports import receipts_in_month
     from invoicing.workflow.receipts import requirement_of
 
     with SessionLocal() as db:
+        user = _current_user(db)
         rows = receipts_in_month(db, month)
-        return [
-            {
-                "id": r.id,
-                "trade_date": str(r.trade_date) if r.trade_date else None,
-                "counterparty_name": r.counterparty_name,
-                "amount": _money(r.amount),
-                "abstract": r.abstract,
-                "direction": r.direction,
-                "needs_review": r.needs_review,
-                "quality_issues": r.quality_issues,
-                "bank_code": r.bank_code,
-                "page_no": r.page_no,
-                "category": r.category,
-                "invoice_requirement": requirement_of(r.category),
-                "paired_invoice_id": r.paired_invoice_id,
-                "status": r.status,
-            }
+        items = [
+            ReceiptOut(
+                id=r.id,
+                trade_date=str(r.trade_date) if r.trade_date else None,
+                counterparty_name=r.counterparty_name,
+                amount=_money(r.amount),
+                abstract=r.abstract,
+                direction=r.direction,
+                needs_review=r.needs_review,
+                quality_issues=r.quality_issues,
+                bank_code=r.bank_code,
+                page_no=r.page_no,
+                category=r.category,
+                invoice_requirement=requirement_of(r.category),
+                paired_invoice_id=r.paired_invoice_id,
+                status=r.status,
+            )
             for r in rows
         ]
+    # 深链：列表级给一条带同月周期的链接（与 invoice_list 对称）
+    web_url = web_links.web_link("/receipts", user_id=user.id, period=month)
+    return ReceiptListResponse(items=items, month=month, web_url=web_url)
 
 
 @requires("receipt:write")

@@ -179,6 +179,7 @@ def test_mcp_no_web_url_without_base(db, mcp_admin_auth, monkeypatch):
     from invoicing.mcp import tools as mcp_tools
 
     assert mcp_tools.list_invoices_mcp().web_url is None
+    assert mcp_tools.receipt_list(month="2026-08").web_url is None
 
 
 def test_mcp_invoice_list_carries_filtered_web_url(db, mcp_admin_auth, web_cfg):
@@ -204,3 +205,15 @@ def test_mcp_expense_list_items_carry_web_url(db, mcp_admin_auth, web_cfg):
     assert rows
     assert rows[0]["web_url"].startswith("https://inv.example.com/expenses?")
     assert f"claim_id={claim.id}" in rows[0]["web_url"]
+
+
+def test_mcp_receipt_list_carries_web_url(db, mcp_admin_auth, web_cfg):
+    """回单清单附列表级深链（P1 补齐）：落 /receipts 并带同月周期筛选。"""
+    from invoicing.mcp import tools as mcp_tools
+
+    result = mcp_tools.receipt_list(month="2026-08")
+    assert result.web_url is not None
+    assert result.web_url.startswith("https://inv.example.com/receipts?")
+    assert "period=2026-08" in result.web_url
+    assert "ticket=" in result.web_url
+    assert result.month == "2026-08"

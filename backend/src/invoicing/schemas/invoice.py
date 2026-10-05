@@ -1,7 +1,7 @@
 # schemas/invoice.py
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, PlainSerializer, computed_field
 
@@ -15,6 +15,23 @@ MoneyStr = Annotated[
         return_type=str | None,
         when_used="json",
     ),
+]
+
+
+def _rfc3339(v: datetime | None) -> str | None:
+    """Naive UTC → 带时区的 RFC3339（补 +00:00、截微秒），避免 MCP 客户端 date-time 格式校验失败。"""
+    if v is None:
+        return None
+    if v.tzinfo is None:
+        v = v.replace(tzinfo=timezone.utc)
+    v = v.replace(microsecond=0)
+    return v.isoformat()
+
+
+# 时间类型：内部 datetime 多为 naive UTC，序列化时补时区后缀，满足 JSON Schema date-time 强校验。
+DtStr = Annotated[
+    datetime | None,
+    PlainSerializer(_rfc3339, return_type=str | None, when_used="json"),
 ]
 
 
@@ -46,7 +63,7 @@ class InvoiceOut(BaseModel):
     validation_errors: list[dict] | None  # 写入方恒为 list[dict]（parse 校验错误/任务兜底错误）
     verify_status: str
     verify_detail: dict | None
-    verified_at: datetime | None
+    verified_at: DtStr
     duplicate_flag: bool
     duplicate_of_id: int | None
     status: str
@@ -56,15 +73,15 @@ class InvoiceOut(BaseModel):
     ai_review_verdict: str | None
     ai_review_reason: str | None
     ai_review_confidence: float | None
-    ai_reviewed_at: datetime | None
+    ai_reviewed_at: DtStr
     red_flag: bool
     invoice_direction: str = "input"
     original_invoice_id: int | None = None
     review_note: str | None
     reviewed_by: int | None
-    reviewed_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+    reviewed_at: DtStr
+    created_at: DtStr
+    updated_at: DtStr
     xml_url: str | None = None  # 合规硬约束：含数字签名的 XML 原件存档地址（财会〔2025〕9 号）
     # Agent 深链：MCP invoice_detail 附单张链接；列表 items 与 REST 恒 None（见 mcp/tools.py）
     web_url: str | None = None
@@ -86,6 +103,42 @@ class InvoiceListResponse(BaseModel):
     page: int
     page_size: int
     # Agent 深链：MCP invoice_list 附列表级链接（带同组筛选）；REST 恒 None
+    web_url: str | None = None
+
+
+class ReceiptOut(BaseModel):
+    """回单条目（与 InvoiceOut 对称，供 MCP 列表结构化输出）。
+
+    字段与 receipt_list 原先的 dict 同构；改用模型而非裸 dict，是为了让
+    FastMCP 正确生成 object 型 output schema（裸 `list[dict]` 字段会被
+    FastMCP 误包装成 `{"result": [...]}` 导致序列化校验失败）。
+    """
+
+    id: int
+    trade_date: str | None = None
+    counterparty_name: str | None = None
+    amount: str | None = None
+    abstract: str | None = None
+    direction: str | None = None
+    needs_review: bool = False
+    quality_issues: Any = None
+    bank_code: str | None = None
+    page_no: int | None = None
+    category: str | None = None
+    invoice_requirement: str | None = None
+    paired_invoice_id: int | None = None
+    status: str | None = None
+
+
+class ReceiptListResponse(BaseModel):
+    """回单清单响应：items 为回单条目列表，web_url 为 Agent 免登深链。
+
+    与 InvoiceListResponse 对称——MCP 出参统一携带列表级 web_url，
+    使 Agent 可直接产出「一键跳转前端回单页」的链接（REST 不消费此字段）。
+    """
+
+    items: list[ReceiptOut]
+    month: str
     web_url: str | None = None
 
 

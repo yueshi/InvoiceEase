@@ -116,12 +116,13 @@ def test_receipt_list_exposes_category_and_requirement(db, mcp_admin_auth):
     ])
     db.commit()
 
-    by_name = {r["counterparty_name"]: r for r in receipt_list(month="2026-08")}
+    result = receipt_list(month="2026-08")
+    by_name = {r.counterparty_name: r for r in result.items}
     tax, purchase = by_name["国家金库陕西省西咸新区支库"], by_name["供应商甲"]
-    assert (tax["category"], tax["invoice_requirement"]) == ("tax", "none")   # 无需发票
-    assert (purchase["category"], purchase["invoice_requirement"]) == ("purchase", "fetch")
-    # 既有字段不得改动（WorkBuddy 契约）
-    assert {"id", "trade_date", "amount", "direction", "status", "paired_invoice_id"} <= set(purchase)
+    assert (tax.category, tax.invoice_requirement) == ("tax", "none")   # 无需发票
+    assert (purchase.category, purchase.invoice_requirement) == ("purchase", "fetch")
+    # 既有字段不得改动（WorkBuddy 契约）：结构化输出后按模型字段集校验
+    assert {"id", "trade_date", "amount", "direction", "status", "paired_invoice_id"} <= set(purchase.model_dump())
 
 
 @pytest.mark.asyncio
