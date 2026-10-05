@@ -25,9 +25,11 @@ SCOPES: tuple[str, ...] = (
 )
 
 # 角色默认 scope 预设（UI 一键选择后可再微调）；admin 为全集
+# 修订（2026-10-05）：employee 去掉 receipt:read——回单在 REST/UI 均为财务专属，
+# 且回单是全公司数据、无按人收敛，员工持有该 scope 即可读到全公司回单（已复现）
 ROLE_DEFAULT_SCOPES: dict[str, tuple[str, ...]] = {
     "employee": (
-        "invoice:read", "invoice:write", "expense:read", "expense:write", "receipt:read",
+        "invoice:read", "invoice:write", "expense:read", "expense:write",
     ),
     "finance_staff": (
         "invoice:read", "invoice:write", "expense:read", "expense:write", "expense:approve",
@@ -51,6 +53,10 @@ class NoPrincipalError(ValueError):
 
 class ScopeDenied(ValueError):
     """令牌 scope 不足。继承 ValueError 以复用既有「工具抛错 → is_error」链路。"""
+
+
+class RoleDenied(ValueError):
+    """角色不满足工具要求（如员工调用财务专属工具）。与 ScopeDenied 同链路。"""
 
 
 @dataclass(frozen=True)
@@ -108,6 +114,47 @@ def requires(*scopes: str) -> Callable:
                     f"当前令牌缺少所需权限：{'、'.join(missing)}"
                     f"（令牌来源：{principal.source}）。"
                     "请在发票易「我的令牌」中重新签发包含该权限的令牌。"
+                )
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return deco
+
+
+# 角色中文名（拒绝文案用，与 Web 端菜单口径一致）
+_ROLE_ZH = {
+    "employee": "普通员工",
+    "finance_staff": "财务专员",
+    "finance_manager": "财务主管",
+    "admin": "系统管理员",
+}
+
+
+def requires_role(*roles: str) -> Callable:
+    """工具级角色门——与 @requires 并列的第二维（2026-10-05 修订）。
+
+    用于「REST 同功能为财务/管理专属」的工具：scope 只表达能力粒度，角色表达
+    数据归属——回单、发票修改等是全公司数据、无按人收敛，令牌即使被手工授予了
+    对应 scope，角色不符仍拒（防御纵深）。
+
+    应置于 @requires 外层（列在上方）：先给出「仅限财务」的清晰拒绝，
+    而不是误导性的"缺少 scope、请重新签发令牌"。
+    用法：
+        @requires_role("finance_staff", "finance_manager", "admin")
+        @requires("invoice:write")
+        def invoice_update(...): ...
+    """
+
+    def deco(fn: Callable) -> Callable:
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            principal = current_principal()
+            if principal.role not in roles:
+                allowed = "、".join(_ROLE_ZH.get(r, r) for r in roles)
+                raise RoleDenied(
+                    f"该操作仅限{allowed}"
+                    f"（当前角色：{_ROLE_ZH.get(principal.role, principal.role)}）。"
                 )
             return fn(*args, **kwargs)
 

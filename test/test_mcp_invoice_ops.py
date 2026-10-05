@@ -34,7 +34,7 @@ def _seed_invoice(db) -> Invoice:
     return inv
 
 
-def test_invoice_update_changes_fields_and_audits(db):
+def test_invoice_update_changes_fields_and_audits(db, mcp_admin_auth):
     inv = _seed_invoice(db)
     updated = invoice_update(
         invoice_id=inv.id,
@@ -50,7 +50,8 @@ def test_invoice_update_changes_fields_and_audits(db):
     logs = db.query(AuditLog).filter(AuditLog.action == "INVOICE_UPDATE").all()
     assert len(logs) == 1
     assert logs[0].channel == "mcp"
-    assert logs[0].user_id is None
+    # 2026-10-05 修订：MCP 已有身份体系，审计落到具体用户（此前恒 None 是旧残留）
+    assert logs[0].user_id == mcp_admin_auth.id
     assert "total_amount" in logs[0].detail["changed"]
 
 

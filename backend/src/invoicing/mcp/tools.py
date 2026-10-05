@@ -19,7 +19,7 @@ from invoicing.models import (
     Role,
     User,
 )
-from invoicing.mcp.identity import requires
+from invoicing.mcp.identity import requires, requires_role
 from invoicing.schemas.company_info import CompanyInfoOut, TAX_ID_PATTERN
 from invoicing.schemas.invoice import (
     InvoiceListResponse,
@@ -68,6 +68,7 @@ def _audit(db, action: str, *, invoice_id: int | None = None, detail: dict | Non
     )
 
 
+@requires_role("admin")
 @requires("invoice:write")
 def fetch_invoices(mailbox_id: int | None = None) -> PollResultOut:
     total = {"received": 0, "rejected_images": 0, "ignored": 0, "duplicates": 0, "errors": 0}
@@ -626,6 +627,7 @@ def _http_to_value_error(fn, *args, **kwargs):
         raise ValueError(str(e.detail)) from e
 
 
+@requires_role("finance_staff", "finance_manager", "admin")
 @requires("invoice:write")
 def invoice_update(
     invoice_id: int,
@@ -660,9 +662,11 @@ def invoice_update(
         review_note=review_note,
     )
     with SessionLocal() as db:
+        # 传真实用户（此前传 None 是 MCP 无身份时代的残留）：审计能回答「谁改的」。
+        # channel 必须显式给——服务层推断是「有 user → web」，不传会把 MCP 记成 web
         inv = _http_to_value_error(
-            services.update_invoice, db, None, invoice_id,
-            body.model_dump(exclude_none=True),
+            services.update_invoice, db, _current_user(db), invoice_id,
+            body.model_dump(exclude_none=True), channel="mcp",
         )
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
@@ -688,6 +692,7 @@ def invoice_unblock(invoice_id: int) -> InvoiceOut:
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
+@requires_role("finance_staff", "finance_manager", "admin")
 @requires("invoice:write")
 def invoice_classify(
     invoice_id: int,
@@ -720,6 +725,7 @@ def invoice_classify(
         return InvoiceOut.model_validate(inv, from_attributes=True)
 
 
+@requires_role("finance_staff", "finance_manager", "admin")
 @requires("invoice:write")
 def invoice_ai_review(invoice_id: int) -> InvoiceOut:
     """生成/重算发票复核预判（approve/reject/uncertain + 理由 + 置信度）。"""
@@ -894,6 +900,7 @@ def receipt_ingest(file_path: str) -> dict:
     }
 
 
+@requires_role("finance_staff", "finance_manager", "admin")
 @requires("receipt:read")
 def receipt_upload_status(upload_id: int) -> dict:
     """回单上传批次解析状态（receipt_ingest 异步模式的配套轮询工具）。"""
@@ -911,6 +918,7 @@ def receipt_upload_status(upload_id: int) -> dict:
         }
 
 
+@requires_role("finance_staff", "finance_manager", "admin")
 @requires("receipt:read")
 def receipt_list(month: str) -> ReceiptListResponse:
     """回单清单（P3/R1）：month=YYYY-MM。

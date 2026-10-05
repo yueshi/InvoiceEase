@@ -38,9 +38,12 @@ def test_scopes_and_role_presets_are_consistent():
     for role, scopes in ident.ROLE_DEFAULT_SCOPES.items():
         assert set(scopes) <= set(ident.SCOPES), f"{role} 引用了未定义的 scope"
     assert set(ident.ROLE_DEFAULT_SCOPES["admin"]) == set(ident.SCOPES)
-    # 员工不应拿到审批与删除类权限
+    # 员工不应拿到审批与删除类权限；receipt:read 亦为财务专属
+    # （回单无按人收敛，2026-10-05 修订：员工曾经此读到全公司回单）
     emp = set(ident.ROLE_DEFAULT_SCOPES["employee"])
-    assert not emp & {"expense:approve", "invoice:admin", "masterdata:write"}
+    assert not emp & {"expense:approve", "invoice:admin", "masterdata:write", "receipt:read"}
+    # 防过度收窄：财务侧回单读取必须保留
+    assert "receipt:read" in ident.ROLE_DEFAULT_SCOPES["finance_staff"]
 
 
 def test_current_principal_requires_auth_context():

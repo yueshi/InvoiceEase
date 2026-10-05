@@ -179,7 +179,8 @@ def test_write_audit_records_subject(db, users, mcp_auth):
     from invoicing.models import AuditLog
     from invoicing.mcp import tools as mt
 
-    mcp_auth(users["emp"], scopes=("invoice:read", "invoice:write"), token_id=77)
+    # 收票为管理员专属（2026-10-05 角色门），审计主体验证改用管理员身份
+    mcp_auth(users["admin"], scopes=("invoice:read", "invoice:write"), token_id=77)
     mt.fetch_invoices(mailbox_id=None)  # 无邮箱 → 空转，但审计照写
 
     log = (
@@ -189,7 +190,7 @@ def test_write_audit_records_subject(db, users, mcp_auth):
         .first()
     )
     assert log is not None
-    assert log.user_id == users["emp"].id  # 主体落到人
+    assert log.user_id == users["admin"].id  # 主体落到人
     assert log.detail["token_id"] == 77  # 以及"用哪个令牌"
     assert log.detail["token_source"] == "token"
     assert log.detail["tenant_id"] == "default"
@@ -212,6 +213,50 @@ def test_audit_records_legacy_source(db, users, mcp_auth):
     assert log.user_id == users["admin"].id
     assert log.detail["token_source"] == "legacy"
     assert log.detail["token_id"] is None
+
+
+# ---- 角色门：REST 财务/管理员专属的操作，Agent/令牌同口径（2026-10-05 修订）----
+
+
+def test_employee_cannot_call_finance_only_tools(db, users, mcp_auth):
+    """员工身份调财务专属工具 → 角色门拒绝（与 REST 的 require_role 口径一致）。
+
+    背景：员工 scope 预设曾含 receipt:read / invoice:write，而回单无按人收敛
+    （全公司数据）、invoice_update 直取任意 id——员工经 Web 助手可读全公司
+    回单、改任意发票。修复 = 预设收窄 + 工具级角色门（本用例守后者）。
+    """
+    from invoicing.mcp import tools as mt
+    from invoicing.mcp.identity import RoleDenied
+
+    others = _invoice(db, "24312000000000000201", users["emp2"].id)  # 同事的票
+    mcp_auth(users["emp"])
+
+    with pytest.raises(RoleDenied):
+        mt.receipt_list(month="2026-06")
+    with pytest.raises(RoleDenied):
+        mt.receipt_upload_status(1)
+    with pytest.raises(RoleDenied):
+        mt.invoice_update(others.id, review_note="篡改")
+    with pytest.raises(RoleDenied):
+        mt.invoice_classify(others.id, expense_type="other")
+    with pytest.raises(RoleDenied):
+        mt.invoice_ai_review(others.id)
+    with pytest.raises(RoleDenied):
+        mt.fetch_invoices()
+
+
+def test_finance_can_call_finance_tools(db, users, mcp_auth):
+    """财务身份不被误伤：回单可读、发票可改；管理员可触发收票。"""
+    from invoicing.mcp import tools as mt
+
+    own = _invoice(db, "24312000000000000202", users["fin"].id)
+
+    mcp_auth(users["fin"])
+    assert mt.receipt_list(month="2026-06").items == []
+    assert mt.invoice_classify(own.id, expense_type="travel").id == own.id
+
+    mcp_auth(users["admin"])
+    assert mt.fetch_invoices().received == 0  # 无邮箱配置：可执行即算通过
 
 
 # ---- 覆盖性：39 个工具一个都不能漏 ------------------------------------------
