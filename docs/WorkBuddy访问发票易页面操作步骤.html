@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票易 · 在 WorkBuddy 中访问 Web 页面操作步骤</title>
+<style>
+  :root { --ink:#1f2937; --sub:#6b7280; --line:#e5e7eb; --blue:#2563eb; --blue-bg:#eff6ff;
+          --green:#059669; --green-bg:#ecfdf5; --amber:#d97706; --amber-bg:#fffbeb;
+          --gray:#6b7280; --gray-bg:#f3f4f6; --red:#dc2626; --red-bg:#fef2f2; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f6f7f9;
+         color:var(--ink); line-height:1.7; padding:32px 16px 64px; }
+  .wrap { max-width:980px; margin:0 auto; }
+  header { background:linear-gradient(135deg,#1e3a8a,#2563eb); color:#fff; border-radius:14px;
+           padding:28px 32px; margin-bottom:24px; }
+  header h1 { font-size:24px; }
+  header p { margin-top:6px; font-size:13px; opacity:.9; }
+  h2 { font-size:18px; margin:32px 0 12px; padding-left:10px; border-left:4px solid var(--blue); }
+  h3 { font-size:15px; margin:18px 0 8px; color:#374151; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px 22px; margin-bottom:14px; }
+  pre { background:#f3f4f6; border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12.5px;
+        font-family:"SF Mono",Menlo,monospace; margin:10px 0; }
+  code { background:#f3f4f6; border-radius:4px; padding:1px 5px; font-size:12.5px; font-family:"SF Mono",Menlo,monospace; }
+  .tag { display:inline-block; border-radius:6px; padding:1px 8px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .tag.blue { background:var(--blue-bg); color:var(--blue); }
+  .tag.green { background:var(--green-bg); color:var(--green); }
+  .tag.amber { background:var(--amber-bg); color:var(--amber); }
+  .tag.gray { background:var(--gray-bg); color:var(--gray); }
+  .tag.red { background:var(--red-bg); color:var(--red); }
+  .note { background:var(--amber-bg); border-left:3px solid var(--amber); border-radius:8px; padding:10px 14px; font-size:13px; margin:10px 0; }
+  .ok { background:var(--green-bg); border-left:3px solid var(--green); border-radius:8px; padding:10px 14px; font-size:13px; margin:10px 0; }
+  .warn { background:var(--red-bg); border-left:3px solid var(--red); border-radius:8px; padding:10px 14px; font-size:13px; margin:10px 0; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top; }
+  th { background:#f9fafb; }
+  ol,ul { padding-left:22px; }
+  li { margin:4px 0; }
+  .step { display:inline-block; width:22px; height:22px; line-height:22px; text-align:center; border-radius:50%;
+          background:var(--blue); color:#fff; font-size:12.5px; font-weight:700; margin-right:6px; }
+  footer { margin-top:36px; font-size:12.5px; color:var(--sub); text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>在 WorkBuddy 中访问发票易 Web 页面 · 操作步骤</h1>
+  <p>一次性免登深链（web_url）机制 · 2026-10-05 · 关联设计：design/2026-10-03-Agent跳转Web后台-深链与免登票据设计.md</p>
+</header>
+
+<h2>一、机制一句话</h2>
+<div class="card">
+  <p>Agent 调用发票易 MCP 工具时，工具出参会附带一个<b>已筛选好的页面链接</b>（<code>web_url</code>，内含一次性免登票据），
+  在 WorkBuddy 回复里点开即直达 Web 后台对应页面，<b>未登录浏览器也免登录</b>。</p>
+  <pre>{web_base_url}/invoices?status=pending_review&amp;ticket=&lt;一次性票据&gt;</pre>
+  <p style="color:var(--sub);font-size:13px">票据：一次性（用过即废）、默认 480 分钟有效、绑定签发时的用户身份；兑换后签发的是该用户的普通会话，<b>不放大任何权限</b>。</p>
+</div>
+
+<h2>二、一次性配置（4 步）</h2>
+
+<div class="card">
+  <h3><span class="step">1</span>后端与 Web 启动 + 配置后台地址</h3>
+  <pre>cd backend &amp;&amp; uv run uvicorn invoicing.main:app --reload   # 后端 :8000
+cd web &amp;&amp; npm run dev                                      # Web :5173</pre>
+  <p>在 <code>backend/.env</code> 配置 Web 后台对外地址（<b>空 = 不产出链接</b>）：</p>
+  <pre>INVOICING_WEB_BASE_URL=http://localhost:5173</pre>
+  <table>
+    <tr><th>使用场景</th><th>填写值</th></tr>
+    <tr><td>只在本机浏览器点开</td><td><code>http://localhost:5173</code></td></tr>
+    <tr><td>手机 / 微信 / 别的电脑点开（企业内网）</td><td><code>http://&lt;本机局域网IP&gt;:5173</code>，且 Web 以 <code>npm run dev -- --host</code> 启动</td></tr>
+    <tr><td>生产部署</td><td>后台对外域名，如 <code>https://invoice.example.com</code></td></tr>
+  </table>
+  <div class="note">修改 .env 后<b>必须重启后端</b>（配置只在进程启动时加载一次）。可选：<code>INVOICING_WEB_TICKET_TTL_MINUTES=480</code> 调整票据有效期，<code>0</code>=关闭免登（链接仍产出，但落登录页）。</div>
+</div>
+
+<div class="card">
+  <h3><span class="step">2</span>签发个人令牌（Web 后台）</h3>
+  <ol>
+    <li>登录 Web 后台 → 侧栏底部「<b>令牌管理</b>」→ 签发新令牌</li>
+    <li>名称如「WorkBuddy-张三」；权限点<b>按角色一键填充</b>；有效期建议 90 天</li>
+    <li><b>当场复制明文令牌</b>——只显示一次，关掉后不可再查看</li>
+  </ol>
+  <div class="note">开发环境可临时用 <code>.env</code> 里的 <code>INVOICING_MCP_TOKEN</code>（内建管理员令牌）快速验证；
+  生产已默认关闭该通道，<b>必须用个人令牌</b>——Agent 以令牌归属人的身份与数据范围执行（员工只看得到自己的票）。</div>
+</div>
+
+<div class="card">
+  <h3><span class="step">3</span>WorkBuddy 注册发票易 MCP</h3>
+  <p>编辑 <code>~/.workbuddy/mcp.json</code>，与既有 mcpServers 合并：</p>
+  <pre>{
+  "mcpServers": {
+    "invoice-ease": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": { "Authorization": "Bearer &lt;第 2 步复制的令牌明文&gt;" }
+    }
+  }
+}</pre>
+  <ul>
+    <li>WorkBuddy 不在本机时，<code>url</code> 换成 <code>http://&lt;服务器IP&gt;:8000/mcp</code></li>
+    <li>配置格式以 WorkBuddy 平台实际支持的字段为准（以其 UI/文档校正）</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3><span class="step">4</span>导入 Skill 话术（让 Agent 主动附链接）</h3>
+  <pre>mkdir -p ~/.workbuddy/skills/invoice-auto-collect
+cp docs/workbuddy-skill/SKILL.md ~/.workbuddy/skills/invoice-auto-collect/</pre>
+  <p>SKILL.md 内含「页面跳转（web_url）」条款：Agent 必须在汇总结论后附「🔗 去后台处理」链接，
+  且不得改写/截断链接参数。不导入则 Agent 可能拿到 <code>web_url</code> 也不展示。</p>
+</div>
+
+<h2>三、日常使用（每次访问页面）</h2>
+<div class="card">
+  <ol>
+    <li>在 WorkBuddy 对话里正常提问，例如：<br>
+      「<b>看看待复核的发票</b>」「<b>本月成本多少，出个图</b>」「<b>我有哪些报销单在审批中</b>」</li>
+    <li>Agent 调 MCP 工具取数，回复结论后附一行链接：<b>🔗 去后台处理</b></li>
+    <li>点击链接 → 浏览器直达<b>已筛选好的页面</b>：
+      <ul>
+        <li>未登录 → 自动兑换票据进入（免登）</li>
+        <li>已有登录会话 → 不兑换，剥掉票据直接进目标页</li>
+        <li>票据过期/已用过 → 落登录页并提示「登录链接已失效，请重新登录」</li>
+      </ul></li>
+  </ol>
+  <p style="margin-top:8px">地址栏里的 <code>ticket</code> 会被自动剥离，不残留、不随页面转发。</p>
+</div>
+
+<div class="card">
+  <h3>哪些工具会带页面链接</h3>
+  <table>
+    <tr><th>工具</th><th>点开后落到</th></tr>
+    <tr><td><code>invoice_list</code></td><td>发票列表（回填本次筛选条件，如状态/关键词）</td></tr>
+    <tr><td><code>invoice_detail</code></td><td>发票列表并自动打开该张详情抽屉</td></tr>
+    <tr><td><code>expense_list</code></td><td>报销管理，逐条附对应报销单深链</td></tr>
+    <tr><td><code>receipt_list</code></td><td><span class="tag amber">暂未附</span>回单深链为 P1 遗留项</td></tr>
+  </table>
+  <div class="note">深链口径：带业务参数的链接默认按<b>全部时间</b>查询（Agent 场景常跨月），避免点开是空的。</div>
+</div>
+
+<h2>四、自检与排查</h2>
+<div class="card">
+  <h3>快速自检（后端本机执行）</h3>
+  <pre>cd backend
+uv run python -c "
+from invoicing.web_links import web_link
+print(web_link('/invoices', user_id=1, status='pending_review'))"</pre>
+  <p>打印出带 <code>ticket=</code> 的完整链接 = 配置生效；输出 <code>None</code> = <code>INVOICING_WEB_BASE_URL</code> 未配置或后端未重启。</p>
+</div>
+
+<div class="card">
+  <h3>排查表</h3>
+  <table>
+    <tr><th>现象</th><th>原因与处置</th></tr>
+    <tr><td>Agent 回复里没有链接</td><td>① <code>web_base_url</code> 为空 → 配置并重启；② Skill 未导入 → 做配置第 4 步；③ 该工具本就不附链接（见上表）</td></tr>
+    <tr><td>点击后要求登录</td><td>票据超过 480 分钟、或已被点击过（一次性）→ 重新问一次 Agent 获取新链接，或在登录页正常登录</td></tr>
+    <tr><td>提示「登录链接已失效」</td><td>同上，属预期降级；登录页保留 redirect，登录后仍回目标页</td></tr>
+    <tr><td>本机能点、手机/微信点不开</td><td><code>web_base_url</code> 是 <code>localhost</code>，只解析于本机 → 换局域网 IP 或域名，Web 加 <code>--host</code> 启动</td></tr>
+    <tr><td>Agent 报 401 / 工具被拒</td><td>令牌过期/被撤销/归属人被暂停；或令牌 scope 不含该工具所需权限 → 到「令牌管理」核对重签</td></tr>
+    <tr><td>点开是登录页且无 expired 提示</td><td>正常冷启动（无票据直达）→ 登录即可</td></tr>
+  </table>
+</div>
+
+<h2>五、安全边界（必读）</h2>
+<div class="card">
+  <ul>
+    <li><b>链接 = 一次性会话入口</b>：点开即以其归属人身份进入。请勿转发到群/朋友圈；转发等于把登录入口给人。</li>
+    <li>未被点击前，票据在有效期内可被他人使用——企业内网 + 全量审计（LOGIN / web_link 渠道）兜底；需要更严就把 TTL 调小。</li>
+    <li>进入后台后一切照旧走 RBAC：数据范围、操作权限与该用户账号完全一致，票据不会多给一分权限。</li>
+    <li>票据原文不落审计日志；链接本身请当作敏感信息对待。</li>
+  </ul>
+</div>
+
+<footer>发票易 docs/WorkBuddy访问发票易页面操作步骤.html · 2026-10-05 · 本机已验证：链接生成 / 票据兑换 200 / 重放 401 / MCP 出参带 web_url</footer>
+</div>
+</body>
+</html>
