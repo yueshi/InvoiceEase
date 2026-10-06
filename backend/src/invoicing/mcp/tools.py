@@ -90,6 +90,53 @@ def permissions_of(registered_name: str) -> tuple[frozenset[str], tuple[str, ...
     )
 
 
+def _registered_tool_names() -> list[str]:
+    """全部已声明权限的工具（注册名）：模块内省 + 别名反查。
+
+    与真实注册的一致性由 test_mcp_permissions 核对（_impl_of 逐名比对）。
+    """
+    import sys
+
+    from invoicing.mcp import extract as extract_mod
+
+    reverse = {v: k for k, v in _REGISTERED_ALIASES.items()}
+    names: list[str] = []
+    for mod in (sys.modules[__name__], extract_mod):
+        for obj in vars(mod).values():
+            if callable(obj) and hasattr(obj, "__requires_scopes__"):
+                names.append(reverse.get(obj.__name__, obj.__name__))
+    return sorted(names)
+
+
+@requires()
+def my_permissions() -> dict:
+    """当前令牌的身份与操作范围（只读、只返回自己）。
+
+    @requires() 空声明 = 认证即可调（自身信息无权限门槛）。
+    Web 助手的工具清单在调用前按权限过滤；MCP 侧（WorkBuddy）没有这一步，
+    Agent 用本工具即可在调用前知道边界，排障时也能回答「这个令牌能干嘛」。
+    """
+    from invoicing.mcp.identity import current_principal, role_label
+
+    p = current_principal()
+    allowed: list[str] = []
+    for name in _registered_tool_names():
+        need_scopes, need_roles = permissions_of(name)
+        if need_scopes <= p.scopes and (not need_roles or p.role in need_roles):
+            allowed.append(name)
+    return {
+        "username": p.username,
+        "role": p.role,
+        "role_label": role_label(p.role),
+        "tenant_id": p.tenant_id,
+        "token_source": p.source,
+        "scopes": sorted(p.scopes),
+        # 数据范围与 scoped_invoices/报销服务同口径：员工仅本人，财务+全公司
+        "data_scope": "本人" if p.role == "employee" else "全公司",
+        "tools": allowed,
+    }
+
+
 def _audit(db, action: str, *, invoice_id: int | None = None, detail: dict | None = None):
     """MCP 审计：**带上主体**（谁、用哪个令牌、哪个租户）。
 

@@ -284,10 +284,31 @@ def test_agent_tool_list_filtered_by_permissions(db, users):
     assert not {"invoice_fetch", "invoice_delete"} & fin_tools
 
     # 管理员：全集
-    assert len(adm_tools) == 39
+    assert len(adm_tools) == 40
 
 
-# ---- 覆盖性：39 个工具一个都不能漏 ------------------------------------------
+def test_my_permissions_reports_own_scope(db, users, mcp_auth):
+    """my_permissions：只返回自己的身份与操作范围（随令牌/角色收敛）。"""
+    from invoicing.mcp import tools as mt
+
+    mcp_auth(users["emp"])
+    emp = mt.my_permissions()
+    assert emp["username"] == "emp"
+    assert (emp["role"], emp["role_label"]) == ("employee", "普通员工")
+    assert emp["data_scope"] == "本人"
+    assert "receipt:read" not in emp["scopes"]
+    assert "receipt_list" not in emp["tools"]      # 财务专属不可见
+    assert "invoice_list" in emp["tools"]          # 合法能力在
+    assert "my_permissions" in emp["tools"]        # 自身信息工具人人可调
+
+    mcp_auth(users["fin"])
+    fin = mt.my_permissions()
+    assert fin["data_scope"] == "全公司"
+    assert "receipt:read" in fin["scopes"]
+    assert "receipt_list" in fin["tools"]
+
+
+# ---- 覆盖性：40 个工具一个都不能漏 ------------------------------------------
 
 
 def test_every_registered_tool_declares_scope():
@@ -303,7 +324,7 @@ def test_every_registered_tool_declares_scope():
     server = build_server()
     tools = asyncio.run(server.list_tools())
     names = {t.name for t in tools}
-    assert len(names) == 39, f"工具数变化（{len(names)}），请同步更新设计附录 A"
+    assert len(names) == 40, f"工具数变化（{len(names)}），请同步更新设计附录 A"
 
     from invoicing.mcp import extract as mt_extract
     from invoicing.mcp import tools as mt
@@ -349,6 +370,7 @@ def test_every_registered_tool_declares_scope():
         "receipt_pair": mt.receipt_pair,
         "receipt_report": mt.receipt_report,
         "invoice_health_report": mt.invoice_health_report,
+        "my_permissions": mt.my_permissions,
     }
     assert set(impl_map) == names, (
         f"注册名与实现映射不一致：注册多出 {names - set(impl_map)}，映射多出 {set(impl_map) - names}"
@@ -362,3 +384,6 @@ def test_every_registered_tool_declares_scope():
     # 别名表漂移会让过滤放行/误藏错误的对象，这里逐名核对到函数本体
     for reg, fn in impl_map.items():
         assert mt._impl_of(reg) is fn, f"{reg} 的过滤解析指向了错误的实现函数"
+
+    # my_permissions 的清单（尽举已声明权限的工具）必须与真实注册一致
+    assert set(mt._registered_tool_names()) == names

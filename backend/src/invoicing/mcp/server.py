@@ -1,5 +1,5 @@
 # invoicing/mcp/server.py
-"""MCP Server 装配：39 个 Tool 注册 + 认证链路。
+"""MCP Server 装配：40 个 Tool 注册 + 认证链路。
 
 认证交给 SDK 内置栈（`auth=AuthSettings` + `token_verifier`）：
 `AuthenticationMiddleware` → `AuthContextMiddleware` → `RequireAuthMiddleware`，
@@ -253,6 +253,11 @@ def build_server() -> MCPServer:
     @server.tool(description="月度健康报告（收票/验真/异常/成本/无票/数字员工改判，month 格式 YYYY-MM）。")
     def invoice_health_report(month: str) -> str:
         return mcp_tools.invoice_health_report(month)
+
+    # 自身信息（无权限门槛）：Agent 调用前先查边界，或排障「这个令牌能干嘛」
+    @server.tool(description="查看当前令牌的身份与操作范围：持有权限（scopes）、数据范围（本人/全公司）、可调用的工具清单。工具被拒等权限问题先用本工具排查。")
+    def my_permissions() -> dict:
+        return mcp_tools.my_permissions()
 
     return server
 

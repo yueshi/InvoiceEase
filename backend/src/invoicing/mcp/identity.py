@@ -14,7 +14,8 @@ import functools
 from dataclasses import dataclass
 from typing import Callable
 
-# 13 个 scope 覆盖 39 个工具（映射表见设计文档附录 A）
+# 13 个 scope 覆盖 39 个业务工具（映射表见设计文档附录 A）；
+# 另 my_permissions 为自身信息查询，无 scope 要求（认证即可）
 SCOPES: tuple[str, ...] = (
     "invoice:read", "invoice:write", "invoice:admin",
     "expense:read", "expense:write", "expense:approve",
@@ -132,6 +133,11 @@ _ROLE_ZH = {
 }
 
 
+def role_label(role: str) -> str:
+    """角色中文名（拒绝文案与 my_permissions 出参共用）。"""
+    return _ROLE_ZH.get(role, role)
+
+
 def requires_role(*roles: str) -> Callable:
     """工具级角色门——与 @requires 并列的第二维（2026-10-05 修订）。
 
@@ -152,10 +158,10 @@ def requires_role(*roles: str) -> Callable:
         def wrapper(*args, **kwargs):
             principal = current_principal()
             if principal.role not in roles:
-                allowed = "、".join(_ROLE_ZH.get(r, r) for r in roles)
+                allowed = "、".join(role_label(r) for r in roles)
                 raise RoleDenied(
                     f"该操作仅限{allowed}"
-                    f"（当前角色：{_ROLE_ZH.get(principal.role, principal.role)}）。"
+                    f"（当前角色：{role_label(principal.role)}）。"
                 )
             return fn(*args, **kwargs)
 
