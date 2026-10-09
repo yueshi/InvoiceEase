@@ -30,11 +30,20 @@ def users(db):
 
 
 def _invoice(db, number="24312000000012345678", **kw):
+    # P0-1：validate_expense 需 amount_without_tax + tax_amount = total_amount；
+    # helper 默认按 100 / 0 / 100 设置，让 tax_sum 通过。
+    # 若调用方覆盖 total_amount 但没覆盖 tax 字段，按 total = amount_without_tax 同步
+    # （保持价税合计通过，简化测试 setup）。
+    total = kw.get("total_amount", Decimal("100.00"))
+    no_tax = kw.get("amount_without_tax", total)
+    tax = kw.get("tax_amount", Decimal("0"))
     inv = Invoice(
         file_url=f"{number}.xml", file_type="XML", invoice_number=number,
         status=kw.get("status", "pending_submit"),
         verify_status=kw.get("verify_status", "passed"),
-        total_amount=kw.get("total_amount", Decimal("100.00")),
+        total_amount=total,
+        amount_without_tax=no_tax,
+        tax_amount=tax,
         issue_date=kw.get("issue_date", date(2026, 6, 1)),
         user_id=kw.get("user_id"),
         seller_name=kw.get("seller_name", "某某公司"),

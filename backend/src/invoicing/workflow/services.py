@@ -655,6 +655,7 @@ def validate_expense(db: Session, claim) -> "ValidationResult":
     _add(_check_amount(claim.total_amount))
 
     # 2. 价税合计：聚合 claim 下 items 关联的 invoice 的 (amount_without_tax, tax_amount)
+    # 仅有发票支撑的 item 才计入；纯补助（auto_rule）项不参与（spec §4.4 凭证齐全只验发票）
     inv_ids = (
         db.query(ExpenseItem.invoice_id)
         .filter(ExpenseItem.claim_id == claim.id, ExpenseItem.invoice_id.isnot(None))
@@ -670,11 +671,8 @@ def validate_expense(db: Session, claim) -> "ValidationResult":
         )
         agg_no_tax = sum((r[0] or Decimal("0")) for r in agg_rows)
         agg_tax = sum((r[1] or Decimal("0")) for r in agg_rows)
-    else:
-        agg_no_tax = Decimal("0")
-        agg_tax = Decimal("0")
-    _add(_check_tax_sum(total=claim.total_amount,
-                         without_tax=agg_no_tax, tax=agg_tax))
+        _add(_check_tax_sum(total=claim.total_amount,
+                             without_tax=agg_no_tax, tax=agg_tax))
 
     # 3. 跨票号重复
     errors.extend(_check_cross_duplicate(db, claim))
