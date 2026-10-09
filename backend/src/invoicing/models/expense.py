@@ -70,6 +70,8 @@ class ExpenseClaim(Base):
     claim_type: Mapped[str] = mapped_column(
         String(32), nullable=False, default=EntryType.OTHER, server_default="other"
     )
+    # 部门（v1.1 §4.3 + P0-1 budget check 配套；P0-1 新增；历史行 backfill=空串）
+    dept: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     total_amount: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
     status: Mapped[str] = mapped_column(
         String(24), nullable=False, default=ExpenseClaimStatus.DRAFT
