@@ -214,3 +214,49 @@ def test_check_vouchers_entry_without_item(db):
     db.commit()
     errs = _check_vouchers(db, claim)
     assert any(e.code == "MISSING_VOUCHER" for e in errs)
+
+
+# ===== _check_budget =====
+
+def test_check_budget_within(db):
+    from invoicing.models.budget import Budget
+    from invoicing.workflow.services import _check_budget
+    db.add(Budget(tenant_id="t1", dept="eng", category="travel",
+                  period="2026-10", amount=Decimal("5000")))
+    db.commit()
+    errs = _check_budget(db, tenant_id="t1", dept="eng",
+                         category="travel", period="2026-10", amount=Decimal("3000"))
+    assert errs == []
+
+
+def test_check_budget_over(db):
+    from invoicing.models.budget import Budget
+    from invoicing.workflow.services import _check_budget
+    db.add(Budget(tenant_id="t1", dept="eng", category="travel",
+                  period="2026-10", amount=Decimal("1000")))
+    db.commit()
+    errs = _check_budget(db, tenant_id="t1", dept="eng",
+                         category="travel", period="2026-10", amount=Decimal("3000"))
+    assert any(e.code == "OVER_BUDGET" and e.severity == "error" for e in errs)
+
+
+def test_check_budget_no_config_warning(db):
+    """无预算配置 → warning（不 fail，spec §4.2 边界）。"""
+    from invoicing.workflow.services import _check_budget
+    errs = _check_budget(db, tenant_id="t1", dept="eng",
+                         category="travel", period="2026-10", amount=Decimal("100"))
+    assert any(
+        e.severity == "warning" and e.code == "NO_BUDGET_CONFIGURED" for e in errs
+    )
+
+
+def test_check_budget_exact_boundary_ok(db):
+    """金额正好等于预算 → 通过。"""
+    from invoicing.models.budget import Budget
+    from invoicing.workflow.services import _check_budget
+    db.add(Budget(tenant_id="t1", dept="eng", category="travel",
+                  period="2026-10", amount=Decimal("3000")))
+    db.commit()
+    errs = _check_budget(db, tenant_id="t1", dept="eng",
+                         category="travel", period="2026-10", amount=Decimal("3000"))
+    assert errs == []

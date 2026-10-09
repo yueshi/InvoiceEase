@@ -592,3 +592,43 @@ def _check_vouchers(db: Session, claim) -> list:
                 severity="error",
             ))
     return errs
+
+
+def _check_budget(db: Session, *, tenant_id: str, dept: str | None,
+                  category: str, period: str, amount: Decimal) -> list:
+    """v1.1 §4.3 金额阈值节点 + §9.6 预算：超额 FAIL；无预算配置 warning；缺 dept warning。
+
+    ponytail: dept=NULL（历史数据）→ NO_DEPT warning（不阻塞，等运维补 dept）。
+    """
+    from invoicing.workflow.validation import ValidationError
+    from invoicing.workflow.budget_service import query_budget, check_available
+
+    errs: list = []
+    if not dept:
+        errs.append(ValidationError(
+            code="NO_DEPT",
+            message="报销单缺部门字段，无法做预算检查（spec §4.3）",
+            severity="warning",
+        ))
+        # 缺 dept 时跳过 budget check（不阻塞）
+        return errs
+
+    view = query_budget(db, tenant_id=tenant_id, dept=dept,
+                         category=category, period=period)
+    if view.allocated == 0:
+        errs.append(ValidationError(
+            code="NO_BUDGET_CONFIGURED",
+            message=f"未配置 (dept={dept}, category={category}, period={period}) 预算，建议复核",
+            severity="warning",
+        ))
+        return errs
+
+    check = check_available(db, tenant_id=tenant_id, dept=dept,
+                            category=category, period=period, amount=amount)
+    if not check.available:
+        errs.append(ValidationError(
+            code="OVER_BUDGET",
+            message=f"金额 {amount} 超预算剩余 {check.remaining}，超出 {check.overage}",
+            severity="error",
+        ))
+    return errs
