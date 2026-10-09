@@ -1,4 +1,5 @@
 # workflow/services.py
+from decimal import Decimal
 from enum import Enum
 
 from sqlalchemy import or_
@@ -468,3 +469,39 @@ def delete_invoice(db: Session, current_user: User | None, invoice_id: int, *, c
     db.delete(inv)
     db.commit()
     return {"ok": True}
+
+
+# ===== P0-1 validate_expense 子函数（v1.1 §4.1-4.4 检查项） =====
+# ponytail: 此节是 P0-1 阶段逐步累加的 6 个 _check_* 函数 + validate_expense 聚合。
+# 加新 check 时遵循"小写 _check_ 开头、返回 list[ValidationError]、error/warning 二级"约定。
+
+def _check_amount(amount: Decimal, threshold: Decimal | None = None) -> list:
+    """金额合规：> 0、≤ 阈值；阈值边界给 warning（v1.1 §4.2 边界 → 转人工）。
+
+    入参 amount / threshold 都用 Decimal；threshold 不传时取 settings.large_amount_threshold。
+    """
+    from invoicing.workflow.validation import ValidationError
+    from invoicing.config import settings as _settings
+
+    threshold = threshold if threshold is not None else _settings.large_amount_threshold
+    errs = []
+    if amount <= _settings.amount_floor:
+        errs.append(ValidationError(
+            code="AMOUNT_NOT_POSITIVE",
+            message=f"金额 {amount} 必须大于 {_settings.amount_floor}",
+            severity="error",
+        ))
+        return errs
+    if amount > threshold:
+        errs.append(ValidationError(
+            code="AMOUNT_TOO_LARGE",
+            message=f"金额 {amount} 超过大额阈值 {threshold}",
+            severity="error",
+        ))
+    elif amount == threshold:
+        errs.append(ValidationError(
+            code="AMOUNT_AT_THRESHOLD",
+            message=f"金额正好等于大额阈值 {threshold}，需人工复核",
+            severity="warning",
+        ))
+    return errs
