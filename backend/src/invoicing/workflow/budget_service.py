@@ -61,3 +61,41 @@ def check_available(db, *, tenant_id: str, dept: str, category: str,
         remaining=view.available,
         overage=-remaining if remaining < 0 else Decimal("0"),
     )
+
+
+# ===== MCP 工具（v1.1 §5.2 预算服务MCP） =====
+# ponytail: 当前实现为 thin wrapper；后续可拆到 mcp/budget.py 独立模块。
+
+_DEFAULT_TENANT = "default"
+
+
+def _current_period() -> str:
+    from datetime import date
+    today = date.today()
+    return f"{today.year:04d}-{today.month:02d}"
+
+
+def query_budget_mcp(db, *, dept: str, category: str,
+                     period: str | None = None) -> dict:
+    """MCP 工具：查询预算（v1.1 §5.2 预算服务MCP）。"""
+    v = query_budget(db, tenant_id=_DEFAULT_TENANT, dept=dept,
+                     category=category, period=period or _current_period())
+    return {
+        "allocated": str(v.allocated),
+        "used": str(v.used),
+        "available": str(v.available),
+    }
+
+
+def check_budget_available_mcp(db, *, dept: str, category: str,
+                                amount: Decimal,
+                                period: str | None = None) -> dict:
+    """MCP 工具：检查预算是否可承担金额（v1.1 §5.2 预算服务MCP）。"""
+    r = check_available(db, tenant_id=_DEFAULT_TENANT, dept=dept,
+                        category=category, period=period or _current_period(),
+                        amount=Decimal(str(amount)))
+    return {
+        "available": r.available,
+        "remaining": str(r.remaining),
+        "overage": str(r.overage),
+    }
