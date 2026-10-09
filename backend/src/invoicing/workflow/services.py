@@ -505,3 +505,21 @@ def _check_amount(amount: Decimal, threshold: Decimal | None = None) -> list:
             severity="warning",
         ))
     return errs
+
+
+def _check_tax_sum(*, total: Decimal, without_tax: Decimal, tax: Decimal) -> list:
+    """价税合计勾稽：total = without_tax + tax；容差 settings.tax_sum_tolerance（v1.1 §4.1）。
+
+    全部入参用 Decimal；零值算 OK（无税或空单据）。
+    """
+    from invoicing.workflow.validation import ValidationError
+    from invoicing.config import settings as _settings
+
+    diff = abs(total - (without_tax + tax))
+    if diff > _settings.tax_sum_tolerance:
+        return [ValidationError(
+            code="TAX_SUM_MISMATCH",
+            message=f"价税合计 {total} ≠ 不含税 {without_tax} + 税额 {tax}，差 {diff}",
+            severity="error",
+        )]
+    return []
