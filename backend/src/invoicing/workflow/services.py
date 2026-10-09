@@ -632,3 +632,76 @@ def _check_budget(db: Session, *, tenant_id: str, dept: str | None,
             severity="error",
         ))
     return errs
+
+
+def validate_expense(db: Session, claim) -> "ValidationResult":
+    """v1.1 §5.2 验证服务 MCP 出参：6 项检查聚合（spec §4.4 自动化决策清单）。
+
+    规则（v1.1 §2.x）：
+    - 任一 error → outcome=FAIL
+    - 仅 warning → outcome=NEEDS_REVIEW
+    - 全通过 → outcome=PASS
+    """
+    from invoicing.workflow.validation import ValidationResult, ValidationError, ValidationOutcome
+
+    errors: list = []
+    warnings: list = []
+
+    def _add(errs):
+        for e in errs:
+            (errors if e.severity == "error" else warnings).append(e)
+
+    # 1. 金额合规（claim.total_amount）
+    _add(_check_amount(claim.total_amount))
+
+    # 2. 价税合计：聚合 claim 下 items 关联的 invoice 的 (amount_without_tax, tax_amount)
+    inv_ids = (
+        db.query(ExpenseItem.invoice_id)
+        .filter(ExpenseItem.claim_id == claim.id, ExpenseItem.invoice_id.isnot(None))
+        .distinct()
+        .all()
+    )
+    inv_id_set = {row[0] for row in inv_ids if row[0] is not None}
+    if inv_id_set:
+        agg_rows = (
+            db.query(Invoice.amount_without_tax, Invoice.tax_amount)
+            .filter(Invoice.id.in_(inv_id_set))
+            .all()
+        )
+        agg_no_tax = sum((r[0] or Decimal("0")) for r in agg_rows)
+        agg_tax = sum((r[1] or Decimal("0")) for r in agg_rows)
+    else:
+        agg_no_tax = Decimal("0")
+        agg_tax = Decimal("0")
+    _add(_check_tax_sum(total=claim.total_amount,
+                         without_tax=agg_no_tax, tax=agg_tax))
+
+    # 3. 跨票号重复
+    errors.extend(_check_cross_duplicate(db, claim))
+
+    # 4. 凭证齐全
+    errors.extend(_check_vouchers(db, claim))
+
+    # 5. 预算余额（按 claim.dept × claim.claim_type × 当期 period）
+    if claim.dept and claim.claim_type:
+        # ponytail: period 取 claim.created_at 当月；缺 created_at 时用今天
+        from datetime import date
+        ref = claim.created_at.date() if claim.created_at else date.today()
+        period = f"{ref.year:04d}-{ref.month:02d}"
+        _add(_check_budget(db, tenant_id=claim.tenant_id, dept=claim.dept,
+                            category=claim.claim_type, period=period,
+                            amount=claim.total_amount))
+    else:
+        warnings.append(ValidationError(
+            code="NO_DEPT_OR_TYPE",
+            message="报销单缺 dept 或 claim_type，跳过 budget 检查",
+            severity="warning",
+        ))
+
+    if errors:
+        outcome = ValidationOutcome.FAIL
+    elif warnings:
+        outcome = ValidationOutcome.NEEDS_REVIEW
+    else:
+        outcome = ValidationOutcome.PASS
+    return ValidationResult(outcome=outcome, errors=errors, warnings=warnings)
