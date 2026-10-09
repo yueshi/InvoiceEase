@@ -5,6 +5,8 @@
 """
 from decimal import Decimal
 
+import pytest
+
 from invoicing.workflow.services import _check_amount, _check_tax_sum
 
 
@@ -70,4 +72,87 @@ def test_check_tax_sum_outside_tolerance():
 
 def test_check_tax_sum_zero_all_ok():
     errs = _check_tax_sum(total=Decimal("0"), without_tax=Decimal("0"), tax=Decimal("0"))
+    assert errs == []
+
+
+# ===== _check_cross_duplicate =====
+
+def _build_claim_with_invoice_numbers(db, invoice_numbers: list[str]):
+    """工厂：建一个 claim + entries + items，items 关联指定票号的 Invoice。"""
+    from invoicing.models import Role, User
+    from invoicing.models.expense import (
+        ExpenseClaim, ExpenseEntry, ExpenseItem, EntryType,
+    )
+    from invoicing.models.invoice import Invoice
+    from invoicing.models.fields import utcnow
+
+    u = User(username=f"u_{id(db)}_{len(invoice_numbers)}", password_hash="x",
+             role=Role.employee.value)
+    db.add(u); db.flush()
+    claim = ExpenseClaim(
+        tenant_id="default", claim_no=f"C-{id(db)}-{len(invoice_numbers)}",
+        applicant_id=u.id, title="t", claim_type=EntryType.TRAVEL.value,
+        total_amount=Decimal("100"),
+    )
+    db.add(claim); db.flush()
+    entry = ExpenseEntry(claim_id=claim.id, entry_type=EntryType.TRAVEL.value,
+                         title="e", amount=Decimal("100"))
+    db.add(entry); db.flush()
+    for n in invoice_numbers:
+        inv = Invoice(
+            invoice_number=n, total_amount=Decimal("100"),
+            amount_without_tax=Decimal("100"), tax_amount=Decimal("0"),
+            file_url=f"f_{n}.xml", file_type="XML",
+        )
+        db.add(inv); db.flush()
+        item = ExpenseItem(
+            claim_id=claim.id, entry_id=entry.id, invoice_id=inv.id,
+            voucher_type="invoice", amount=Decimal("100"),
+            expense_type="travel",
+        )
+        db.add(item)
+    db.flush()
+    return claim
+
+
+def test_check_cross_duplicate_no_duplicates(db):
+    claim = _build_claim_with_invoice_numbers(db, ["INV001", "INV002"])
+    from invoicing.workflow.services import _check_cross_duplicate
+    errs = _check_cross_duplicate(db, claim)
+    assert errs == []
+
+
+def test_check_cross_duplicate_duplicate_invoice_numbers(db):
+    """_check_cross_duplicate 是 DB uq_invoices_dedup_key 之外的双保险。
+
+    ponytail: DB 唯一约束 (tenant_id, invoice_number) 已直接阻止同号发票共存；
+    本测跳过此场景的端到端验证（实际不可达），只做 no-duplicates + blank-skip 双例。
+    函数实现在手工构造的 in-memory claim 上单测覆盖（见 test_check_cross_duplicate_unit）。
+    """
+    pytest.skip("DB 唯一约束已直接拦截；函数行为由 unit 测试覆盖")
+
+
+def test_check_cross_duplicate_unit():
+    """直接对 _check_cross_duplicate 的去重算法做单测（不依赖 DB）。"""
+    # 通过 mock 一个简化的 claim 对象，验证算法在重复 invoice_number 时正确报错
+    from unittest.mock import MagicMock
+    from invoicing.workflow.services import _check_cross_duplicate
+
+    fake_claim = MagicMock()
+    fake_claim.id = 1
+    db_mock = MagicMock()
+    # 模拟两次查询：一次 items 返回空，一次返回两个 invoice_number
+    db_mock.query.return_value.filter.return_value.all.side_effect = [
+        [(1,), (2,)],  # items.invoice_id
+        [("INV001",), ("INV001",)],  # invoices.invoice_number（重复）
+    ]
+    errs = _check_cross_duplicate(db_mock, fake_claim)
+    assert any(e.code == "DUPLICATE_INVOICE_NUMBER" for e in errs)
+
+
+def test_check_cross_duplicate_skips_blank_numbers(db):
+    """invoice_number 为空（无票支出/人工凭证）不参与去重。"""
+    claim = _build_claim_with_invoice_numbers(db, ["INV001", ""])
+    from invoicing.workflow.services import _check_cross_duplicate
+    errs = _check_cross_duplicate(db, claim)
     assert errs == []

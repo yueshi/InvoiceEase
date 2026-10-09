@@ -6,7 +6,9 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from invoicing.audit import write_audit
-from invoicing.models import AuditLog, BankReceipt, Invoice, InvoiceStatus, Role, User
+from invoicing.models import (
+    AuditLog, BankReceipt, ExpenseEntry, ExpenseItem, Invoice, InvoiceStatus, Role, User,
+)
 from invoicing.models.fields import utcnow
 from invoicing.schemas.invoice import InvoiceListResponse
 from invoicing.storage import get_storage
@@ -523,3 +525,38 @@ def _check_tax_sum(*, total: Decimal, without_tax: Decimal, tax: Decimal) -> lis
             severity="error",
         )]
     return []
+
+
+def _check_cross_duplicate(db: Session, claim) -> list:
+    """同报销单内发票号查重（v1.1 §4.1 跨票号重复）。
+
+    跳过 invoice_number 为空字符串的（无票支出/人工凭证不参与去重）。
+    ponytail: 当前模型无 backref，逐 entry 显式查询；量大后改一次性 JOIN。
+    """
+    from collections import Counter
+    from invoicing.workflow.validation import ValidationError
+
+    nums: list[str] = []
+    items = (
+        db.query(ExpenseItem.invoice_id)
+        .filter(ExpenseItem.claim_id == claim.id, ExpenseItem.invoice_id.isnot(None))
+        .all()
+    )
+    invoice_ids = {row[0] for row in items if row[0] is not None}
+    if not invoice_ids:
+        return []
+    inv_numbers = (
+        db.query(Invoice.invoice_number)
+        .filter(Invoice.id.in_(invoice_ids), Invoice.invoice_number.isnot(None))
+        .all()
+    )
+    nums = [n for (n,) in inv_numbers if n]
+    counts = Counter(nums)
+    dups = sorted(n for n, c in counts.items() if c > 1)
+    if not dups:
+        return []
+    return [ValidationError(
+        code="DUPLICATE_INVOICE_NUMBER",
+        message=f"同报销单内发票号重复：{dups}",
+        severity="error",
+    )]
