@@ -705,3 +705,25 @@ def validate_expense(db: Session, claim) -> "ValidationResult":
     else:
         outcome = ValidationOutcome.PASS
     return ValidationResult(outcome=outcome, errors=errors, warnings=warnings)
+
+
+# ===== MCP 工具（v1.1 §5.2 验证服务MCP） =====
+
+def validate_expense_mcp(db: Session, claim_id: int) -> dict:
+    """MCP 工具：报销单级校验聚合（v1.1 §5.2 验证服务MCP）。
+
+    ponytail: 当前实现为 thin wrapper 直接调 validate_expense + 序列化为 dict；
+    后续拆到 mcp/validate.py 独立模块。
+    """
+    from invoicing.models.expense import ExpenseClaim
+    claim = db.get(ExpenseClaim, claim_id)
+    if claim is None:
+        raise ValueError(f"报销单不存在或无权访问: {claim_id}")
+    result = validate_expense(db, claim)
+    return {
+        "outcome": result.outcome.value,
+        "errors": [{"code": e.code, "message": e.message, "severity": e.severity}
+                    for e in result.errors],
+        "warnings": [{"code": e.code, "message": e.message, "severity": e.severity}
+                      for e in result.warnings],
+    }
