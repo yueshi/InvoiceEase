@@ -1,0 +1,63 @@
+"""预算 service：query_budget / check_available（v1.1 §9.6 配套）。
+
+P0-1 validate_expense 依赖此模块做预算余额检查。
+"""
+from dataclasses import dataclass
+from decimal import Decimal
+
+from sqlalchemy import select
+
+from invoicing.models.budget import Budget
+
+
+@dataclass
+class BudgetView:
+    allocated: Decimal
+    used: Decimal
+    available: Decimal
+
+
+@dataclass
+class BudgetCheck:
+    available: bool
+    remaining: Decimal
+    overage: Decimal  # 正数表示超支金额
+
+
+def query_budget(db, *, tenant_id: str, dept: str, category: str,
+                 period: str) -> BudgetView:
+    """查询 (dept, category, period) 预算视图。
+
+    ponytail: used=0 ceiling — 完整 used 需按 (dept, category, period) 聚合
+    ExpenseClaim.total_amount；当前 ExpenseClaim 缺 dept/expense_type 字段，
+    等报销单 schema 加字段后再启用 used 计算（task 待补）。
+    """
+    budget = db.execute(
+        select(Budget).where(
+            Budget.tenant_id == tenant_id,
+            Budget.dept == dept,
+            Budget.category == category,
+            Budget.period == period,
+        )
+    ).scalar_one_or_none()
+
+    allocated = budget.amount if budget else Decimal("0")
+    used = Decimal("0")  # ponytail: see docstring above
+    return BudgetView(
+        allocated=allocated,
+        used=used,
+        available=allocated - used,
+    )
+
+
+def check_available(db, *, tenant_id: str, dept: str, category: str,
+                    period: str, amount: Decimal) -> BudgetCheck:
+    """检查预算是否可承担该金额。"""
+    view = query_budget(db, tenant_id=tenant_id, dept=dept,
+                         category=category, period=period)
+    remaining = view.available - amount
+    return BudgetCheck(
+        available=remaining >= 0,
+        remaining=view.available,
+        overage=-remaining if remaining < 0 else Decimal("0"),
+    )
