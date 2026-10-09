@@ -99,17 +99,25 @@ def _build_claim_with_invoice_numbers(db, invoice_numbers: list[str]):
                          title="e", amount=Decimal("100"))
     db.add(entry); db.flush()
     for n in invoice_numbers:
-        inv = Invoice(
-            invoice_number=n, total_amount=Decimal("100"),
-            amount_without_tax=Decimal("100"), tax_amount=Decimal("0"),
-            file_url=f"f_{n}.xml", file_type="XML",
-        )
-        db.add(inv); db.flush()
-        item = ExpenseItem(
-            claim_id=claim.id, entry_id=entry.id, invoice_id=inv.id,
-            voucher_type="invoice", amount=Decimal("100"),
-            expense_type="travel",
-        )
+        if n:  # 跳过空号（无票支出场景）
+            inv = Invoice(
+                invoice_number=n, total_amount=Decimal("100"),
+                amount_without_tax=Decimal("100"), tax_amount=Decimal("0"),
+                file_url=f"f_{n}.xml", file_type="XML",
+            )
+            db.add(inv); db.flush()
+            item = ExpenseItem(
+                claim_id=claim.id, entry_id=entry.id, invoice_id=inv.id,
+                voucher_type="invoice", amount=Decimal("100"),
+                expense_type="travel",
+            )
+        else:
+            # 无票支出：voucher_type=receipt_voucher，无 invoice_id
+            item = ExpenseItem(
+                claim_id=claim.id, entry_id=entry.id, invoice_id=None,
+                voucher_type="receipt_voucher", amount=Decimal("100"),
+                expense_type="travel",
+            )
         db.add(item)
     db.flush()
     return claim
@@ -134,14 +142,12 @@ def test_check_cross_duplicate_duplicate_invoice_numbers(db):
 
 def test_check_cross_duplicate_unit():
     """直接对 _check_cross_duplicate 的去重算法做单测（不依赖 DB）。"""
-    # 通过 mock 一个简化的 claim 对象，验证算法在重复 invoice_number 时正确报错
     from unittest.mock import MagicMock
     from invoicing.workflow.services import _check_cross_duplicate
 
     fake_claim = MagicMock()
     fake_claim.id = 1
     db_mock = MagicMock()
-    # 模拟两次查询：一次 items 返回空，一次返回两个 invoice_number
     db_mock.query.return_value.filter.return_value.all.side_effect = [
         [(1,), (2,)],  # items.invoice_id
         [("INV001",), ("INV001",)],  # invoices.invoice_number（重复）
@@ -156,3 +162,55 @@ def test_check_cross_duplicate_skips_blank_numbers(db):
     from invoicing.workflow.services import _check_cross_duplicate
     errs = _check_cross_duplicate(db, claim)
     assert errs == []
+
+
+# ===== _check_vouchers =====
+
+def test_check_vouchers_all_entries_have_items(db):
+    """每个 entry 至少 1 张 item → 通过。"""
+    claim = _build_claim_with_invoice_numbers(db, ["INV001", "INV002"])
+    from invoicing.workflow.services import _check_vouchers
+    errs = _check_vouchers(db, claim)
+    assert errs == []
+
+
+def test_check_vouchers_empty_claim_no_entries(db):
+    """claim 没 entry → 至少一个 MISSING_VOUCHER。"""
+    from invoicing.models import Role, User
+    from invoicing.models.expense import ExpenseClaim, EntryType
+    from invoicing.workflow.services import _check_vouchers
+
+    u = User(username="u_emp", password_hash="x", role=Role.employee.value)
+    db.add(u); db.flush()
+    claim = ExpenseClaim(
+        tenant_id="default", claim_no="C-EMPTY", applicant_id=u.id,
+        title="t", claim_type=EntryType.TRAVEL.value,
+        total_amount=Decimal("0"),
+    )
+    db.add(claim); db.commit()
+    errs = _check_vouchers(db, claim)
+    # 0 entries → 算"缺少凭证"
+    assert any(e.code == "MISSING_VOUCHER" for e in errs)
+
+
+def test_check_vouchers_entry_without_item(db):
+    """一个 entry 没 item → 报错该 entry 缺凭证。"""
+    from invoicing.models import Role, User
+    from invoicing.models.expense import ExpenseClaim, ExpenseEntry, EntryType
+    from invoicing.workflow.services import _check_vouchers
+
+    u = User(username="u_no_item", password_hash="x", role=Role.employee.value)
+    db.add(u); db.flush()
+    claim = ExpenseClaim(
+        tenant_id="default", claim_no="C-NOITEM", applicant_id=u.id,
+        title="t", claim_type=EntryType.TRAVEL.value,
+        total_amount=Decimal("100"),
+    )
+    db.add(claim); db.flush()
+    db.add(ExpenseEntry(
+        claim_id=claim.id, entry_type=EntryType.TRAVEL.value,
+        title="e", amount=Decimal("100"),
+    ))
+    db.commit()
+    errs = _check_vouchers(db, claim)
+    assert any(e.code == "MISSING_VOUCHER" for e in errs)

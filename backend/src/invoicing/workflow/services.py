@@ -560,3 +560,35 @@ def _check_cross_duplicate(db: Session, claim) -> list:
         message=f"同报销单内发票号重复：{dups}",
         severity="error",
     )]
+
+
+def _check_vouchers(db: Session, claim) -> list:
+    """v1.1 §4.4 凭证齐全：claim 至少 1 个 entry，每个 entry 至少 1 张 item。
+
+    ponytail: 当前实现为单次 N+1 查询（先 entries 再 items）；量大后改一次性 JOIN。
+    """
+    from invoicing.workflow.validation import ValidationError
+
+    entries = db.query(ExpenseEntry).filter(ExpenseEntry.claim_id == claim.id).all()
+    errs: list = []
+    if not entries:
+        errs.append(ValidationError(
+            code="MISSING_VOUCHER",
+            message=f"报销单 {claim.claim_no} 没有事项（entries）",
+            severity="error",
+        ))
+        return errs
+    for entry in entries:
+        n_items = (
+            db.query(ExpenseItem)
+            .filter(ExpenseItem.claim_id == claim.id,
+                    ExpenseItem.entry_id == entry.id)
+            .count()
+        )
+        if n_items == 0:
+            errs.append(ValidationError(
+                code="MISSING_VOUCHER",
+                message=f"事项「{entry.title or entry.id}」缺少凭证（item）",
+                severity="error",
+            ))
+    return errs
