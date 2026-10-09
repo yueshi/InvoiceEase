@@ -630,6 +630,26 @@ def submit_claim(db: Session, user: User, claim_id: int) -> ExpenseClaim:
         ExpenseItem.claim_id == claim.id, ExpenseItem.active.is_(True)
     ).count()
     _recalc_total(db, claim)
+
+    # P0-1：v1.1 §5.2 验证服务 MCP 必走 — submit 前 validate，FAIL 抛错 + 写 SUBMIT_BLOCKED 审计
+    from invoicing.workflow.services import validate_expense
+    from invoicing.workflow.validation import ValidationOutcome
+    result = validate_expense(db, claim)
+    if result.outcome == ValidationOutcome.FAIL:
+        write_audit(
+            db, action="SUBMIT_BLOCKED", user_id=user.id, channel="web",
+            detail={
+                "claim_id": claim.id,
+                "claim_no": claim.claim_no,
+                "outcome": "blocked",
+                "errors": [{"code": e.code, "message": e.message} for e in result.errors],
+            },
+        )
+        db.commit()
+        raise ValueError(
+            f"validate_expense FAIL: {[e.code for e in result.errors]}"
+        )
+
     claim.status = ExpenseClaimStatus.PENDING
     claim.submitted_at = utcnow()
     write_audit(
