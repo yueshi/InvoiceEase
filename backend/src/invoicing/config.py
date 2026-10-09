@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -95,6 +97,12 @@ class Settings(BaseSettings):
     agent_max_tokens: int = 8192          # 单轮完成上限；DeepSeek 类推理模型的「思考+正文」共享该预算，
                                           # 2000 实测被超长思考吃光导致正文为空（会话落库实证），按输出上限给足
     agent_session_retention_days: int = 90  # 会话保留天数（cron 清理）
+
+    # P0-1 阈值（v1.1 §4.3 金额阈值节点 + §4.1 完全固化 + §7.2 ✅5 阈值必配）
+    large_amount_threshold: Decimal = Decimal("5000")      # 单笔 ≥ 此值触发人工审批
+    over_threshold_tolerance: Decimal = Decimal("50")      # 超标准容忍值
+    tax_sum_tolerance: Decimal = Decimal("0.01")           # 价税合计容差
+    amount_floor: Decimal = Decimal("0")                   # 单笔金额下限（必须 > 此值）
 
 
 settings = Settings()
