@@ -1526,3 +1526,132 @@ def confirm_execute(token: str, tool_name: str, human_ack: bool,
 
         return idempotent_run(db, key=idempotency_key, tool_name=tool_name,
                               actor_id=principal.user_id, fn=_execute)
+
+
+# ===== P1 业务校验工具（只读；v1.1 §5.3 Skill 的编排依赖） =====
+# 只读契约：不写业务库、不写审计、不签发提案（spec §7.1 ❌1）
+
+@requires("expense:read")
+def validate_trip_consistency(claim_id: int) -> dict:
+    """行程一致性校验（只读）：返程缺失/行程不接续/住宿晚数矛盾/日期矛盾。
+
+    返回 {"ok": bool, "issues": [{"code","message","severity","entry_ids"}]}。
+    severity=warning 表示需人工判断（spec §4.2 转人工分支），error 为逻辑矛盾。
+    """
+    from invoicing.models import ExpenseEntry
+    from invoicing.workflow.validators import check_trip
+
+    with SessionLocal() as db:
+        claim = _claim_or_raise(db, claim_id)
+        rows = (db.query(ExpenseEntry)
+                .filter(ExpenseEntry.claim_id == claim.id).all())
+        entries = [(e.id, e.scene_fields or {},
+                    str(e.occurred_on) if e.occurred_on else None)
+                   for e in rows]
+        issues = check_trip(entries)
+    return _issues_out(issues)
+
+
+@requires("expense:read")
+def validate_meal_compliance(claim_id: int) -> dict:
+    """餐补/招待合规校验（只读）：日标准与人均标准 vs 政策表（含容忍值）。
+
+    severity：超标准但在容忍值内 = warning；超容忍值 = error；
+    未配置政策 = warning（不把"没配标准"当违规）。
+    """
+    from invoicing.models import ExpenseEntry
+    from invoicing.workflow.policy_service import get_policy
+    from invoicing.workflow.validators import check_meal
+
+    with SessionLocal() as db:
+        claim = _claim_or_raise(db, claim_id)
+        rows = (db.query(ExpenseEntry)
+                .filter(ExpenseEntry.claim_id == claim.id).all())
+
+        def _lookup(*, category: str, item_key: str, city_tier: str):
+            return get_policy(db, tenant_id=claim.tenant_id, category=category,
+                              item_key=item_key, city_tier=city_tier)
+
+        entries = [(e.id, e.entry_type, e.scene_fields or {},
+                    str(e.occurred_on) if e.occurred_on else None,
+                    e.amount or 0)
+                   for e in rows]
+        issues = check_meal(entries, policy_lookup=_lookup)
+    return _issues_out(issues)
+
+
+@requires("expense:read")
+def suggest_claim_for_invoice(invoice_id: int) -> dict:
+    """补录归属建议（只读）：该票最可能挂到哪张草稿报销单。
+
+    返回 {"candidates": [{"claim_id","claim_no","score","reasons"}]}（≤3 条，按分降序）。
+    仅推荐草稿单；日期门控 ±7 天，防误挂。
+    """
+    from invoicing.models import (
+        ExpenseClaim,
+        ExpenseClaimStatus,
+        ExpenseEntry,
+        Invoice,
+    )
+    from invoicing.workflow.validators import suggest_claims_for_invoice as _suggest
+
+    with SessionLocal() as db:
+        inv = db.get(Invoice, invoice_id)
+        if inv is None:
+            raise ValueError(f"发票不存在: {invoice_id}")
+        drafts = (db.query(ExpenseClaim)
+                  .filter(ExpenseClaim.status == ExpenseClaimStatus.DRAFT.value)
+                  .all())
+        # 事项日期（用于日期门控与打分）
+        claim_ids = [c.id for c in drafts]
+        dates_by_claim: dict[int, list] = {cid: [] for cid in claim_ids}
+        if claim_ids:
+            for eid, cid, occurred in (
+                db.query(ExpenseEntry.id, ExpenseEntry.claim_id, ExpenseEntry.occurred_on)
+                .filter(ExpenseEntry.claim_id.in_(claim_ids)).all()
+            ):
+                if occurred is not None:
+                    dates_by_claim[cid].append(occurred)
+
+        class _View:  # 轻量视图，避免把 ORM 对象漏进纯函数
+            def __init__(self, c):
+                self.id, self.claim_no = c.id, c.claim_no
+                self.claim_type = c.claim_type
+                self.entry_dates = dates_by_claim.get(c.id, [])
+
+        suggestions = _suggest(inv, [_View(c) for c in drafts])
+
+    return {"candidates": [
+        {"claim_id": s.claim_id, "claim_no": s.claim_no,
+         "score": s.score, "reasons": s.reasons}
+        for s in suggestions
+    ]}
+
+
+def _claim_or_raise(db, claim_id: int):
+    from invoicing.models import ExpenseClaim
+
+    claim = db.get(ExpenseClaim, claim_id)
+    if claim is None:
+        raise ValueError(f"报销单不存在: {claim_id}")
+    return claim
+
+
+def _issues_out(issues) -> dict:
+    """统一的校验出参。
+
+    - `ok`      = 无 error（不阻断；warning 仍需人工确认）
+    - `outcome` = PASS / NEEDS_REVIEW / FAIL（与 validate_expense 同词表，便于 Skill 统一处理）
+    """
+    has_error = any(i.severity == "error" for i in issues)
+    has_warning = any(i.severity == "warning" for i in issues)
+    outcome = "FAIL" if has_error else ("NEEDS_REVIEW" if has_warning else "PASS")
+    return {
+        "ok": not has_error,
+        "outcome": outcome,
+        "issues": [
+            {"code": i.code, "message": i.message, "severity": i.severity,
+             "entry_ids": i.entry_ids}
+            for i in issues
+        ],
+    }

@@ -135,3 +135,36 @@ def test_no_proposal_wrapper_can_misalign_positionally(server):
             f"{t.name}: 未暴露参数 {hidden} 夹在已暴露参数之前/之间，"
             f"位置转发会整体错位（实现参数序：{impl_params}）"
         )
+
+
+@pytest.mark.asyncio
+async def test_business_validators_over_protocol(db, mcp_admin_auth, server):
+    """P1 三个业务校验工具经真实协议层可调（只读）。"""
+    from invoicing.workflow import expenses as svc
+
+    claim = svc.create_claim(db, mcp_admin_auth, title="协议层校验")
+    svc.create_entry(db, mcp_admin_auth, claim.id, "travel", "去程",
+                     scene_fields={"subtype": "transport", "transport_mode": "高铁",
+                                   "from_city": "上海", "to_city": "北京",
+                                   "travel_date": "2026-06-10"})
+
+    r = await server.call_tool("validate_trip_consistency", {"claim_id": claim.id})
+    out = _result_json(r)
+    assert out["outcome"] == "NEEDS_REVIEW"          # 缺返程 → 转人工
+    assert any(i["code"] == "NO_RETURN_TRIP" for i in out["issues"])
+
+    r2 = await server.call_tool("validate_meal_compliance", {"claim_id": claim.id})
+    assert _result_json(r2)["outcome"] in ("PASS", "NEEDS_REVIEW")
+
+    from invoicing.models import Invoice
+    from datetime import date as _d
+    from decimal import Decimal as _D
+
+    inv = Invoice(file_url="proto.xml", file_type="XML", invoice_number="INV-PROTO-1",
+                  status="pending_submit", total_amount=_D("50"),
+                  amount_without_tax=_D("50"), tax_amount=_D("0"),
+                  issue_date=_d(2026, 6, 10), expense_type="travel")
+    db.add(inv)
+    db.commit()
+    r3 = await server.call_tool("suggest_claim_for_invoice", {"invoice_id": inv.id})
+    assert "candidates" in _result_json(r3)

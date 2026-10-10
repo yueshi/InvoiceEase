@@ -292,8 +292,8 @@ def test_agent_tool_list_filtered_by_permissions(db, users):
     assert {"receipt_list", "invoice_update_proposal", "invoice_stats"} <= fin_tools
     assert not {"invoice_fetch", "invoice_delete_proposal"} & fin_tools
 
-    # 管理员：全集（P0-1 加 3 + P0-2 confirm_execute 1 = 44）
-    assert len(adm_tools) == 44
+    # 管理员：全集（P0-1 加 3 + P0-2 confirm_execute 1 + P1 加 3 = 47）
+    assert len(adm_tools) == 47
 
 
 def test_my_permissions_reports_own_scope(db, users, mcp_auth):
@@ -335,7 +335,8 @@ def test_every_registered_tool_declares_scope():
     names = {t.name for t in tools}
     # P0-1 加 3（validate_expense / query_budget / check_budget_available）
     # P0-2 加 1（confirm_execute），7 个 expense 写工具改名 *_proposal
-    assert len(names) == 44, f"工具数变化（{len(names)}），请同步更新设计附录 A"
+    # P1 加 3（validate_trip_consistency / validate_meal_compliance / suggest_claim_for_invoice）
+    assert len(names) == 47, f"工具数变化（{len(names)}），请同步更新设计附录 A"
 
     from invoicing.mcp import extract as mt_extract
     from invoicing.mcp import tools as mt
@@ -388,6 +389,10 @@ def test_every_registered_tool_declares_scope():
         "check_budget_available": mt.check_budget_available_mcp,
         # P0-2 两段握手第二步
         "confirm_execute": mt.confirm_execute,
+        # P1 业务校验（只读）
+        "validate_trip_consistency": mt.validate_trip_consistency,
+        "validate_meal_compliance": mt.validate_meal_compliance,
+        "suggest_claim_for_invoice": mt.suggest_claim_for_invoice,
     }
     assert set(impl_map) == names, (
         f"注册名与实现映射不一致：注册多出 {names - set(impl_map)}，映射多出 {set(impl_map) - names}"

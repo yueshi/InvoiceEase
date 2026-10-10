@@ -322,6 +322,25 @@ def build_server() -> MCPServer:
                 db, dept=dept, category=category, amount=Decimal(amount), period=period,
             )
 
+    # ===== P1: 业务合理性校验（只读；v1.1 §5.3 Skill 编排依赖） =====
+    @server.tool(
+        description="报销单行程一致性校验（只读）：返程缺失/行程不接续/住宿晚数矛盾/日期矛盾。返回 {ok, outcome(PASS/NEEDS_REVIEW/FAIL), issues}；warning 需人工判断（不阻断），error 为逻辑矛盾。",
+    )
+    def validate_trip_consistency(claim_id: int) -> dict:
+        return mcp_tools.validate_trip_consistency(claim_id)
+
+    @server.tool(
+        description="报销单餐补/招待合规校验（只读）：日标准与人均标准对比公司政策（含容忍值）。超标准但在容忍值内=warning，超容忍值=error，未配置政策=warning（不视为违规）。返回 {ok, outcome, issues}。",
+    )
+    def validate_meal_compliance(claim_id: int) -> dict:
+        return mcp_tools.validate_meal_compliance(claim_id)
+
+    @server.tool(
+        description="发票补录归属建议（只读）：该票最可能挂到哪张草稿报销单（按类型匹配 + 开票日在行程区间内打分，±7 天门控）。返回 {candidates:[{claim_id,claim_no,score,reasons}]}（≤3 条）。",
+    )
+    def suggest_claim_for_invoice(invoice_id: int) -> dict:
+        return mcp_tools.suggest_claim_for_invoice(invoice_id)
+
     # ===== P0-2: 两段握手第二步（v1.1 §7.5） =====
     @server.tool(
         description="确认执行一个待确认提案（两段握手第二步）。先调 *_proposal 工具拿到 proposal_token，用户确认后调本工具并传 human_ack=true 才会真正落库。所有写操作的唯一执行入口。",
