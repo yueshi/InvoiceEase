@@ -890,7 +890,7 @@ def _http_to_value_error(fn, *args, **kwargs):
 
 @requires_role("finance_staff", "finance_manager", "admin")
 @requires("invoice:write")
-def invoice_update(
+def invoice_update_proposal(
     invoice_id: int,
     invoice_number: str | None = None,
     issue_date: str | None = None,
@@ -904,113 +904,191 @@ def invoice_update(
     buyer_tax_id: str | None = None,
     invoice_type: str | None = None,
     review_note: str | None = None,
-) -> InvoiceOut:
-    """更新发票业务字段（人工复核纠正）；仅传入非 None 字段生效，状态变更走 review/verify。"""
+    idempotency_key: str | None = None,
+) -> dict:
+    """【两段握手第一步】更新发票业务字段（人工复核纠正）——返回待确认提案。
+
+    仅传入非 None 字段生效；状态变更走 review/verify。确认后调
+    confirm_execute(token, 'invoice_update', human_ack=true)。
+    """
+    fields = {
+        "invoice_number": invoice_number, "issue_date": issue_date,
+        "amount_without_tax": amount_without_tax, "tax_amount": tax_amount,
+        "total_amount": total_amount, "total_amount_cn": total_amount_cn,
+        "seller_name": seller_name, "seller_tax_id": seller_tax_id,
+        "buyer_name": buyer_name, "buyer_tax_id": buyer_tax_id,
+        "invoice_type": invoice_type, "review_note": review_note,
+    }
+    changed = {k: v for k, v in fields.items() if v is not None}
+    return _make_proposal(
+        tool_name="invoice_update",
+        payload={"invoice_id": invoice_id, **fields},
+        preview={"description": f"修改发票 {invoice_id}：{'、'.join(changed) or '无字段变化'}",
+                 "fields": changed},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("invoice_update")
+def invoice_update(db, *, invoice_id: int, invoice_number: str | None = None,
+                   issue_date: str | None = None, amount_without_tax: str | None = None,
+                   tax_amount: str | None = None, total_amount: str | None = None,
+                   total_amount_cn: str | None = None, seller_name: str | None = None,
+                   seller_tax_id: str | None = None, buyer_name: str | None = None,
+                   buyer_tax_id: str | None = None, invoice_type: str | None = None,
+                   review_note: str | None = None) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.schemas.invoice import InvoiceUpdate
 
     body = InvoiceUpdate(
-        invoice_number=invoice_number,
-        issue_date=issue_date,
-        amount_without_tax=amount_without_tax,
-        tax_amount=tax_amount,
-        total_amount=total_amount,
-        total_amount_cn=total_amount_cn,
-        seller_name=seller_name,
-        seller_tax_id=seller_tax_id,
-        buyer_name=buyer_name,
-        buyer_tax_id=buyer_tax_id,
-        invoice_type=invoice_type,
-        review_note=review_note,
+        invoice_number=invoice_number, issue_date=issue_date,
+        amount_without_tax=amount_without_tax, tax_amount=tax_amount,
+        total_amount=total_amount, total_amount_cn=total_amount_cn,
+        seller_name=seller_name, seller_tax_id=seller_tax_id,
+        buyer_name=buyer_name, buyer_tax_id=buyer_tax_id,
+        invoice_type=invoice_type, review_note=review_note,
     )
-    with SessionLocal() as db:
-        # 传真实用户（此前传 None 是 MCP 无身份时代的残留）：审计能回答「谁改的」。
-        # channel 必须显式给——服务层推断是「有 user → web」，不传会把 MCP 记成 web
-        inv = _http_to_value_error(
-            services.update_invoice, db, _current_user(db), invoice_id,
-            body.model_dump(exclude_none=True), channel="mcp",
-        )
-        return InvoiceOut.model_validate(inv, from_attributes=True)
+    # 传真实用户（此前传 None 是 MCP 无身份时代的残留）：审计能回答「谁改的」。
+    # channel 必须显式给——服务层推断是「有 user → web」，不传会把 MCP 记成 web
+    inv = _http_to_value_error(
+        services.update_invoice, db, _current_user(db), invoice_id,
+        body.model_dump(exclude_none=True), channel="mcp",
+    )
+    return InvoiceOut.model_validate(inv, from_attributes=True).model_dump(mode="json")
 
 
 @requires("invoice:admin")
-def invoice_delete(invoice_id: int) -> dict:
-    """删除发票（审计全字段快照 + 原件清理）；不存在抛 ValueError。"""
-    with SessionLocal() as db:
-        return _http_to_value_error(
-            services.delete_invoice, db, _current_user(db), invoice_id,
-            channel="mcp"
-        )
+def invoice_delete_proposal(invoice_id: int,
+                            idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】删除发票——返回待确认提案，不落库（高破坏性，务必人工确认）。"""
+    return _make_proposal(
+        tool_name="invoice_delete",
+        payload={"invoice_id": invoice_id},
+        preview={"description": f"删除发票 {invoice_id}（审计快照 + 原件清理，不可撤销）"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("invoice_delete")
+def invoice_delete(db, *, invoice_id: int) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
+    return _http_to_value_error(
+        services.delete_invoice, db, _current_user(db), invoice_id,
+        channel="mcp"
+    )
 
 
 @requires("invoice:admin")
-def invoice_unblock(invoice_id: int) -> InvoiceOut:
-    """人工放行被拦截发票：blocked → 待复核（清除重复标记）；非 blocked 抛 ValueError。"""
-    with SessionLocal() as db:
-        inv = _http_to_value_error(
-            services.unblock_invoice, db, _current_user(db), invoice_id,
-            channel="mcp"
-        )
-        return InvoiceOut.model_validate(inv, from_attributes=True)
+def invoice_unblock_proposal(invoice_id: int,
+                             idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】人工放行被拦截发票——返回待确认提案，不落库。"""
+    return _make_proposal(
+        tool_name="invoice_unblock",
+        payload={"invoice_id": invoice_id},
+        preview={"description": f"放行被拦截发票 {invoice_id}（blocked → 待复核）"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("invoice_unblock")
+def invoice_unblock(db, *, invoice_id: int) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
+    inv = _http_to_value_error(
+        services.unblock_invoice, db, _current_user(db), invoice_id,
+        channel="mcp"
+    )
+    return InvoiceOut.model_validate(inv, from_attributes=True).model_dump(mode="json")
 
 
 @requires_role("finance_staff", "finance_manager", "admin")
 @requires("invoice:write")
-def invoice_classify(
+def invoice_classify_proposal(
     invoice_id: int,
     expense_type: str | None = None,
     cost_center: str | None = None,
     description: str | None = None,
-) -> InvoiceOut:
-    """费用归类：expense_type 不传时自动建议并落库（travel/office/entertainment/procurement/other）。"""
+    idempotency_key: str | None = None,
+) -> dict:
+    """【两段握手第一步】费用归类——返回待确认提案，不落库。
+
+    expense_type 不传时在确认执行阶段自动建议（travel/office/entertainment/
+    procurement/other）。
+    """
+    return _make_proposal(
+        tool_name="invoice_classify",
+        payload={"invoice_id": invoice_id, "expense_type": expense_type,
+                 "cost_center": cost_center, "description": description},
+        preview={"description": f"归类发票 {invoice_id}"
+                                + (f" → {expense_type}" if expense_type else "（自动建议）"),
+                 "cost_center": cost_center, "note": description},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("invoice_classify")
+def invoice_classify(db, *, invoice_id: int, expense_type: str | None = None,
+                     cost_center: str | None = None,
+                     description: str | None = None) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.models import Invoice
     from invoicing.parse.classify import EXPENSE_TYPES, suggest_expense_type
 
-    with SessionLocal() as db:
-        inv = db.get(Invoice, invoice_id)
-        if inv is None:
-            raise ValueError(f"发票不存在: {invoice_id}")
-        if expense_type is not None and expense_type not in EXPENSE_TYPES:
-            raise ValueError(f"非法费用类型: {expense_type}（可选 {', '.join(EXPENSE_TYPES)}）")
-        if expense_type is None:
-            expense_type = suggest_expense_type(inv.seller_name or "", inv.invoice_type)
-        inv.expense_type = expense_type
-        if cost_center is not None:
-            inv.cost_center = cost_center
-        if description is not None:
-            inv.description = description
-        _audit(
-            db, action="INVOICE_CLASSIFY", invoice_id=invoice_id,
-            detail={"expense_type": expense_type, "cost_center": cost_center, "description": description},
-        )
-        db.commit()
-        return InvoiceOut.model_validate(inv, from_attributes=True)
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        raise ValueError(f"发票不存在: {invoice_id}")
+    if expense_type is not None and expense_type not in EXPENSE_TYPES:
+        raise ValueError(f"非法费用类型: {expense_type}（可选 {', '.join(EXPENSE_TYPES)}）")
+    if expense_type is None:
+        expense_type = suggest_expense_type(inv.seller_name or "", inv.invoice_type)
+    inv.expense_type = expense_type
+    if cost_center is not None:
+        inv.cost_center = cost_center
+    if description is not None:
+        inv.description = description
+    _audit(
+        db, action="INVOICE_CLASSIFY", invoice_id=invoice_id,
+        detail={"expense_type": expense_type, "cost_center": cost_center, "description": description},
+    )
+    db.commit()
+    return InvoiceOut.model_validate(inv, from_attributes=True).model_dump(mode="json")
 
 
 @requires_role("finance_staff", "finance_manager", "admin")
 @requires("invoice:write")
-def invoice_ai_review(invoice_id: int) -> InvoiceOut:
-    """生成/重算发票复核预判（approve/reject/uncertain + 理由 + 置信度）。"""
+def invoice_ai_review_proposal(invoice_id: int,
+                                idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】生成/重算发票复核预判——返回待确认提案，不落库。"""
+    return _make_proposal(
+        tool_name="invoice_ai_review",
+        payload={"invoice_id": invoice_id},
+        preview={"description": f"重算发票 {invoice_id} 的 AI 复核预判（覆盖前次结论）"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("invoice_ai_review")
+def invoice_ai_review(db, *, invoice_id: int) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.models import Invoice
     from invoicing.models.fields import utcnow
     from invoicing.parse.ai_review import predict_review
 
-    with SessionLocal() as db:
-        inv = db.get(Invoice, invoice_id)
-        if inv is None:
-            raise ValueError(f"发票不存在: {invoice_id}")
-        verdict = predict_review(inv, db)
-        if verdict is None:
-            raise ValueError("预判不可用（LLM 未启用或调用失败），请人工复核")
-        inv.ai_review_verdict = verdict.verdict
-        inv.ai_review_reason = verdict.reason
-        inv.ai_review_confidence = verdict.confidence
-        inv.ai_reviewed_at = utcnow()
-        _audit(
-            db, action="AI_REVIEW", invoice_id=invoice_id,
-            detail={"verdict": verdict.verdict, "reason": verdict.reason, "confidence": verdict.confidence},
-        )
-        db.commit()
-        return InvoiceOut.model_validate(inv, from_attributes=True)
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        raise ValueError(f"发票不存在: {invoice_id}")
+    verdict = predict_review(inv, db)
+    if verdict is None:
+        raise ValueError("预判不可用（LLM 未启用或调用失败），请人工复核")
+    inv.ai_review_verdict = verdict.verdict
+    inv.ai_review_reason = verdict.reason
+    inv.ai_review_confidence = verdict.confidence
+    inv.ai_reviewed_at = utcnow()
+    _audit(
+        db, action="AI_REVIEW", invoice_id=invoice_id,
+        detail={"verdict": verdict.verdict, "reason": verdict.reason, "confidence": verdict.confidence},
+    )
+    db.commit()
+    return InvoiceOut.model_validate(inv, from_attributes=True).model_dump(mode="json")
 
 
 @requires("sales:write")

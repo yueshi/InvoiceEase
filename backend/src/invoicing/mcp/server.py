@@ -174,8 +174,8 @@ def build_server() -> MCPServer:
     def company_info_delete(id: int) -> dict:
         return mcp_tools.company_info_delete(id)
 
-    @server.tool(description="更新发票业务字段（人工复核纠正用；仅传入字段生效，状态变更走 review/verify）。")
-    def invoice_update(
+    @server.tool(description="【两段握手第一步】更新发票业务字段（人工复核纠正）——返回待确认提案，不落库。仅传入字段生效，状态变更走 review/verify。确认后调 confirm_execute(token, 'invoice_update', human_ack=true)。")
+    def invoice_update_proposal(
         invoice_id: int,
         invoice_number: str | None = None,
         issue_date: str | None = None,
@@ -189,33 +189,39 @@ def build_server() -> MCPServer:
         buyer_tax_id: str | None = None,
         invoice_type: str | None = None,
         review_note: str | None = None,
-    ) -> InvoiceOut:
-        return mcp_tools.invoice_update(
+        idempotency_key: str | None = None,
+    ) -> dict:
+        return mcp_tools.invoice_update_proposal(
             invoice_id, invoice_number, issue_date, amount_without_tax, tax_amount,
             total_amount, total_amount_cn, seller_name, seller_tax_id, buyer_name,
-            buyer_tax_id, invoice_type, review_note,
+            buyer_tax_id, invoice_type, review_note, idempotency_key,
         )
 
-    @server.tool(description="删除发票（审计全字段快照 + 原件清理）。")
-    def invoice_delete(invoice_id: int) -> dict:
-        return mcp_tools.invoice_delete(invoice_id)
+    @server.tool(description="【两段握手第一步】删除发票——返回待确认提案，不落库（审计全字段快照 + 原件清理，不可撤销）。确认后调 confirm_execute(token, 'invoice_delete', human_ack=true)。")
+    def invoice_delete_proposal(invoice_id: int,
+                                idempotency_key: str | None = None) -> dict:
+        return mcp_tools.invoice_delete_proposal(invoice_id, idempotency_key)
 
-    @server.tool(description="人工放行被拦截发票（blocked → 待复核，清除重复标记）。")
-    def invoice_unblock(invoice_id: int) -> InvoiceOut:
-        return mcp_tools.invoice_unblock(invoice_id)
+    @server.tool(description="【两段握手第一步】人工放行被拦截发票——返回待确认提案，不落库（blocked → 待复核，清除重复标记）。确认后调 confirm_execute(token, 'invoice_unblock', human_ack=true)。")
+    def invoice_unblock_proposal(invoice_id: int,
+                                 idempotency_key: str | None = None) -> dict:
+        return mcp_tools.invoice_unblock_proposal(invoice_id, idempotency_key)
 
-    @server.tool(description="发票费用归类（不传 expense_type 时自动建议：travel/office/entertainment/procurement/other）。")
-    def invoice_classify(
+    @server.tool(description="【两段握手第一步】发票费用归类——返回待确认提案，不落库（不传 expense_type 时执行阶段自动建议：travel/office/entertainment/procurement/other）。确认后调 confirm_execute(token, 'invoice_classify', human_ack=true)。")
+    def invoice_classify_proposal(
         invoice_id: int,
         expense_type: str | None = None,
         cost_center: str | None = None,
         description: str | None = None,
-    ) -> InvoiceOut:
-        return mcp_tools.invoice_classify(invoice_id, expense_type, cost_center, description)
+        idempotency_key: str | None = None,
+    ) -> dict:
+        return mcp_tools.invoice_classify_proposal(
+            invoice_id, expense_type, cost_center, description, idempotency_key)
 
-    @server.tool(description="生成/重算发票复核预判（approve/reject/uncertain + 理由 + 置信度；建议不自动执行）。")
-    def invoice_ai_review(invoice_id: int) -> InvoiceOut:
-        return mcp_tools.invoice_ai_review(invoice_id)
+    @server.tool(description="【两段握手第一步】生成/重算发票复核预判——返回待确认提案，不落库（approve/reject/uncertain + 理由 + 置信度；建议不自动执行）。确认后调 confirm_execute(token, 'invoice_ai_review', human_ack=true)。")
+    def invoice_ai_review_proposal(invoice_id: int,
+                                   idempotency_key: str | None = None) -> dict:
+        return mcp_tools.invoice_ai_review_proposal(invoice_id, idempotency_key)
 
     @server.tool(description="月度成本报表摘要（总额/张数/类型与部门分布；month 格式 YYYY-MM）。")
     def invoice_report(month: str) -> str:

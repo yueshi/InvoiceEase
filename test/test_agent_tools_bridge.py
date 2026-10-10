@@ -18,7 +18,8 @@ async def test_build_and_call_list_invoices(db):
     tools = await build_tools_for_user(user)
     names = [t.name for t in tools]
     # 2026-10-05：清单按权限过滤——员工有查票/交票能力，但没有 invoice:admin 工具
-    assert "invoice_list" in names and "invoice_delete" not in names
+    # P0-2：写工具以 *_proposal 暴露
+    assert "invoice_list" in names and "invoice_delete_proposal" not in names
 
     t = next(t for t in tools if t.name == "invoice_list")
     res = await t.execute("tc-1", {"page": 1, "page_size": 5}, asyncio.Event(), _noop)
@@ -36,7 +37,7 @@ async def test_scope_denied_at_execution_layer(db):
     db.commit()
 
     infos = await mcp.list_tools()
-    info = next(i for i in infos if i.name == "invoice_delete")
+    info = next(i for i in infos if i.name == "invoice_delete_proposal")
     t = McpToolAdapter(info, user_id=user.id, username=user.username, role=user.role)
     res = await t.execute("tc-2", {"invoice_id": 999}, asyncio.Event(), _noop)
     assert res.is_error is True

@@ -237,12 +237,13 @@ def test_employee_cannot_call_finance_only_tools(db, users, mcp_auth):
         mt.receipt_list(month="2026-06")
     with pytest.raises(RoleDenied):
         mt.receipt_upload_status(1)
+    # P0-2：写工具以 *_proposal 暴露，role 门在提案阶段即生效
     with pytest.raises(RoleDenied):
-        mt.invoice_update(others.id, review_note="篡改")
+        mt.invoice_update_proposal(others.id, review_note="篡改")
     with pytest.raises(RoleDenied):
-        mt.invoice_classify(others.id, expense_type="other")
+        mt.invoice_classify_proposal(others.id, expense_type="other")
     with pytest.raises(RoleDenied):
-        mt.invoice_ai_review(others.id)
+        mt.invoice_ai_review_proposal(others.id)
     with pytest.raises(RoleDenied):
         mt.fetch_invoices()
 
@@ -255,7 +256,11 @@ def test_finance_can_call_finance_tools(db, users, mcp_auth):
 
     mcp_auth(users["fin"])
     assert mt.receipt_list(month="2026-06").items == []
-    assert mt.invoice_classify(own.id, expense_type="travel").id == own.id
+    # P0-2：两段握手——提案 + 确认才落库
+    prop = mt.invoice_classify_proposal(own.id, expense_type="travel")
+    out = mt.confirm_execute(token=prop["proposal_token"],
+                             tool_name="invoice_classify", human_ack=True)
+    assert out["id"] == own.id
 
     mcp_auth(users["admin"])
     assert mt.fetch_invoices().received == 0  # 无邮箱配置：可执行即算通过
@@ -276,17 +281,16 @@ def test_agent_tool_list_filtered_by_permissions(db, users):
     adm_tools = {t.name for t in asyncio.run(build_tools_for_user(users["admin"]))}
 
     # 员工：财务专属（角色门）与 report/sales/masterdata/admin 类全部不可见
-    assert not {"receipt_list", "invoice_update", "invoice_fetch",
-                "invoice_stats", "invoice_delete"} & emp_tools
+    assert not {"receipt_list", "invoice_update_proposal", "invoice_fetch",
+                "invoice_stats", "invoice_delete_proposal"} & emp_tools
     # 合法能力保留（交票/查自己的票/报销）
     # P0-2：写工具以 *_proposal 暴露给 Agent（两段握手第一步）
     assert {"invoice_list", "invoice_detail", "expense_create_proposal",
             "extract_invoice"} <= emp_tools
 
     # 财务：财务专属可见；管理员专属（收票、删票）仍不可见
-    # （invoice_* 的 *_proposal 改名在 Task 7 落地后同步）
-    assert {"receipt_list", "invoice_update", "invoice_stats"} <= fin_tools
-    assert not {"invoice_fetch", "invoice_delete"} & fin_tools
+    assert {"receipt_list", "invoice_update_proposal", "invoice_stats"} <= fin_tools
+    assert not {"invoice_fetch", "invoice_delete_proposal"} & fin_tools
 
     # 管理员：全集（P0-1 加 3 + P0-2 confirm_execute 1 = 44）
     assert len(adm_tools) == 44
@@ -360,11 +364,11 @@ def test_every_registered_tool_declares_scope():
         "bank_account_save": mt.bank_account_save,
         "bank_account_delete": mt.bank_account_delete,
         "company_info_delete": mt.company_info_delete,
-        "invoice_update": mt.invoice_update,
-        "invoice_delete": mt.invoice_delete,
-        "invoice_unblock": mt.invoice_unblock,
-        "invoice_classify": mt.invoice_classify,
-        "invoice_ai_review": mt.invoice_ai_review,
+        "invoice_update_proposal": mt.invoice_update_proposal,
+        "invoice_delete_proposal": mt.invoice_delete_proposal,
+        "invoice_unblock_proposal": mt.invoice_unblock_proposal,
+        "invoice_classify_proposal": mt.invoice_classify_proposal,
+        "invoice_ai_review_proposal": mt.invoice_ai_review_proposal,
         "invoice_report": mt.invoice_report,
         "invoice_stats": mt.invoice_stats,
         "sales_invoice_import": mt.sales_invoice_import,
