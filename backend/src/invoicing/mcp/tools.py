@@ -1092,8 +1092,27 @@ def invoice_ai_review(db, *, invoice_id: int) -> dict:
 
 
 @requires("sales:write")
-def sales_invoice_import(file_path: str) -> dict:
-    """导入已开票（销项，文件解析）：XML/OFD/PDF → 入库为销项票，红票自动关联原蓝票。"""
+def sales_invoice_import_proposal(file_path: str,
+                                  idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】导入已开票（销项，文件解析）——返回待确认提案，不落库。
+
+    确认执行时才读取文件（XML/OFD/PDF → 入库为销项票，红票自动关联原蓝票）；
+    提案与确认间隔内文件须保持可读。
+    """
+    from pathlib import Path
+
+    name = Path(file_path).name
+    return _make_proposal(
+        tool_name="sales_invoice_import",
+        payload={"file_path": file_path},
+        preview={"description": f"导入销项发票文件：{name}"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("sales_invoice_import")
+def sales_invoice_import(db, *, file_path: str) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from pathlib import Path
 
     from invoicing.mcp.extract import _read_file
@@ -1101,9 +1120,8 @@ def sales_invoice_import(file_path: str) -> dict:
 
     path = Path(file_path)
     data = _read_file(file_path)
-    with SessionLocal() as db:
-        results = sales_svc.import_sales_files(db, _current_user(db), [(path.name, data)])
-        return results[0]
+    results = sales_svc.import_sales_files(db, _current_user(db), [(path.name, data)])
+    return results[0]
 
 
 @requires("sales:write")
@@ -1135,13 +1153,25 @@ def red_invoice_list() -> list[dict]:
 
 
 @requires("sales:write")
-def red_invoice_link(red_invoice_id: int, original_invoice_id: int) -> dict:
-    """人工补关联：把红字票挂到原蓝票。"""
+def red_invoice_link_proposal(red_invoice_id: int, original_invoice_id: int,
+                              idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】人工补关联红字票到原蓝票——返回待确认提案，不落库。"""
+    return _make_proposal(
+        tool_name="red_invoice_link",
+        payload={"red_invoice_id": red_invoice_id,
+                 "original_invoice_id": original_invoice_id},
+        preview={"description": f"把红字票 {red_invoice_id} 关联到原蓝票 {original_invoice_id}"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("red_invoice_link")
+def red_invoice_link(db, *, red_invoice_id: int, original_invoice_id: int) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.workflow import sales as sales_svc
 
-    with SessionLocal() as db:
-        inv = sales_svc.link_red_invoice(db, _current_user(db), red_invoice_id, original_invoice_id)
-        return {"ok": True, "invoice_id": inv.id, "original_invoice_id": inv.original_invoice_id}
+    inv = sales_svc.link_red_invoice(db, _current_user(db), red_invoice_id, original_invoice_id)
+    return {"ok": True, "invoice_id": inv.id, "original_invoice_id": inv.original_invoice_id}
 
 
 @requires("report:read")
@@ -1190,13 +1220,29 @@ def invoice_health_report(month: str) -> str:
 
 
 @requires("receipt:write")
-def receipt_ingest(file_path: str) -> dict:
-    """银行回单入库（R1.1 批次异步模式）：存档 → 建批次 → 后台解析 → 立即返回批次号。
+def receipt_ingest_proposal(file_path: str,
+                            idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】银行回单入库——返回待确认提案，不落库。
 
-    一份 PDF 可含多张回单，解析（分块规则+LLM 兜底）可达分钟级，同步执行会拖垮
-    Agent 客户端并诱发重复提交——WorkBuddy 应立即拿到批次号，稍后用
-    receipt_upload_status 轮询；解析完成后回单出现在 receipt_list。同一文件
-    重复提交被 file_hash 唯一约束拒绝。
+    确认执行时才读取文件（存档 → 建批次 → 后台解析）；提案与确认间隔内文件须保持可读。
+    同一文件重复提交被 file_hash 唯一约束拒绝（业务级幂等，与两段握手独立）。
+    """
+    from pathlib import Path
+
+    name = Path(file_path).name
+    return _make_proposal(
+        tool_name="receipt_ingest",
+        payload={"file_path": file_path},
+        preview={"description": f"回单入库：{name}（存档 + 后台解析，解析完成后 receipt_list 可见）"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("receipt_ingest")
+def receipt_ingest(db, *, file_path: str) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。
+
+    R1.1 批次异步模式：存档 → 建批次 → 后台解析 → 立即返回批次号。
     """
     import hashlib
     from pathlib import Path
@@ -1213,24 +1259,23 @@ def receipt_ingest(file_path: str) -> dict:
         raise ValueError(f"不支持的格式: {kind or '未知'}（仅 PDF/图片回单）")
 
     file_hash = hashlib.sha256(data).hexdigest()
-    with SessionLocal() as db:
-        existing = db.query(ReceiptUpload).filter(ReceiptUpload.file_hash == file_hash).first()
-        if existing is not None:
-            state = "解析中" if existing.status == "parsing" else (
-                f"已入库 {existing.receipt_count} 张" if existing.status == "parsed" else "解析失败"
-            )
-            raise ValueError(
-                f"该回单文件已上传过（批次 #{existing.id}，{state}），请勿重复提交；"
-                f"用 receipt_upload_status({existing.id}) 查询进度"
-            )
-        key = f"tenant-default/receipts/{uuid4().hex}-{path.name}"
-        get_storage().put(key, data, "application/octet-stream")
-        up = ReceiptUpload(
-            file_hash=file_hash, file_url=key, file_type=kind, status="parsing"
+    existing = db.query(ReceiptUpload).filter(ReceiptUpload.file_hash == file_hash).first()
+    if existing is not None:
+        state = "解析中" if existing.status == "parsing" else (
+            f"已入库 {existing.receipt_count} 张" if existing.status == "parsed" else "解析失败"
         )
-        db.add(up)
-        db.commit()
-        upload_id = up.id
+        raise ValueError(
+            f"该回单文件已上传过（批次 #{existing.id}，{state}），请勿重复提交；"
+            f"用 receipt_upload_status({existing.id}) 查询进度"
+        )
+    key = f"tenant-default/receipts/{uuid4().hex}-{path.name}"
+    get_storage().put(key, data, "application/octet-stream")
+    up = ReceiptUpload(
+        file_hash=file_hash, file_url=key, file_type=kind, status="parsing"
+    )
+    db.add(up)
+    db.commit()
+    upload_id = up.id
     enqueue_receipt_parse_sync(upload_id)
     return {
         "upload_id": upload_id,
@@ -1299,20 +1344,31 @@ def receipt_list(month: str) -> ReceiptListResponse:
 
 
 @requires("receipt:write")
-def receipt_pair(receipt_id: int, invoice_id: int) -> dict:
-    """手动配对回单与发票（覆盖自动建议）。"""
+def receipt_pair_proposal(receipt_id: int, invoice_id: int,
+                          idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】手动配对回单与发票——返回待确认提案，不落库。"""
+    return _make_proposal(
+        tool_name="receipt_pair",
+        payload={"receipt_id": receipt_id, "invoice_id": invoice_id},
+        preview={"description": f"配对回单 {receipt_id} ↔ 发票 {invoice_id}（覆盖自动建议）"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("receipt_pair")
+def receipt_pair(db, *, receipt_id: int, invoice_id: int) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.models import BankReceipt, Invoice
 
-    with SessionLocal() as db:
-        r = db.get(BankReceipt, receipt_id)
-        if r is None:
-            raise ValueError(f"回单不存在: {receipt_id}")
-        if db.get(Invoice, invoice_id) is None:
-            raise ValueError(f"发票不存在: {invoice_id}")
-        r.paired_invoice_id = invoice_id
-        r.status = "paired"
-        db.commit()
-        return {"receipt_id": receipt_id, "paired_invoice_id": invoice_id, "status": "paired"}
+    r = db.get(BankReceipt, receipt_id)
+    if r is None:
+        raise ValueError(f"回单不存在: {receipt_id}")
+    if db.get(Invoice, invoice_id) is None:
+        raise ValueError(f"发票不存在: {invoice_id}")
+    r.paired_invoice_id = invoice_id
+    r.status = "paired"
+    db.commit()
+    return {"receipt_id": receipt_id, "paired_invoice_id": invoice_id, "status": "paired"}
 
 
 @requires("report:read")

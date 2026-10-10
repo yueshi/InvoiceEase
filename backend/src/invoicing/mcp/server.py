@@ -231,9 +231,10 @@ def build_server() -> MCPServer:
     def invoice_stats(month: str) -> dict:
         return mcp_tools.invoice_stats(month)
 
-    @server.tool(description="导入已开票（销项发票，外部开票系统执行）：XML/OFD/PDF 文件解析入库，用于与收款回单对账；红字票自动关联原蓝票。")
-    def sales_invoice_import(file_path: str) -> dict:
-        return mcp_tools.sales_invoice_import(file_path)
+    @server.tool(description="【两段握手第一步】导入已开票（销项发票，外部开票系统执行）——返回待确认提案，不落库（XML/OFD/PDF 文件解析入库，用于与收款回单对账；红字票自动关联原蓝票）。确认后调 confirm_execute(token, 'sales_invoice_import', human_ack=true)。")
+    def sales_invoice_import_proposal(file_path: str,
+                                      idempotency_key: str | None = None) -> dict:
+        return mcp_tools.sales_invoice_import_proposal(file_path, idempotency_key)
 
     @server.tool(description="导入已开票（清单批量）：开票系统导出的 CSV/Excel；含「原发票号码」列时红票自动关联蓝票。")
     def sales_invoice_import_list(file_path: str) -> dict:
@@ -243,13 +244,16 @@ def build_server() -> MCPServer:
     def red_invoice_list() -> list[dict]:
         return mcp_tools.red_invoice_list()
 
-    @server.tool(description="人工补关联红字票与原蓝票（自动关联失败时使用）。")
-    def red_invoice_link(red_invoice_id: int, original_invoice_id: int) -> dict:
-        return mcp_tools.red_invoice_link(red_invoice_id, original_invoice_id)
+    @server.tool(description="【两段握手第一步】人工补关联红字票与原蓝票——返回待确认提案，不落库（自动关联失败时使用）。确认后调 confirm_execute(token, 'red_invoice_link', human_ack=true)。")
+    def red_invoice_link_proposal(red_invoice_id: int, original_invoice_id: int,
+                                  idempotency_key: str | None = None) -> dict:
+        return mcp_tools.red_invoice_link_proposal(red_invoice_id, original_invoice_id,
+                                                    idempotency_key)
 
-    @server.tool(description="银行回单入库（PDF/图片，异步批次模式）：立即返回批次号，后台解析（规则+LLM，一份 PDF 可含多张回单）+ 自动配对发票建议。稍后用 receipt_upload_status 轮询进度；完成后 receipt_list 查看。同一文件重复提交会被拒绝。")
-    def receipt_ingest(file_path: str) -> dict:
-        return mcp_tools.receipt_ingest(file_path)
+    @server.tool(description="【两段握手第一步】银行回单入库（PDF/图片，异步批次模式）——返回待确认提案，不落库。确认执行后立即返回批次号，后台解析（规则+LLM，一份 PDF 可含多张回单）+ 自动配对发票建议；稍后用 receipt_parse_status 轮询。同一文件重复提交会被拒绝。确认后调 confirm_execute(token, 'receipt_ingest', human_ack=true)。")
+    def receipt_ingest_proposal(file_path: str,
+                                idempotency_key: str | None = None) -> dict:
+        return mcp_tools.receipt_ingest_proposal(file_path, idempotency_key)
 
     @server.tool(description="查询回单上传批次解析状态（receipt_ingest 的配套轮询工具）：parsing/parsed/failed + 入库张数。")
     def receipt_parse_status(upload_id: int) -> dict:
@@ -259,9 +263,10 @@ def build_server() -> MCPServer:
     def receipt_list(month: str) -> ReceiptListResponse:
         return mcp_tools.receipt_list(month)
 
-    @server.tool(description="手动配对回单与发票（覆盖自动建议）。")
-    def receipt_pair(receipt_id: int, invoice_id: int) -> dict:
-        return mcp_tools.receipt_pair(receipt_id, invoice_id)
+    @server.tool(description="【两段握手第一步】手动配对回单与发票——返回待确认提案，不落库（覆盖自动建议）。确认后调 confirm_execute(token, 'receipt_pair', human_ack=true)。")
+    def receipt_pair_proposal(receipt_id: int, invoice_id: int,
+                              idempotency_key: str | None = None) -> dict:
+        return mcp_tools.receipt_pair_proposal(receipt_id, invoice_id, idempotency_key)
 
     @server.tool(description="回单/无票费用汇报（总额/张数 + 无票支出清单，供催票）。")
     def receipt_report(month: str) -> str:

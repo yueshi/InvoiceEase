@@ -342,10 +342,20 @@ def test_list_receipt_uploads_endpoint(client, db, monkeypatch, tmp_path):
 
 
 def test_mcp_receipt_ingest_async_batch(db, tmp_path, monkeypatch, mcp_admin_auth):
-    """MCP receipt_ingest 切批次模式：立即返回批次号（解析入队），重复提交 ValueError。"""
+    """MCP receipt_ingest 切批次模式 + P0-2 两段握手：
+
+    proposal 不落库 → confirm 返回批次号（解析入队）；重复提交 ValueError。
+    """
     from invoicing.models import ReceiptUpload
-    from invoicing.mcp.tools import receipt_ingest, receipt_upload_status
+    from invoicing.mcp.tools import (
+        confirm_execute, receipt_ingest_proposal, receipt_upload_status,
+    )
     from invoicing.storage import LocalFileStorage
+
+    def _ingest(path: str) -> dict:
+        prop = receipt_ingest_proposal(path)
+        return confirm_execute(token=prop["proposal_token"],
+                               tool_name="receipt_ingest", human_ack=True)
 
     monkeypatch.setattr(
         "invoicing.storage.get_storage",
@@ -356,7 +366,7 @@ def test_mcp_receipt_ingest_async_batch(db, tmp_path, monkeypatch, mcp_admin_aut
     )
     p = tmp_path / "receipt.pdf"
     p.write_bytes(b"%PDF-1.4 fake")
-    result = receipt_ingest(str(p))
+    result = _ingest(str(p))
     assert result["status"] == "parsing"
     assert result["upload_id"] > 0
     up = db_get(ReceiptUpload, result["upload_id"])
@@ -366,7 +376,7 @@ def test_mcp_receipt_ingest_async_batch(db, tmp_path, monkeypatch, mcp_admin_aut
     import pytest
 
     with pytest.raises(ValueError, match="已上传过"):
-        receipt_ingest(str(p))
+        _ingest(str(p))
 
     # 状态查询工具
     st = receipt_upload_status(result["upload_id"])
