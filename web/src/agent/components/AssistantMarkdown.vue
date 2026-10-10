@@ -73,11 +73,13 @@ const segments = computed<RenderSeg[]>(() => {
       <ClaimDraftCard
         v-else-if="seg.draft"
         :card="seg.draft"
+        :disabled="streaming"
         @submit="(p: string) => emit('chat-action', p)"
       />
       <AnomalyCardView
         v-else-if="seg.anomaly"
         :card="seg.anomaly"
+        :disabled="streaming"
         @choose="(p: string) => emit('chat-action', p)"
       />
       <pre v-else class="code-block"><code>{{ seg.content }}</code></pre>

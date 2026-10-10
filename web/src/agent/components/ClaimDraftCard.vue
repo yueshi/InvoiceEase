@@ -7,7 +7,7 @@
 import { computed } from "vue";
 import type { DraftCard } from "../claimCardSpec";
 
-const props = defineProps<{ card: DraftCard }>();
+const props = withDefaults(defineProps<{ card: DraftCard; disabled?: boolean }>(), { disabled: false });
 const emit = defineEmits<{ (e: "submit", prompt: string): void }>();
 
 const statusLabel: Record<string, string> = {
@@ -51,7 +51,10 @@ function onSubmit() {
       <span>合计</span><span class="cdc-total-amount">{{ card.total_amount }} 元</span>
     </div>
     <div class="cdc-actions">
-      <button v-if="isDraft" class="cdc-submit" type="button" @click="onSubmit()">
+      <button
+        v-if="isDraft" class="cdc-submit" type="button" :disabled="disabled"
+        @click="!disabled && onSubmit()"
+      >
         确认提交
       </button>
     </div>
@@ -107,6 +110,7 @@ function onSubmit() {
   font-weight: 600;
 }
 .cdc-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.cdc-submit[disabled] { opacity: 0.5; cursor: not-allowed; }
 .cdc-submit {
   padding: 4px 14px;
   border-radius: 4px;

@@ -16,7 +16,7 @@ const ENTRIES: Entry[] = [
   { key: "travel", label: "出差报销", hint: "机票/住宿/补助", prompt: "我要报出差费用" },
   { key: "meal", label: "吃饭/招待", hint: "餐饮/客户招待", prompt: "我要报餐饮或招待费用" },
   { key: "transport", label: "打车/高铁", hint: "市内交通/城际", prompt: "我要报交通费用" },
-  { key: "supplement", label: "补充发票", hint: "漏了票/挂到哪张单", prompt: "我要补充一张发票" },
+  { key: "supplement", label: "补充发票", hint: "漏了票/挂到哪张单", prompt: "我要补充发票" },
   { key: "over-budget", label: "超标怎么办", hint: "超标准/超预算", prompt: "我的报销超标了，怎么办" },
 ];
 

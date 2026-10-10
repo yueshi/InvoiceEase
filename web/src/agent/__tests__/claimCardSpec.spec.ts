@@ -45,10 +45,16 @@ describe("parseDraftCard", () => {
     expect(card?.total_amount).toBe("1,234.56");
   });
 
-  it("空对象不崩（返回空卡，由组件决定怎么显示）", () => {
-    const card = parseDraftCard("expense-draft", "{}");
+  it("空对象返回 null（空壳卡会渲染出无指代的「确认提交」）", () => {
+    expect(parseDraftCard("expense-draft", "{}")).toBeNull();
+    expect(parseDraftCard("expense-draft", '{"foo":1}')).toBeNull();
+  });
+
+  it("只有 entries 也算有效卡（明细本身就是内容）", () => {
+    const card = parseDraftCard("expense-draft",
+      JSON.stringify({ entries: [{ title: "高铁", amount: "1.00" }] }));
     expect(card).not.toBeNull();
-    expect(card?.entries).toEqual([]);
+    expect(card?.entries).toHaveLength(1);
   });
 });
 

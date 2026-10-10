@@ -14,7 +14,11 @@ const route = useRoute();
 const inputRef = ref<InstanceType<typeof MessageInput> | null>(null);
 const showEntries = computed(() => !store.messages.length && !store.streaming);
 
-/** 入口卡：只预填输入框，不替用户发送（通常还要补细节） */
+/** 入口卡与卡片按钮：统一**只预填**输入框。
+ *
+ * 卡片按钮的 prompt 是模型写的（用户只看得到 label）——直接发送等于让模型
+ * 代用户发话；结合 §7.5「用户显式确认即可 human_ack=true」，那会制造出
+ * 用户从没说过的"已确认"记录。预填让用户先看见再按发送。 */
 function onEntryPick(prompt: string) {
   inputRef.value?.fill(prompt);
 }
@@ -127,7 +131,7 @@ function resetWidth() {
       :messages="store.messages"
       :streaming-blocks="store.streamingBlocks"
       :streaming="store.streaming"
-      @chat-action="onSend"
+      @chat-action="onEntryPick"
     />
     <div v-if="showEntries" class="entries-slot">
       <EntryCards @pick="onEntryPick" />

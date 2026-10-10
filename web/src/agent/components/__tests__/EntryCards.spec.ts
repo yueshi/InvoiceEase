@@ -30,11 +30,28 @@ describe("EntryCards", () => {
     expect(prompts.every((p) => p.trim().length > 0)).toBe(true);
   });
 
-  it("提示词含 Skill 触发词（与 docs/skills 的 description 对齐）", () => {
+  it("**发出的提示词**含对应 Skill 的触发关键词（不是断言 label）", async () => {
+    // 关键词取自 docs/skills/*/SKILL.md 的 description 触发词：
+    // 平台按 description 语义路由，用户消息与之共享词汇才稳。
+    const KEYWORDS: Record<string, string[]> = {
+      travel: ["出差", "差旅"],
+      meal: ["餐饮", "招待", "吃饭"],
+      transport: ["打车", "高铁", "交通"],
+      supplement: ["补充", "补录"],
+      "over-budget": ["超标", "超预算"],
+    };
+    const keys = ["travel", "meal", "transport", "supplement", "over-budget"];
     const w = mount(EntryCards);
-    // 「出差」/「招待」/「交通」等是 5 份 SKILL.md 的触发词
-    expect(w.text()).toContain("出差");
-    expect(w.text()).toContain("招待");
-    expect(w.text()).toContain("发票");
+    const buttons = w.findAll("button.ec-item");
+    expect(buttons).toHaveLength(keys.length);
+    for (let i = 0; i < keys.length; i++) {
+      await buttons[i].trigger("click");
+      const [prompt] = w.emitted("pick")![i] as [string];
+      const words = KEYWORDS[keys[i]];
+      expect(
+        words.some((k) => prompt.includes(k)),
+        `${keys[i]} 的提示词「${prompt}」不含任何触发关键词 ${words}`,
+      ).toBe(true);
+    }
   });
 });

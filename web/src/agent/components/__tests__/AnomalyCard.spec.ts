@@ -17,7 +17,15 @@ describe("AnomalyCard", () => {
   it("默认展开展示原因与全部选项（异常必须被看见）", () => {
     const w = mount(AnomalyCard, { props: { card: CARD } });
     expect(w.text()).toContain("超公司标准");
-    for (const o of CARD.options) expect(w.text()).toContain(o.label);
+    // 所见即所发：按钮显示的是**将要发出的那句话**（prompt），不是 label
+    for (const o of CARD.options) expect(w.text()).toContain(o.prompt);
+  });
+
+  it("label 与 prompt 不同时，label 作 tooltip 保留（防按钮显示与实际发送不一致）", () => {
+    const w = mount(AnomalyCard, { props: { card: CARD } });
+    const btn = w.findAll("button.ac-option")[0];
+    expect(btn.text()).toBe("我要补充材料");
+    expect(btn.attributes("title")).toBe("补充材料");
   });
 
   it("点选项 → emit choose(该选项的 prompt)", async () => {

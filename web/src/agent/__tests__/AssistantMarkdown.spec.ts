@@ -98,3 +98,35 @@ describe("AssistantMarkdown 卡片接线", () => {
     expect(prompt).toContain("FY-9");
   });
 });
+
+describe("流式期间卡片按钮禁用（点击会被 store 静默吞掉）", () => {
+  it("streaming=true 时异常卡按钮 disabled", () => {
+    const w = mount(AssistantMarkdown, {
+      props: {
+        text: '```anomaly\n{"message":"m","options":[{"label":"A","prompt":"pa"}]}\n```',
+        streaming: true,
+      },
+    });
+    expect(w.find("button.ac-option").attributes("disabled")).toBeDefined();
+  });
+
+  it("streaming=true 时草稿卡提交按钮 disabled", () => {
+    const w = mount(AssistantMarkdown, {
+      props: {
+        text: '```expense-draft\n{"claim_no":"FY-1","entries":[]}\n```',
+        streaming: true,
+      },
+    });
+    expect(w.find("button.cdc-submit").attributes("disabled")).toBeDefined();
+  });
+
+  it("非流式时可点", () => {
+    const w = mount(AssistantMarkdown, {
+      props: {
+        text: '```anomaly\n{"message":"m","options":[{"label":"A","prompt":"pa"}]}\n```',
+        streaming: false,
+      },
+    });
+    expect(w.find("button.ac-option").attributes("disabled")).toBeUndefined();
+  });
+});

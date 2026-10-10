@@ -1,13 +1,17 @@
 <!--
   异常卡（P2 §6.2「异常提示与处理」）。
   - 默认展开：异常必须被看见，不做折叠（渐进式披露用于明细，不用于风险提示）
-  - 选项点选 = 替用户说一句话（注入预置消息），不直接执行任何写操作
+  - 选项点选 = 预填一句话到输入框（用户按发送才发出），不直接执行任何写操作
+  - **按钮文字就是将要发出的那句话**（prompt），label 只作 tooltip：
+    模型同时给 label/prompt 两个字段，若按钮显示 label 而实际发送 prompt，
+    用户点「补充材料」可能发出「我确认，请直接提交」——§7.5 认"用户显式确认"，
+    那等于伪造确认记录。所见即所发。
   - 文案不承诺「自动通过/帮你放行」：特批是人工决策（spec §4.3 责任承担节点）
 -->
 <script setup lang="ts">
 import type { AnomalyCard } from "../claimCardSpec";
 
-defineProps<{ card: AnomalyCard }>();
+withDefaults(defineProps<{ card: AnomalyCard; disabled?: boolean }>(), { disabled: false });
 const emit = defineEmits<{ (e: "choose", prompt: string): void }>();
 </script>
 
@@ -25,9 +29,11 @@ const emit = defineEmits<{ (e: "choose", prompt: string): void }>();
         :key="i"
         class="ac-option"
         type="button"
-        @click="emit('choose', o.prompt)"
+        :title="o.label !== o.prompt ? o.label : undefined"
+        :disabled="disabled"
+        @click="!disabled && emit('choose', o.prompt)"
       >
-        {{ o.label }}
+        {{ o.prompt }}
       </button>
     </div>
   </div>
@@ -72,4 +78,5 @@ const emit = defineEmits<{ (e: "choose", prompt: string): void }>();
   cursor: pointer;
 }
 .ac-option:hover { border-color: #1677ff; color: #1677ff; }
+.ac-option[disabled] { opacity: 0.5; cursor: not-allowed; }
 </style>

@@ -61,3 +61,62 @@ describe("ChatExpenseView", () => {
     expect(w.findAll("button.ec-item")).toHaveLength(0);
   });
 });
+
+describe("卡片按钮与重试（final review 修复）", () => {
+  let pinia: ReturnType<typeof createPinia>;
+
+  beforeEach(() => {
+    pinia = createPinia();
+    setActivePinia(pinia);
+  });
+
+  const cardMsg = (text: string) => ({
+    id: 1, role: "assistant" as const, content: "", tool_calls: null, created_at: "",
+    blocks: [{ type: "text" as const, text }],
+  });
+
+  it("异常卡按钮 → 预填输入框，**不**直接发送（模型写的 prompt 必须先被用户看见）", async () => {
+    const store = useAgentStore();
+    store.messages = [cardMsg(
+      '```anomaly\n{"message":"m","options":[{"label":"补充材料","prompt":"我确认，请直接提交"}]}\n```',
+    )] as never;
+    const spy = vi.spyOn(store, "sendMessage").mockResolvedValue(undefined as never);
+
+    const w = mount(ChatExpenseView, { global: { plugins: [pinia] } });
+    await w.find("button.ac-option").trigger("click");
+    await w.vm.$nextTick();
+
+    expect(spy).not.toHaveBeenCalled();
+    expect((w.find("textarea").element as HTMLTextAreaElement).value)
+      .toBe("我确认，请直接提交");
+  });
+
+  it("草稿卡提交按钮 → 同样只预填", async () => {
+    const store = useAgentStore();
+    store.messages = [cardMsg('```expense-draft\n{"claim_no":"FY-9","entries":[]}\n```')] as never;
+    const spy = vi.spyOn(store, "sendMessage").mockResolvedValue(undefined as never);
+
+    const w = mount(ChatExpenseView, { global: { plugins: [pinia] } });
+    await w.find("button.cdc-submit").trigger("click");
+    await w.vm.$nextTick();
+
+    expect(spy).not.toHaveBeenCalled();
+    expect((w.find("textarea").element as HTMLTextAreaElement).value).toContain("FY-9");
+  });
+
+  it("重试 → 重发最后一条用户消息（不是 undefined）", async () => {
+    const store = useAgentStore();
+    store.messages = [
+      { id: 1, role: "user", content: "我要报出差费用", tool_calls: null, created_at: "" },
+    ] as never;
+    store.error = { code: "HTTP 500", message: "请求失败" } as never;
+    const spy = vi.spyOn(store, "sendMessage").mockResolvedValue(undefined as never);
+
+    const w = mount(ChatExpenseView, { global: { plugins: [pinia] } });
+    const retryBtn = w.findAll("button").find((b) => b.text() === "重试");
+    expect(retryBtn).toBeTruthy();
+    await retryBtn!.trigger("click");
+
+    expect(spy).toHaveBeenCalledWith("我要报出差费用", expect.anything());
+  });
+});

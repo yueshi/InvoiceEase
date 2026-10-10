@@ -33,9 +33,16 @@ async function onSend(text: string) {
   await store.sendMessage(text, buildContext());
 }
 
-/** 入口卡：只预填，不替用户发送 */
+/** 入口卡与卡片按钮：只预填，不替用户发送。
+ *  卡片按钮的文案由模型给出（用户只看到 label 字段）——预填后用户能先核对。 */
 function onEntryPick(prompt: string) {
   inputRef.value?.fill(prompt);
+}
+
+/** 重试：重发最后一条用户消息（与抽屉同逻辑；直接绑 onSend 会发出 undefined） */
+function onRetry() {
+  const lastUser = [...store.messages].reverse().find((m) => m.role === "user");
+  if (lastUser) void onSend(lastUser.content);
 }
 
 onMounted(async () => {
@@ -60,7 +67,7 @@ onMounted(async () => {
         :messages="store.messages"
         :streaming-blocks="store.streamingBlocks"
         :streaming="store.streaming"
-        @chat-action="onSend"
+        @chat-action="onEntryPick"
       />
       <div v-if="store.error" class="ce-err">
         {{ store.error.message }}（{{ store.error.code }}）
@@ -71,7 +78,7 @@ onMounted(async () => {
         :can-retry="!store.streaming && !!store.error"
         @send="onSend"
         @cancel="store.cancel()"
-        @retry="onSend"
+        @retry="onRetry"
       />
     </div>
   </div>

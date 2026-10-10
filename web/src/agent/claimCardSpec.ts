@@ -51,6 +51,9 @@ export function parseDraftCard(lang: string, raw: string): DraftCard | null {
   if (lang !== "expense-draft") return null;
   const o = parseJson(raw);
   if (!o) return null;
+  const claim_no = str(o.claim_no);
+  const title = str(o.title);
+  const total_amount = str(o.total_amount);
   const entries: DraftEntry[] = Array.isArray(o.entries)
     ? (o.entries as unknown[]).flatMap((it) => {
         if (typeof it !== "object" || it === null) return [];
@@ -60,13 +63,12 @@ export function parseDraftCard(lang: string, raw: string): DraftCard | null {
         return title || amount ? [{ title, amount }] : [];
       })
     : [];
+  // 空壳卡（模型给了个 {} 或字段全不认识）不渲染：否则用户看到"报销单预览/[确认提交]"
+  // 却不知道是哪张单，点下去发出的指令无指代。宁可回落代码块。
+  if (!claim_no && !title && !total_amount && !entries.length) return null;
   return {
-    claim_no: str(o.claim_no),
-    title: str(o.title),
-    claim_type: str(o.claim_type),
-    total_amount: str(o.total_amount),
-    status: str(o.status),
-    entries,
+    claim_no, title, claim_type: str(o.claim_type),
+    total_amount, status: str(o.status), entries,
   };
 }
 
