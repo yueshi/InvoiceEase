@@ -84,3 +84,6 @@ data/
 .claude/
 *.db
 .superpowers/
+
+# Vite dev server output (development log; regenerate on each `npm run dev`)
+web/vite.out
