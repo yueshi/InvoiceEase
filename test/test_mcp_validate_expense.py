@@ -11,6 +11,11 @@ from invoicing.models.invoice import Invoice
 from invoicing.workflow.services import validate_expense_mcp
 
 
+@pytest.fixture(autouse=True)
+def _mcp_ctx(mcp_admin_auth):
+    """工具体带 @requires（P0-2 补），直调需要认证上下文。"""
+
+
 def _seed_claim(db, *, total=Decimal("110"), without_tax=Decimal("100"),
                 tax=Decimal("10"), amount=Decimal("110"),
                 invoice_numbers=("INV001",), dept=None, claim_type="travel",

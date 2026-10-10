@@ -1,10 +1,17 @@
 """MCP budget 工具测试（v1.1 §5.2 预算服务MCP）。"""
 from decimal import Decimal
 
+import pytest
+
 from invoicing.models.budget import Budget
 from invoicing.workflow.budget_service import (
     query_budget_mcp, check_budget_available_mcp,
 )
+
+
+@pytest.fixture(autouse=True)
+def _mcp_ctx(mcp_admin_auth):
+    """工具体带 @requires（P0-2 补），直调需要认证上下文。"""
 
 
 def test_query_budget_mcp_basic(db):
