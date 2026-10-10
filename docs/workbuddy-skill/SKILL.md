@@ -28,13 +28,13 @@
 | 职责 | 工具 | 时机 |
 |------|------|------|
 | 收取发票邮件 | agent-mail + batch_extract_invoices + invoice_ingest | 用户要求或日常检查时 |
-| 复核预判 | invoice_ai_review | 对待复核票给出建议结论 |
+| 复核预判 | invoice_ai_review_proposal | 对待复核票给出建议结论 |
 | 费用归类 | invoice_classify | 入库后建议归类（不强制） |
 | 成本汇报 | invoice_report | 老板/财务询问「本月成本」时 |
 | 月度健康报告 | invoice_health_report | 每月 1 日或老板问「这个月怎么样」时 |
-| 回单与无票催交 | receipt_ingest / receipt_report | 回单入库配对；无票支出清单催发票 |
+| 回单与无票催交 | receipt_ingest_proposal / receipt_report | 回单入库配对；无票支出清单催发票 |
 | 查票答疑 | invoice_list / invoice_detail | 任何关于某张票的问题 |
-| 修正与放行 | invoice_update / invoice_unblock / invoice_delete | 财务明确指示时 |
+| 修正与放行 | invoice_update_proposal / invoice_unblock_proposal / invoice_delete_proposal | 财务明确指示时 |
 
 ## 工作原则（SOP）
 
@@ -45,6 +45,33 @@
 5. **异常升级**：验真失败/重复拦截/字段缺失时，明确告知财务待办与理由。
 6. **验真模拟声明**：`verify_is_mock=true`（或 verify_detail 含 mock 字样）时，验真结果为模拟数据——任何关于「已验真」的表述必须注明「模拟模式，未接入国税查验平台」；提交/归档建议同时提示此限制。
 7. **先查权限再动手**：不确定当前令牌能做什么时，先调 `my_permissions`（返回持有权限、数据范围、可调用工具清单）；用户要清单外的能力，直接说明「当前令牌无该权限」，不要反复试探被拒的工具。
+
+## 写操作必须两段握手（v1.1 §7.5）
+
+所有**写操作**工具都以 `_proposal` 结尾。它们**不会真正落库**，只返回一份待确认提案：
+
+```
+1) 调 xxx_proposal(...)  → {"proposal_token": "...", "preview": {...}, "expires_at": "..."}
+2) 把 preview 展示给用户，等用户明确确认
+3) 调 confirm_execute(token=<proposal_token>, tool_name="xxx", human_ack=true)  → 真正落库
+```
+
+- `human_ack=true` **只能**在用户明确同意后传；禁止代替用户确认（服务端会拒绝 false，也会拒绝他人确认）
+- 用户说"算了/先不" → 不调 confirm，提案 15 分钟后自动过期
+- 网络重试/用户连点：给两次调用传**同一个** `idempotency_key`，只会执行一次
+- 涉及以下工具时，必须在回复里把 `preview` 的关键字段念给用户（账号、金额、单号）再确认：
+  `invoice_delete`（不可撤销）、`bank_account_save/delete`、`invoice_unblock`、金额较大的 `expense_submit/expense_approve`
+
+两段式工具清单（20 个 — MCP 里叫 `<名字>_proposal`，`confirm_execute` 的 `tool_name` 传下面的名字）：
+`expense_create / expense_add_entry / expense_add_invoices / expense_add_receipt /
+expense_add_voucher / expense_submit / expense_approve /
+invoice_update / invoice_delete / invoice_unblock / invoice_classify / invoice_ai_review /
+receipt_ingest / receipt_pair / sales_invoice_import / red_invoice_link /
+company_info_save / company_info_delete / bank_account_save / bank_account_delete`
+
+> 读工具（`invoice_list` / `invoice_detail` / `expense_list` / `receipt_list` /
+> `validate_expense` / `query_budget` 等）不需要握手，直接调用。
+> `invoice_ingest` / `extract_invoice` / `invoice_fetch` 属收取管线，仍为单段。
 
 ## 页面跳转（web_url）
 
@@ -66,12 +93,12 @@
 |------|------|-------------|
 | 每日收票巡检 | 每天 09:00 | invoice_fetch → 汇总新收票（张数/拦截/待复核），有异常推送财务 |
 | 周一成本周报 | 每周一 08:00 | invoice_list 本周票 + invoice_report(本月) → 按「总量+已处理+待办+异常」四段汇报 → 微信/邮箱推送 |
-| 待复核催办 | 每天 10:00 | invoice_list(status=pending_review) → 逐张 invoice_ai_review → 建议表推送（只建议不执行） |
+| 待复核催办 | 每天 10:00 | invoice_list(status=pending_review) → 逐张 invoice_ai_review_proposal → 建议表推送（只建议不执行） |
 
 ### 轨道二：用户唤醒（兜底）
 
 - 「查收新票」→ 执行收取流程并汇报
-- 「看看待复核」→ invoice_list(status=pending_review) → 逐张 invoice_ai_review → 汇总建议表
+- 「看看待复核」→ invoice_list(status=pending_review) → 逐张 invoice_ai_review_proposal → 汇总建议表
 - 「本月成本」→ invoice_report(本月) → 按类型解读（双口径：价税合计/不含税）
 - 每次对话开场 → 一句话汇报积压：待复核 N 张、待提交 N 张、拦截 N 张（有则说，无则一句带过）
 
