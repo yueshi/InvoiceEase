@@ -1095,3 +1095,39 @@ def receipt_report(month: str) -> str:
     else:
         lines.append("无票支出：无（回单均已配对发票）")
     return "\n".join(lines)
+
+
+# ===== P0-2 两段握手：confirm_execute 单一入口（v1.1 §7.5） =====
+
+@requires()
+def confirm_execute(token: str, tool_name: str, human_ack: bool,
+                    idempotency_key: str | None = None) -> dict:
+    """两段握手的第二步：消费 proposal_token 并执行注册的落库函数。
+
+    - 未注册的 tool_name → KeyError（软白名单，P0-3 升硬白名单）
+    - human_ack 必须为 true（v1.1 §7.5；缺省视为未确认）
+    - token 一次性、15 分钟 TTL、绑定发起主体（跨主体拒绝）
+    - 同 idempotency_key 重放返回首次结果（24h 窗口），不重复执行
+    """
+    from invoicing.idempotency import consume_proposal, idempotent_run
+    from invoicing.mcp.identity import current_principal
+    from invoicing.mcp.proposal_registry import get_proposal
+
+    proposal_fn = get_proposal(tool_name)  # KeyError：非两段工具
+    principal = current_principal()
+
+    with SessionLocal() as db:
+        def _execute():
+            proposal = consume_proposal(db, token=token, human_ack=human_ack)
+            if principal.user_id is not None and proposal.actor_id != principal.user_id:
+                raise ValueError(
+                    f"proposal 归属主体不符：发起 {proposal.actor_id} / 确认 {principal.user_id}"
+                )
+            result = proposal_fn(db, **dict(proposal.payload or {}))
+            _audit(db, action=f"{tool_name.upper()}_CONFIRMED",
+                   detail={"proposal_token": token, "tool_name": tool_name})
+            db.commit()
+            return result
+
+        return idempotent_run(db, key=idempotency_key, tool_name=tool_name,
+                              fn=_execute)

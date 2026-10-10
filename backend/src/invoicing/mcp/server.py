@@ -289,6 +289,17 @@ def build_server() -> MCPServer:
                 db, dept=dept, category=category, amount=Decimal(amount), period=period,
             )
 
+    # ===== P0-2: 两段握手第二步（v1.1 §7.5） =====
+    @server.tool(
+        description="确认执行一个待确认提案（两段握手第二步）。先调 *_proposal 工具拿到 proposal_token，用户确认后调本工具并传 human_ack=true 才会真正落库。所有写操作的唯一执行入口。",
+    )
+    def confirm_execute(token: str, tool_name: str, human_ack: bool,
+                        idempotency_key: str | None = None) -> dict:
+        return mcp_tools.confirm_execute(
+            token=token, tool_name=tool_name, human_ack=human_ack,
+            idempotency_key=idempotency_key,
+        )
+
     return server
 
 
