@@ -15,6 +15,10 @@ export default defineConfig(({ mode }) => {
   test: {
     environment: "jsdom",
     globals: true,
+    // antd 组件在 jsdom 下的异步渲染（modal/drawer 有多个 tick）在机器高负载时
+    // 会超过默认 5s —— 后端套件刚跑完时实测复现过两次假红。20s 覆盖真实耗时，
+    // 又不至于掩盖真正的挂死。
+    testTimeout: 20000,
   },
   };
 });
