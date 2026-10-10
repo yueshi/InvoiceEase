@@ -416,10 +416,17 @@ def test_expense_api_other_person_claim_hidden(client, db, users):
 
 
 def test_mcp_expense_tools_full_flow(db, users, mcp_auth):
-    """WorkBuddy 对话报销链路：建单 → 批量加票（含失败项）→ 提交 → 审批。"""
+    """WorkBuddy 对话报销链路（P0-2 两段握手）：建单 → 批量加票（含失败项）→ 提交 → 审批。
+
+    每个写操作都走 *_proposal（拿 token）→ confirm_execute（human_ack=true 才落库）。
+    """
     from invoicing.mcp import tools as mt
 
     mcp_auth(users["admin"])  # 工具层改为从认证上下文取身份，不再隐式用「最小 id 的 admin」
+
+    def confirm(tool, proposal):
+        return mt.confirm_execute(token=proposal["proposal_token"],
+                                  tool_name=tool, human_ack=True)
 
     inv1 = _invoice(db, number="24312000000000000021", user_id=None, total_amount=Decimal("120.00"))
     inv2 = _invoice(db, number="24312000000000000022", user_id=None, total_amount=Decimal("80.00"))
@@ -429,28 +436,33 @@ def test_mcp_expense_tools_full_flow(db, users, mcp_auth):
     assert {i["id"] for i in pool} >= {inv1.id, inv2.id}
     assert all(i["id"] != bad.id for i in pool)  # 未验真不可选
 
-    claim = mt.expense_create("6 月差旅", remark="高铁+打车")
-    entry = mt.expense_add_entry(
+    # 两段握手：提案不落库，确认才落库
+    proposal = mt.expense_create_proposal("6 月差旅", remark="高铁+打车")
+    assert proposal["proposal_token"]
+    assert db.query(ExpenseClaim).count() == 0  # 提案阶段零副作用
+    claim = confirm("expense_create", proposal)
+
+    entry = confirm("expense_add_entry", mt.expense_add_entry_proposal(
         claim["id"], "travel", "上海→北京 高铁", occurred_on="2026-06-10",
         scene_fields={"subtype": "transport", "transport_mode": "高铁",
                       "from_city": "上海", "to_city": "北京",
                       "vehicle_no": "G10", "travel_date": "2026-06-10"},
-    )
-    res = mt.expense_add_invoices(
+    ))
+    res = confirm("expense_add_invoices", mt.expense_add_invoices_proposal(
         claim["id"], entry["entry_id"],
         ["24312000000000000021", "24312000000000000022", "24312000000000000023", "不存在的号"],
         expense_type="travel",
-    )
+    ))
     assert res["total_amount"] == "200.00"
     ok = [r for r in res["results"] if r["success"]]
     assert len(ok) == 2
     assert any("验真" in (r.get("error") or "") for r in res["results"])
     assert any("不存在" in (r.get("error") or "") for r in res["results"])
 
-    submitted = mt.expense_submit(claim["id"])
+    submitted = confirm("expense_submit", mt.expense_submit_proposal(claim["id"]))
     assert submitted["status"] == "pending_approval"
 
-    approved = mt.expense_approve(claim["id"], action="approve")
+    approved = confirm("expense_approve", mt.expense_approve_proposal(claim["id"], action="approve"))
     assert approved["status"] == "approved"
 
     listed = mt.expense_list(status="approved")
@@ -887,15 +899,20 @@ def test_mcp_expense_add_receipt_tool(db, users, mcp_auth):
     db.commit()
     claim, entry = _claim_with_entry(db, users["admin"], title="税费", entry_type="office",
                                      entry_title="增值税缴纳")
-    res = mt.expense_add_receipt(claim.id, entry.id, r.id, expense_type="office")
+    # P0-2 两段握手：proposal → confirm
+    prop = mt.expense_add_receipt_proposal(claim.id, entry.id, r.id, expense_type="office")
+    res = mt.confirm_execute(token=prop["proposal_token"],
+                             tool_name="expense_add_receipt", human_ack=True)
     assert res["item"]["voucher_type"] == "tax_receipt"  # 按交易性质自动建议
     assert res["item"]["amount"] == "1116.00"
     assert res["total_amount"] == "1116.00"
 
-    # 一单一报：同回单再挂 → 明确报错
+    # 一单一报：同回单再挂 → 明确报错（确认阶段浮现）
     claim2, entry2 = _claim_with_entry(db, users["admin"], title="再挂一次")
+    prop2 = mt.expense_add_receipt_proposal(claim2.id, entry2.id, r.id)
     with pytest.raises(ValueError, match="已被占用"):
-        mt.expense_add_receipt(claim2.id, entry2.id, r.id)
+        mt.confirm_execute(token=prop2["proposal_token"],
+                           tool_name="expense_add_receipt", human_ack=True)
 
 
 def test_mcp_expense_add_voucher_tool(db, users, mcp_auth):
@@ -905,30 +922,41 @@ def test_mcp_expense_add_voucher_tool(db, users, mcp_auth):
     mcp_auth(users["admin"])
     claim, entry = _claim_with_entry(db, users["admin"], title="零星采购", entry_type="office",
                                      entry_title="办公用品（个人小贩）")
-    ok = mt.expense_add_voucher(claim.id, entry.id, "receipt_voucher", "300.00",
-                                payee_name="张三", payee_id_no="110101199001011234",
-                                note="支出项目：办公用品")
+
+    def add_voucher(**kw):
+        prop = mt.expense_add_voucher_proposal(claim.id, entry.id, **kw)
+        return mt.confirm_execute(token=prop["proposal_token"],
+                                  tool_name="expense_add_voucher", human_ack=True)
+
+    ok = add_voucher(voucher_type="receipt_voucher", amount="300.00",
+                     payee_name="张三", payee_id_no="110101199001011234",
+                     note="支出项目：办公用品")
     assert ok["item"]["deductible"] is True
     assert ok["total_amount"] == "300.00"
 
-    over = mt.expense_add_voucher(claim.id, entry.id, "receipt_voucher", "800.00",
-                                  payee_name="李四", payee_id_no="110101199001011235")
+    over = add_voucher(voucher_type="receipt_voucher", amount="800.00",
+                       payee_name="李四", payee_id_no="110101199001011235")
     assert over["item"]["deductible"] is False
     assert "需取得发票" in over["item"]["deductible_note"]
 
-    contract = mt.expense_add_voucher(claim.id, entry.id, "contract", "5000.00")
+    contract = add_voucher(voucher_type="contract", amount="5000.00")
     assert contract["item"]["deductible"] is False
     assert "财务确认" in contract["item"]["deductible_note"]
 
 
 def test_mcp_expense_add_voucher_rejects_others_claim(db, users, mcp_auth):
-    """MCP：非申请人不能往他人草稿单里录凭证（与 Web 同一 owner-only 口径）。"""
+    """MCP：非申请人不能往他人草稿单里录凭证（与 Web 同一 owner-only 口径）。
+
+    P0-2：owner 校验在执行体（service 层），错误在 confirm 阶段浮现。
+    """
     from invoicing.mcp import tools as mt
 
     claim, entry = _claim_with_entry(db, users["emp"], title="员工的单")
     mcp_auth(users["admin"])
+    prop = mt.expense_add_voucher_proposal(claim.id, entry.id, "overseas", "100.00")
     with pytest.raises(ValueError, match="无权操作他人的报销单"):
-        mt.expense_add_voucher(claim.id, entry.id, "overseas", "100.00")
+        mt.confirm_execute(token=prop["proposal_token"],
+                           tool_name="expense_add_voucher", human_ack=True)
 
 
 def test_expense_config_exposes_petty_cash_threshold(client, users):

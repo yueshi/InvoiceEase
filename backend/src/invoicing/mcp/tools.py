@@ -20,6 +20,7 @@ from invoicing.models import (
     User,
 )
 from invoicing.mcp.identity import requires, requires_role
+from invoicing.mcp.proposal_registry import register_proposal
 from invoicing.schemas.company_info import CompanyInfoOut, TAX_ID_PATTERN
 from invoicing.schemas.invoice import (
     InvoiceListResponse,
@@ -29,6 +30,13 @@ from invoicing.schemas.invoice import (
 )
 from invoicing.schemas.mailbox import PollResultOut
 from invoicing.workflow import services
+# P0-1/P0-2 工具实现在 workflow 层：导入为模块级名字，供 _impl_of 解析
+# （agent tools_bridge 的调用前权限过滤依赖它）
+from invoicing.workflow.budget_service import (
+    check_budget_available_mcp,
+    query_budget_mcp,
+)
+from invoicing.workflow.services import validate_expense_mcp
 from invoicing.workers.queue import enqueue_receipt_parse_sync
 
 
@@ -60,6 +68,10 @@ _REGISTERED_ALIASES = {
     "extract_invoice": "extract_invoice_file",
     "batch_extract_invoices": "batch_extract_invoice_files",
     "validate_invoice": "validate_invoice_data",
+    # P0-1 工具实现在 workflow 层（见顶部导入）
+    "validate_expense": "validate_expense_mcp",
+    "query_budget": "query_budget_mcp",
+    "check_budget_available": "check_budget_available_mcp",
 }
 
 
@@ -157,6 +169,37 @@ def _audit(db, action: str, *, invoice_id: int | None = None, detail: dict | Non
         db, action=action, user_id=p.user_id, invoice_id=invoice_id,
         channel="mcp", detail=merged,
     )
+
+
+def _make_proposal(*, tool_name: str, payload: dict, preview: dict,
+                   idempotency_key: str | None = None) -> dict:
+    """两段握手第一步公共实现（v1.1 §7.5）：签发 proposal，不落业务库。
+
+    幂等：同 idempotency_key 重放返回同一 token（Agent 重试/网络抖动不产生
+    第二张提案）。scope/role 由调用方工具上的 @requires/@requires_role 承担——
+    本 helper 自身不做权限判断。
+    """
+    from invoicing.idempotency import create_proposal, idempotent_run
+    from invoicing.mcp.identity import current_principal
+
+    principal = current_principal()
+
+    with SessionLocal() as db:
+        def _build() -> dict:
+            p = create_proposal(
+                db, tool_name=tool_name, payload=payload, preview=preview,
+                actor_id=principal.user_id or 0, actor_type="user", channel="mcp",
+            )
+            return {
+                "proposal_token": p.token,
+                "tool_name": tool_name,
+                "preview": p.preview,
+                "expires_at": p.expires_at.isoformat(),
+                "next_step": "用户确认后调 confirm_execute(token=..., tool_name=..., human_ack=true)",
+            }
+
+        return idempotent_run(db, key=idempotency_key, tool_name=tool_name,
+                              fn=_build)
 
 
 @requires_role("admin")
@@ -405,24 +448,43 @@ def _money(v) -> str | None:
 
 
 @requires("expense:write")
-def expense_create(title: str, remark: str | None = None, claim_type: str | None = None) -> dict:
-    """创建报销单（草稿）：claim_type 选择单据类型（travel 差旅/procurement 采购/
-    entertainment 招待/office 办公/welfare 福利/other 其他），事项默认继承该类型。"""
+def expense_create_proposal(title: str, remark: str | None = None,
+                            claim_type: str | None = None,
+                            idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】创建报销单（草稿）——返回待确认提案，不落库。
+
+    claim_type 选择单据类型（travel 差旅/procurement 采购/entertainment 招待/
+    office 办公/welfare 福利/other 其他），事项默认继承该类型。
+    用户确认后调 confirm_execute(token, "expense_create", human_ack=true) 才真正建单。
+    """
+    return _make_proposal(
+        tool_name="expense_create",
+        payload={"title": title, "remark": remark, "claim_type": claim_type},
+        preview={"description": f"创建报销单：{title}", "claim_type": claim_type},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("expense_create")
+def expense_create(db, *, title: str, remark: str | None = None,
+                   claim_type: str | None = None) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用，不注册为 MCP 工具）。"""
     from invoicing.workflow import expenses as svc
 
-    with SessionLocal() as db:
-        claim = svc.create_claim(db, _current_user(db), title, remark, claim_type)
-        return {
-            "id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
-            "title": claim.title, "claim_type": claim.claim_type,
-        }
+    claim = svc.create_claim(db, _current_user(db), title, remark, claim_type)
+    return {
+        "id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
+        "title": claim.title, "claim_type": claim.claim_type,
+    }
 
 
 @requires("expense:write")
-def expense_add_entry(claim_id: int, entry_type: str, title: str,
-                      occurred_on: str | None = None, scene_fields: dict | None = None,
-                      note: str | None = None) -> dict:
-    """新建报销事项（费用明细行）：凭证挂到事项下；按类型校验场景要素。
+def expense_add_entry_proposal(claim_id: int, entry_type: str, title: str,
+                               occurred_on: str | None = None,
+                               scene_fields: dict | None = None,
+                               note: str | None = None,
+                               idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】新建报销事项（费用明细行）——返回待确认提案，不落库。
 
     entry_type: travel（差旅，需城市+起止日期）/ procurement（采购，建议合同号订单号）/
     entertainment（招待，需对象+人数）/ office / other。
@@ -432,117 +494,199 @@ def expense_add_entry(claim_id: int, entry_type: str, title: str,
     **allowance（伙食补助：days 天数 + daily_standard 日标准；无需发票，
     系统按 天数×标准 自动生成内部凭证并计入金额，daily_standard 缺省用公司标准）**。
     """
+    return _make_proposal(
+        tool_name="expense_add_entry",
+        payload={"claim_id": claim_id, "entry_type": entry_type, "title": title,
+                 "occurred_on": occurred_on, "scene_fields": scene_fields, "note": note},
+        preview={"description": f"报销单 {claim_id} 新建事项：{title}",
+                 "entry_type": entry_type},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("expense_add_entry")
+def expense_add_entry(db, *, claim_id: int, entry_type: str, title: str,
+                      occurred_on: str | None = None,
+                      scene_fields: dict | None = None,
+                      note: str | None = None) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from datetime import date as _date
 
     from invoicing.workflow import expenses as svc
 
     occurred = _date.fromisoformat(occurred_on) if occurred_on else None
-    with SessionLocal() as db:
-        entry = svc.create_entry(
-            db, _current_user(db), claim_id, entry_type, title, occurred, scene_fields, note
-        )
-        return {
-            "entry_id": entry.id, "claim_id": entry.claim_id, "entry_type": entry.entry_type,
-            "title": entry.title, "amount": _money(entry.amount),
-        }
+    entry = svc.create_entry(
+        db, _current_user(db), claim_id, entry_type, title, occurred, scene_fields, note
+    )
+    return {
+        "entry_id": entry.id, "claim_id": entry.claim_id, "entry_type": entry.entry_type,
+        "title": entry.title, "amount": _money(entry.amount),
+    }
 
 
 @requires("expense:write")
-def expense_add_invoices(claim_id: int, entry_id: int, invoice_numbers: list[str],
-                         expense_type: str = "other", note: str | None = None) -> dict:
-    """按发票号码批量加入报销单（自动校验：一票一报/已验真/未拦截/归属范围）。
+def expense_add_invoices_proposal(claim_id: int, entry_id: int,
+                                  invoice_numbers: list[str],
+                                  expense_type: str = "other",
+                                  note: str | None = None,
+                                  idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】按发票号码批量加入报销单——返回待确认提案，不落库。
 
-    返回逐条结果（success/error），互不影响——便于 Agent 一次性处理多张票。
+    实际执行时自动校验（一票一报/已验真/未拦截/归属范围），返回逐条结果。
     """
+    return _make_proposal(
+        tool_name="expense_add_invoices",
+        payload={"claim_id": claim_id, "entry_id": entry_id,
+                 "invoice_numbers": invoice_numbers, "expense_type": expense_type,
+                 "note": note},
+        preview={"description": f"向报销单 {claim_id} 加入 {len(invoice_numbers)} 张发票",
+                 "invoice_numbers": invoice_numbers},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("expense_add_invoices")
+def expense_add_invoices(db, *, claim_id: int, entry_id: int,
+                         invoice_numbers: list[str], expense_type: str = "other",
+                         note: str | None = None) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.models import Invoice
     from invoicing.workflow import expenses as svc
 
     results = []
-    with SessionLocal() as db:
-        user = _current_user(db)
-        for number in invoice_numbers:
-            inv = db.query(Invoice).filter(Invoice.invoice_number == number).first()
-            if inv is None:
-                results.append({"invoice_number": number, "success": False, "error": "发票不存在"})
-                continue
-            try:
-                item = svc.add_invoice(db, user, claim_id, inv.id, entry_id, expense_type, note)
-                results.append({
-                    "invoice_number": number, "success": True,
-                    "amount": _money(item.amount), "item_id": item.id,
-                })
-            except ValueError as e:
-                results.append({"invoice_number": number, "success": False, "error": str(e)})
-        claim = svc._get_claim(db, claim_id)
-        return {
-            "claim_id": claim.id, "claim_no": claim.claim_no, "entry_id": entry_id,
-            "total_amount": _money(claim.total_amount), "results": results,
-        }
+    user = _current_user(db)
+    for number in invoice_numbers:
+        inv = db.query(Invoice).filter(Invoice.invoice_number == number).first()
+        if inv is None:
+            results.append({"invoice_number": number, "success": False, "error": "发票不存在"})
+            continue
+        try:
+            item = svc.add_invoice(db, user, claim_id, inv.id, entry_id, expense_type, note)
+            results.append({
+                "invoice_number": number, "success": True,
+                "amount": _money(item.amount), "item_id": item.id,
+            })
+        except ValueError as e:
+            results.append({"invoice_number": number, "success": False, "error": str(e)})
+    claim = svc._get_claim(db, claim_id)
+    return {
+        "claim_id": claim.id, "claim_no": claim.claim_no, "entry_id": entry_id,
+        "total_amount": _money(claim.total_amount), "results": results,
+    }
 
 
 @requires("expense:write")
-def expense_add_receipt(claim_id: int, entry_id: int, receipt_id: int,
-                        voucher_type: str | None = None, expense_type: str = "other",
-                        note: str | None = None) -> dict:
-    """把银行回单/缴款书回单挂为报销凭证（金额取自回单，一单一报）。
+def expense_add_receipt_proposal(claim_id: int, entry_id: int, receipt_id: int,
+                                 voucher_type: str | None = None,
+                                 expense_type: str = "other",
+                                 note: str | None = None,
+                                 idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】把银行回单/缴款书回单挂为报销凭证——返回待确认提案。
 
     receipt_id 用 receipt_list 查询；voucher_type 留空时按回单交易性质自动建议
     （税费/社保 → 缴款书回单 tax_receipt，其余 → 银行回单 bank_receipt）。
     """
+    return _make_proposal(
+        tool_name="expense_add_receipt",
+        payload={"claim_id": claim_id, "entry_id": entry_id, "receipt_id": receipt_id,
+                 "voucher_type": voucher_type, "expense_type": expense_type,
+                 "note": note},
+        preview={"description": f"向报销单 {claim_id} 挂回单 {receipt_id}"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("expense_add_receipt")
+def expense_add_receipt(db, *, claim_id: int, entry_id: int, receipt_id: int,
+                        voucher_type: str | None = None,
+                        expense_type: str = "other",
+                        note: str | None = None) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.workflow import expenses as svc
 
-    with SessionLocal() as db:
-        item = svc.add_receipt(db, _current_user(db), claim_id, receipt_id, entry_id,
-                               voucher_type, expense_type, note)
-        claim = svc._get_claim(db, claim_id)
-        return {
-            "claim_id": claim.id, "claim_no": claim.claim_no, "entry_id": entry_id,
-            "total_amount": _money(claim.total_amount),
-            "item": {"id": item.id, "voucher_type": item.voucher_type,
-                     "amount": _money(item.amount), "receipt_id": item.receipt_id},
-        }
+    item = svc.add_receipt(db, _current_user(db), claim_id, receipt_id, entry_id,
+                           voucher_type, expense_type, note)
+    claim = svc._get_claim(db, claim_id)
+    return {
+        "claim_id": claim.id, "claim_no": claim.claim_no, "entry_id": entry_id,
+        "total_amount": _money(claim.total_amount),
+        "item": {"id": item.id, "voucher_type": item.voucher_type,
+                 "amount": _money(item.amount), "receipt_id": item.receipt_id},
+    }
 
 
 @requires("expense:write")
-def expense_add_voucher(claim_id: int, entry_id: int, voucher_type: str, amount: str,
-                        expense_type: str = "other", note: str | None = None,
-                        payee_name: str | None = None, payee_id_no: str | None = None) -> dict:
-    """无票支出人工凭证（按 28 号公告校验税前扣除资格，金额为字符串避免浮点误差）。
+def expense_add_voucher_proposal(claim_id: int, entry_id: int, voucher_type: str,
+                                 amount: str, expense_type: str = "other",
+                                 note: str | None = None,
+                                 payee_name: str | None = None,
+                                 payee_id_no: str | None = None,
+                                 idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】无票支出人工凭证——返回待确认提案，不落库。
 
     voucher_type：receipt_voucher（收款凭证，小额零星 ≤500 元，需收款人姓名+身份证号）/
     contract（合同类，仅特殊情形可扣，需财务确认）/ overseas（境外票据）。
-    返回 deductible/deductible_note：false 时提示用户补要素或取得发票。
     """
+    return _make_proposal(
+        tool_name="expense_add_voucher",
+        payload={"claim_id": claim_id, "entry_id": entry_id,
+                 "voucher_type": voucher_type, "amount": amount,
+                 "expense_type": expense_type, "note": note,
+                 "payee_name": payee_name, "payee_id_no": payee_id_no},
+        preview={"description": f"向报销单 {claim_id} 挂人工凭证 {voucher_type} {amount} 元"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("expense_add_voucher")
+def expense_add_voucher(db, *, claim_id: int, entry_id: int, voucher_type: str,
+                        amount: str, expense_type: str = "other",
+                        note: str | None = None, payee_name: str | None = None,
+                        payee_id_no: str | None = None) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用；按 28 号公告校验扣除资格）。"""
     from decimal import Decimal
 
     from invoicing.workflow import expenses as svc
 
-    with SessionLocal() as db:
-        item = svc.add_manual_voucher(
-            db, _current_user(db), claim_id, entry_id,
-            voucher_type=voucher_type, amount=Decimal(str(amount)),
-            expense_type=expense_type, note=note,
-            payee_name=payee_name, payee_id_no=payee_id_no,
-        )
-        claim = svc._get_claim(db, claim_id)
-        return {
-            "claim_id": claim.id, "claim_no": claim.claim_no, "entry_id": entry_id,
-            "total_amount": _money(claim.total_amount),
-            "item": {"id": item.id, "voucher_type": item.voucher_type,
-                     "amount": _money(item.amount), "deductible": item.deductible,
-                     "deductible_note": item.deductible_note},
-        }
+    item = svc.add_manual_voucher(
+        db, _current_user(db), claim_id, entry_id,
+        voucher_type=voucher_type, amount=Decimal(str(amount)),
+        expense_type=expense_type, note=note,
+        payee_name=payee_name, payee_id_no=payee_id_no,
+    )
+    claim = svc._get_claim(db, claim_id)
+    return {
+        "claim_id": claim.id, "claim_no": claim.claim_no, "entry_id": entry_id,
+        "total_amount": _money(claim.total_amount),
+        "item": {"id": item.id, "voucher_type": item.voucher_type,
+                 "amount": _money(item.amount), "deductible": item.deductible,
+                 "deductible_note": item.deductible_note},
+    }
 
 
 @requires("expense:write")
-def expense_submit(claim_id: int) -> dict:
-    """提交报销单进入审批（需已有明细）。"""
+def expense_submit_proposal(claim_id: int,
+                            idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】提交报销单进入审批——返回待确认提案，不落库。
+
+    确认执行时自动跑 validate_expense（P0-1）：FAIL 抛错 + SUBMIT_BLOCKED 审计。
+    """
+    return _make_proposal(
+        tool_name="expense_submit",
+        payload={"claim_id": claim_id},
+        preview={"description": f"提交报销单 {claim_id} 进入审批"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("expense_submit")
+def expense_submit(db, *, claim_id: int) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.workflow import expenses as svc
 
-    with SessionLocal() as db:
-        claim = svc.submit_claim(db, _current_user(db), claim_id)
-        return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
-                "total_amount": _money(claim.total_amount)}
+    claim = svc.submit_claim(db, _current_user(db), claim_id)
+    return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
+            "total_amount": _money(claim.total_amount)}
 
 
 @requires("expense:read")
@@ -573,21 +717,47 @@ def expense_list(status: str | None = None, claim_type: str | None = None) -> li
         ]
 
 
+@requires_role("finance_staff", "finance_manager", "admin")
 @requires("expense:approve")
-def expense_approve(claim_id: int, action: str = "approve", reason: str | None = None) -> dict:
-    """审批报销单：action=approve/reject（reject 必填 reason）。财务通道。"""
+def expense_approve_proposal(claim_id: int, action: str = "approve",
+                             reason: str | None = None,
+                             idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】审批报销单——返回待确认提案，不落库。
+
+    action=approve/reject（reject 必填 reason）。财务通道：MCP 层 role 门 +
+    scope 门双闸（service 层 `_is_finance` 仍为第三道）。
+    """
+    if action not in ("approve", "reject"):
+        raise ValueError(f"非法审批动作: {action}（可选 approve/reject）")
+    if action == "reject" and not reason:
+        raise ValueError("驳回必须提供 reason")
+    return _make_proposal(
+        tool_name="expense_approve",
+        payload={"claim_id": claim_id, "action": action, "reason": reason},
+        preview={
+            "description": f"{'通过' if action == 'approve' else '驳回'}"
+                           f"报销单 {claim_id}",
+            "reason": reason,
+        },
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("expense_approve")
+def expense_approve(db, *, claim_id: int, action: str = "approve",
+                    reason: str | None = None) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.workflow import expenses as svc
 
-    with SessionLocal() as db:
-        user = _current_user(db)
-        if action == "approve":
-            claim = svc.approve_claim(db, user, claim_id)
-        elif action == "reject":
-            claim = svc.reject_claim(db, user, claim_id, reason or "")
-        else:
-            raise ValueError(f"非法审批动作: {action}（可选 approve/reject）")
-        return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
-                "rejected_reason": claim.rejected_reason}
+    user = _current_user(db)
+    if action == "approve":
+        claim = svc.approve_claim(db, user, claim_id)
+    elif action == "reject":
+        claim = svc.reject_claim(db, user, claim_id, reason or "")
+    else:
+        raise ValueError(f"非法审批动作: {action}（可选 approve/reject）")
+    return {"id": claim.id, "claim_no": claim.claim_no, "status": claim.status,
+            "rejected_reason": claim.rejected_reason}
 
 
 @requires("expense:read")

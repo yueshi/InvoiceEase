@@ -8,6 +8,7 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from invoicing.models.budget import Budget
+from invoicing.mcp.identity import requires
 
 
 @dataclass
@@ -75,9 +76,13 @@ def _current_period() -> str:
     return f"{today.year:04d}-{today.month:02d}"
 
 
+@requires("expense:read")
 def query_budget_mcp(db, *, dept: str, category: str,
                      period: str | None = None) -> dict:
-    """MCP 工具：查询预算（v1.1 §5.2 预算服务MCP）。"""
+    """MCP 工具：查询预算（v1.1 §5.2 预算服务MCP）。
+
+    scope: expense:read（P0-2 裁决——不新增 budget:read）。
+    """
     v = query_budget(db, tenant_id=_DEFAULT_TENANT, dept=dept,
                      category=category, period=period or _current_period())
     return {
@@ -87,10 +92,14 @@ def query_budget_mcp(db, *, dept: str, category: str,
     }
 
 
+@requires("expense:read")
 def check_budget_available_mcp(db, *, dept: str, category: str,
                                 amount: Decimal,
                                 period: str | None = None) -> dict:
-    """MCP 工具：检查预算是否可承担金额（v1.1 §5.2 预算服务MCP）。"""
+    """MCP 工具：检查预算是否可承担金额（v1.1 §5.2 预算服务MCP）。
+
+    scope: expense:read（P0-2 裁决——不新增 budget:read）。
+    """
     r = check_available(db, tenant_id=_DEFAULT_TENANT, dept=dept,
                         category=category, period=period or _current_period(),
                         amount=Decimal(str(amount)))

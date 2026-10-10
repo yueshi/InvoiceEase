@@ -6,6 +6,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from invoicing.audit import write_audit
+from invoicing.mcp.identity import requires
 from invoicing.models import (
     AuditLog, BankReceipt, ExpenseEntry, ExpenseItem, Invoice, InvoiceStatus, Role, User,
 )
@@ -707,11 +708,11 @@ def validate_expense(db: Session, claim) -> "ValidationResult":
 
 # ===== MCP 工具（v1.1 §5.2 验证服务MCP） =====
 
+@requires("expense:read")
 def validate_expense_mcp(db: Session, claim_id: int) -> dict:
     """MCP 工具：报销单级校验聚合（v1.1 §5.2 验证服务MCP）。
 
-    ponytail: 当前实现为 thin wrapper 直接调 validate_expense + 序列化为 dict；
-    后续拆到 mcp/validate.py 独立模块。
+    scope: expense:read（P0-2 裁决——不新增 budget:read，预算/校验与报销同域）。
     """
     from invoicing.models.expense import ExpenseClaim
     claim = db.get(ExpenseClaim, claim_id)

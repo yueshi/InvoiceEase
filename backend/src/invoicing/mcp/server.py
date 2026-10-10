@@ -94,45 +94,56 @@ def build_server() -> MCPServer:
     ) -> CompanyInfoOut:
         return mcp_tools.company_info_save(name, tax_id, kind, is_default, remark)
 
-    @server.tool(description="创建报销单（草稿）：claim_type 选单据类型（travel 差旅/procurement 采购/entertainment 招待/office 办公/welfare 福利/other 其他），事项默认继承。随后 expense_add_entry 建事项、expense_add_invoices 加票、expense_submit 提交。")
-    def expense_create(title: str, remark: str | None = None, claim_type: str | None = None) -> dict:
-        return mcp_tools.expense_create(title, remark, claim_type)
+    @server.tool(description="【两段握手第一步】创建报销单（草稿）——返回待确认提案（proposal_token），不落库。claim_type 选单据类型（travel 差旅/procurement 采购/entertainment 招待/office 办公/welfare 福利/other 其他）。用户确认后调 confirm_execute(token, 'expense_create', human_ack=true) 才真正建单。")
+    def expense_create_proposal(title: str, remark: str | None = None, claim_type: str | None = None,
+                                idempotency_key: str | None = None) -> dict:
+        return mcp_tools.expense_create_proposal(title, remark, claim_type, idempotency_key)
 
-    @server.tool(description="新建报销事项（费用明细行）：travel 差旅（需城市+起止日期）/ procurement 采购 / entertainment 招待（需对象+人数）/ office / other。凭证挂到事项下。")
-    def expense_add_entry(claim_id: int, entry_type: str, title: str,
-                          occurred_on: str | None = None, scene_fields: dict | None = None,
-                          note: str | None = None) -> dict:
-        return mcp_tools.expense_add_entry(claim_id, entry_type, title, occurred_on, scene_fields, note)
+    @server.tool(description="【两段握手第一步】新建报销事项（费用明细行）——返回待确认提案，不落库。travel 差旅（需城市+起止日期）/ procurement 采购 / entertainment 招待（需对象+人数）/ office / other。确认后调 confirm_execute(token, 'expense_add_entry', human_ack=true)。")
+    def expense_add_entry_proposal(claim_id: int, entry_type: str, title: str,
+                                   occurred_on: str | None = None, scene_fields: dict | None = None,
+                                   note: str | None = None,
+                                   idempotency_key: str | None = None) -> dict:
+        return mcp_tools.expense_add_entry_proposal(
+            claim_id, entry_type, title, occurred_on, scene_fields, note, idempotency_key)
 
-    @server.tool(description="按发票号码批量加入报销单的某个事项（自动校验一票一报/已验真/未拦截/归属范围），返回逐条结果。")
-    def expense_add_invoices(claim_id: int, entry_id: int, invoice_numbers: list[str],
-                             expense_type: str = "other", note: str | None = None) -> dict:
-        return mcp_tools.expense_add_invoices(claim_id, entry_id, invoice_numbers, expense_type, note)
+    @server.tool(description="【两段握手第一步】按发票号码批量加入报销单的某个事项——返回待确认提案，不落库。确认执行时自动校验一票一报/已验真/未拦截/归属范围。确认后调 confirm_execute(token, 'expense_add_invoices', human_ack=true)。")
+    def expense_add_invoices_proposal(claim_id: int, entry_id: int, invoice_numbers: list[str],
+                                      expense_type: str = "other", note: str | None = None,
+                                      idempotency_key: str | None = None) -> dict:
+        return mcp_tools.expense_add_invoices_proposal(
+            claim_id, entry_id, invoice_numbers, expense_type, note, idempotency_key)
 
-    @server.tool(description="把银行回单/缴款书回单挂为报销凭证（金额取自回单，一单一报）；receipt_id 用 receipt_list 查询，凭证类型留空按回单交易性质自动建议。")
-    def expense_add_receipt(claim_id: int, entry_id: int, receipt_id: int,
-                            voucher_type: str | None = None, expense_type: str = "other",
-                            note: str | None = None) -> dict:
-        return mcp_tools.expense_add_receipt(claim_id, entry_id, receipt_id, voucher_type, expense_type, note)
+    @server.tool(description="【两段握手第一步】把银行回单/缴款书回单挂为报销凭证——返回待确认提案，不落库。receipt_id 用 receipt_list 查询；凭证类型留空按回单交易性质自动建议。确认后调 confirm_execute(token, 'expense_add_receipt', human_ack=true)。")
+    def expense_add_receipt_proposal(claim_id: int, entry_id: int, receipt_id: int,
+                                     voucher_type: str | None = None, expense_type: str = "other",
+                                     note: str | None = None,
+                                     idempotency_key: str | None = None) -> dict:
+        return mcp_tools.expense_add_receipt_proposal(
+            claim_id, entry_id, receipt_id, voucher_type, expense_type, note, idempotency_key)
 
-    @server.tool(description="录入无票支出人工凭证（receipt_voucher 收款凭证需收款人姓名+身份证号且 ≤500 元；contract 合同类；overseas 境外票据），返回 deductible 与不可扣除原因。")
-    def expense_add_voucher(claim_id: int, entry_id: int, voucher_type: str, amount: str,
-                            expense_type: str = "other", note: str | None = None,
-                            payee_name: str | None = None, payee_id_no: str | None = None) -> dict:
-        return mcp_tools.expense_add_voucher(claim_id, entry_id, voucher_type, amount,
-                                             expense_type, note, payee_name, payee_id_no)
+    @server.tool(description="【两段握手第一步】录入无票支出人工凭证——返回待确认提案，不落库。receipt_voucher 收款凭证需收款人姓名+身份证号且 ≤500 元；contract 合同类；overseas 境外票据。确认后调 confirm_execute(token, 'expense_add_voucher', human_ack=true)。")
+    def expense_add_voucher_proposal(claim_id: int, entry_id: int, voucher_type: str, amount: str,
+                                     expense_type: str = "other", note: str | None = None,
+                                     payee_name: str | None = None, payee_id_no: str | None = None,
+                                     idempotency_key: str | None = None) -> dict:
+        return mcp_tools.expense_add_voucher_proposal(
+            claim_id, entry_id, voucher_type, amount, expense_type, note,
+            payee_name, payee_id_no, idempotency_key)
 
-    @server.tool(description="提交报销单进入审批（需已有明细）。")
-    def expense_submit(claim_id: int) -> dict:
-        return mcp_tools.expense_submit(claim_id)
+    @server.tool(description="【两段握手第一步】提交报销单进入审批——返回待确认提案，不落库。确认执行时自动跑 validate_expense（6 项校验），FAIL 抛错 + 审计。确认后调 confirm_execute(token, 'expense_submit', human_ack=true)。")
+    def expense_submit_proposal(claim_id: int,
+                                idempotency_key: str | None = None) -> dict:
+        return mcp_tools.expense_submit_proposal(claim_id, idempotency_key)
 
     @server.tool(description="报销单列表（status 可选 draft/pending_approval/approved/rejected/withdrawn；claim_type 可选单据类型）。")
     def expense_list(status: str | None = None, claim_type: str | None = None) -> list[dict]:
         return mcp_tools.expense_list(status, claim_type)
 
-    @server.tool(description="审批报销单：action=approve/reject（驳回必填 reason）。")
-    def expense_approve(claim_id: int, action: str = "approve", reason: str | None = None) -> dict:
-        return mcp_tools.expense_approve(claim_id, action, reason)
+    @server.tool(description="【两段握手第一步】审批报销单——返回待确认提案，不落库。action=approve/reject（驳回必填 reason）。财务通道。确认后调 confirm_execute(token, 'expense_approve', human_ack=true)。")
+    def expense_approve_proposal(claim_id: int, action: str = "approve", reason: str | None = None,
+                                 idempotency_key: str | None = None) -> dict:
+        return mcp_tools.expense_approve_proposal(claim_id, action, reason, idempotency_key)
 
     @server.tool(description="可报销发票池（已验真、未拦截、未占用），供选票建单。")
     def expense_eligible_invoices(limit: int = 50) -> list[dict]:

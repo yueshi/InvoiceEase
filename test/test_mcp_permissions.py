@@ -95,9 +95,10 @@ def test_missing_scope_denied(db, users, mcp_auth):
     claim = svc.create_claim(db, users["fin"], title="待审批")
 
     # 财务角色（role 允许审批）但令牌没给该 scope
+    # P0-2 两段握手：权限闸门在建 proposal 时生效（执行走 confirm_execute）
     mcp_auth(users["fin"], scopes=("expense:read", "expense:write"))
     with pytest.raises(ValueError, match="expense:approve"):
-        mt.expense_approve(claim.id, action="approve")
+        mt.expense_approve_proposal(claim.id, action="approve")
 
 
 def test_scope_and_role_both_must_pass(db, users, mcp_auth):
@@ -115,8 +116,9 @@ def test_scope_and_role_both_must_pass(db, users, mcp_auth):
     db.commit()
 
     mcp_auth(users["emp"], scopes=("expense:read", "expense:approve"))
-    with pytest.raises(ValueError, match="财务角色"):
-        mt.expense_approve(claim.id, action="approve")
+    # P0-2 两段握手：role 门在提案阶段即生效（@requires_role 文案，早于 service 层）
+    with pytest.raises(ValueError, match="仅限财务"):
+        mt.expense_approve_proposal(claim.id, action="approve")
 
 
 def test_no_auth_context_denied(db, users):
@@ -277,14 +279,17 @@ def test_agent_tool_list_filtered_by_permissions(db, users):
     assert not {"receipt_list", "invoice_update", "invoice_fetch",
                 "invoice_stats", "invoice_delete"} & emp_tools
     # 合法能力保留（交票/查自己的票/报销）
-    assert {"invoice_list", "invoice_detail", "expense_create", "extract_invoice"} <= emp_tools
+    # P0-2：写工具以 *_proposal 暴露给 Agent（两段握手第一步）
+    assert {"invoice_list", "invoice_detail", "expense_create_proposal",
+            "extract_invoice"} <= emp_tools
 
     # 财务：财务专属可见；管理员专属（收票、删票）仍不可见
+    # （invoice_* 的 *_proposal 改名在 Task 7 落地后同步）
     assert {"receipt_list", "invoice_update", "invoice_stats"} <= fin_tools
     assert not {"invoice_fetch", "invoice_delete"} & fin_tools
 
-    # 管理员：全集
-    assert len(adm_tools) == 40
+    # 管理员：全集（P0-1 加 3 + P0-2 confirm_execute 1 = 44）
+    assert len(adm_tools) == 44
 
 
 def test_my_permissions_reports_own_scope(db, users, mcp_auth):
@@ -324,7 +329,9 @@ def test_every_registered_tool_declares_scope():
     server = build_server()
     tools = asyncio.run(server.list_tools())
     names = {t.name for t in tools}
-    assert len(names) == 40, f"工具数变化（{len(names)}），请同步更新设计附录 A"
+    # P0-1 加 3（validate_expense / query_budget / check_budget_available）
+    # P0-2 加 1（confirm_execute），7 个 expense 写工具改名 *_proposal
+    assert len(names) == 44, f"工具数变化（{len(names)}），请同步更新设计附录 A"
 
     from invoicing.mcp import extract as mt_extract
     from invoicing.mcp import tools as mt
@@ -340,14 +347,14 @@ def test_every_registered_tool_declares_scope():
         "invoice_ingest": mt.ingest_invoice,
         "company_info_list": mt.company_info_list,
         "company_info_save": mt.company_info_save,
-        "expense_create": mt.expense_create,
-        "expense_add_entry": mt.expense_add_entry,
-        "expense_add_invoices": mt.expense_add_invoices,
-        "expense_add_receipt": mt.expense_add_receipt,
-        "expense_add_voucher": mt.expense_add_voucher,
-        "expense_submit": mt.expense_submit,
+        "expense_create_proposal": mt.expense_create_proposal,
+        "expense_add_entry_proposal": mt.expense_add_entry_proposal,
+        "expense_add_invoices_proposal": mt.expense_add_invoices_proposal,
+        "expense_add_receipt_proposal": mt.expense_add_receipt_proposal,
+        "expense_add_voucher_proposal": mt.expense_add_voucher_proposal,
+        "expense_submit_proposal": mt.expense_submit_proposal,
         "expense_list": mt.expense_list,
-        "expense_approve": mt.expense_approve,
+        "expense_approve_proposal": mt.expense_approve_proposal,
         "expense_eligible_invoices": mt.expense_eligible_invoices,
         "bank_account_list": mt.bank_account_list,
         "bank_account_save": mt.bank_account_save,
@@ -371,6 +378,12 @@ def test_every_registered_tool_declares_scope():
         "receipt_report": mt.receipt_report,
         "invoice_health_report": mt.invoice_health_report,
         "my_permissions": mt.my_permissions,
+        # P0-1 验证/预算服务 MCP
+        "validate_expense": mt.validate_expense_mcp,
+        "query_budget": mt.query_budget_mcp,
+        "check_budget_available": mt.check_budget_available_mcp,
+        # P0-2 两段握手第二步
+        "confirm_execute": mt.confirm_execute,
     }
     assert set(impl_map) == names, (
         f"注册名与实现映射不一致：注册多出 {names - set(impl_map)}，映射多出 {set(impl_map) - names}"
