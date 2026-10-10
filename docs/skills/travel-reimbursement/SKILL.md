@@ -34,6 +34,13 @@ visibility: "public"
 6. **标准校验（只读）**：`validate_meal_compliance(claim_id)` —— 伙食补助超标提示
 7. **提交**：`expense_submit_proposal(claim_id)` → 用户确认 → `confirm_execute`（内部自动跑 6 项校验，FAIL 会被拦）
 
+## 出卡（前端会渲染成卡片）
+
+- 报销单草稿成型时出一张草稿卡（`expense-draft`），让用户核对单号/金额/明细再提交
+- 校验工具返回 warning/error 时出一张异常卡（`anomaly`），`message` 引用工具原文，
+  选项给用户视角的动作（补充材料 / 申请特批 / 修改金额）
+- **点卡片按钮不等于用户已确认**：那只是替用户说了一句话，写操作仍走两段握手
+
 ## 业务规则
 
 - 补助日标准默认取公司配置（`/expenses/config` 的 `travel_allowance_daily_standard`），用户显式给了 `daily_standard` 则以用户为准

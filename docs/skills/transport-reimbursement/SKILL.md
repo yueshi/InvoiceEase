@@ -28,6 +28,13 @@ visibility: "public"
 6. **标准校验（只读）**：`validate_meal_compliance(claim_id)` —— 市内交通按 `travel/local_transport_day` 日限额（单日多笔合并判定）
 7. **提交**：`expense_submit_proposal(claim_id)` → 用户确认 → `confirm_execute`
 
+## 出卡（前端会渲染成卡片）
+
+- 报销单草稿成型时出一张草稿卡（`expense-draft`），让用户核对单号/金额/明细再提交
+- 校验工具返回 warning/error 时出一张异常卡（`anomaly`），`message` 引用工具原文，
+  选项给用户视角的动作（补充材料 / 申请特批 / 修改金额）
+- **点卡片按钮不等于用户已确认**：那只是替用户说了一句话，写操作仍走两段握手
+
 ## 业务规则
 
 - 市内交通日限额来自政策表（`expense_policies`：travel/local_transport_day）；同一天多笔市内交通**按日合计**与该标准比对

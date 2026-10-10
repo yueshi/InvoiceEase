@@ -38,3 +38,31 @@ def test_prompt_never_names_a_bare_write_tool():
 def test_prompt_forbids_calling_proposal_without_confirm():
     """必须明确：提案≠已执行，未 confirm 不得声称完成。"""
     assert "不落库" in DEFAULT_SYSTEM_PROMPT or "不会真正" in DEFAULT_SYSTEM_PROMPT
+
+# ---- P2：结构化卡片契约 -----------------------------------------------------
+
+def test_prompt_documents_card_fences():
+    """出卡契约必须在提示词里——否则模型不输出卡，前端组件永远不触发。"""
+    p = DEFAULT_SYSTEM_PROMPT
+    assert "expense-draft" in p
+    assert "anomaly" in p
+
+
+def test_prompt_has_multiturn_pacing():
+    """多轮补齐节奏：每轮只问 1-2 个问题（spec §6.2）。"""
+    p = DEFAULT_SYSTEM_PROMPT
+    assert "1-2" in p or "1～2" in p or "一到两个" in p
+
+
+def test_prompt_says_card_click_is_not_confirmation():
+    """点卡片按钮 = 用户说了句话，**不等于**已确认执行——写操作仍走两段握手。"""
+    p = DEFAULT_SYSTEM_PROMPT
+    assert "卡片" in p
+    assert "不等于" in p or "≠" in p
+
+
+def test_prompt_never_allows_skipping_confirm():
+    """提示词不得出现任何「可跳过确认」的放行语（比查具体词更能抓住漏网写法）。"""
+    p = DEFAULT_SYSTEM_PROMPT
+    for phrase in ("无需确认", "不需确认", "免确认", "可跳过确认", "直接提交", "自动提交"):
+        assert phrase not in p, f"提示词出现放行语：{phrase}"

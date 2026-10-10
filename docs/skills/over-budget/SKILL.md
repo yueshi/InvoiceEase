@@ -50,6 +50,13 @@ visibility: "public"
 5. **提交**（两段握手）：`expense_submit_proposal(claim_id)` → 展示 preview + 超标说明 → `confirm_execute(human_ack=true)`
    - 注意：`validate_expense` 的 **error 会在确认时抛错阻断**（这是设计，不是 bug）；先解决再提交
 
+## 出卡（前端会渲染成卡片）
+
+- 报销单草稿成型时出一张草稿卡（`expense-draft`），让用户核对单号/金额/明细再提交
+- 校验工具返回 warning/error 时出一张异常卡（`anomaly`），`message` 引用工具原文，
+  选项给用户视角的动作（补充材料 / 申请特批 / 修改金额）
+- **点卡片按钮不等于用户已确认**：那只是替用户说了一句话，写操作仍走两段握手
+
 ## 硬约束（不要越界）
 
 - **不替用户编造理由**：超标原因必须用户给出；用户说不出 → 建议先与主管沟通
