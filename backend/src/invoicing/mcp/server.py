@@ -259,6 +259,36 @@ def build_server() -> MCPServer:
     def my_permissions() -> dict:
         return mcp_tools.my_permissions()
 
+    # ===== P0-1: 验证服务 MCP + 预算服务 MCP（v1.1 §5.2） =====
+    from invoicing.workflow.services import validate_expense_mcp as _validate_expense
+    from invoicing.workflow.budget_service import (
+        query_budget_mcp as _query_budget,
+        check_budget_available_mcp as _check_budget,
+    )
+    from invoicing.db import SessionLocal
+
+    @server.tool(
+        description="报销单级校验：聚合 6 项检查（金额合规/价税合计/跨票号重复/预算余额/凭证齐全/Schema），返回 PASS/FAIL/NEEDS_REVIEW。submit 前必调；FAIL 直接抛错 + 写 SUBMIT_BLOCKED 审计。",
+    )
+    def validate_expense(claim_id: int) -> dict:
+        with SessionLocal() as db:
+            return _validate_expense(db, claim_id)
+
+    @server.tool(description="查询部门/类别/期间预算（YYYY-MM）。")
+    def query_budget(dept: str, category: str, period: str | None = None) -> dict:
+        with SessionLocal() as db:
+            return _query_budget(db, dept=dept, category=category, period=period)
+
+    @server.tool(description="检查预算是否可承担该金额。")
+    def check_budget_available(
+        dept: str, category: str, amount: str, period: str | None = None
+    ) -> dict:
+        from decimal import Decimal
+        with SessionLocal() as db:
+            return _check_budget(
+                db, dept=dept, category=category, amount=Decimal(amount), period=period,
+            )
+
     return server
 
 

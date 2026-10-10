@@ -98,10 +98,14 @@ def _registered_tool_names() -> list[str]:
     import sys
 
     from invoicing.mcp import extract as extract_mod
+    # P0-1：扫描新工具所在模块（v1.1 §5.2 验证/预算服务 MCP）
+    # 工具定义在 services.py / budget_service.py，但要被 my_permissions 列出
+    from invoicing.workflow import services as services_mod
+    from invoicing.workflow import budget_service as budget_service_mod
 
     reverse = {v: k for k, v in _REGISTERED_ALIASES.items()}
     names: list[str] = []
-    for mod in (sys.modules[__name__], extract_mod):
+    for mod in (sys.modules[__name__], extract_mod, services_mod, budget_service_mod):
         for obj in vars(mod).values():
             if callable(obj) and hasattr(obj, "__requires_scopes__"):
                 names.append(reverse.get(obj.__name__, obj.__name__))
