@@ -714,10 +714,17 @@ def validate_expense_mcp(db: Session, claim_id: int) -> dict:
 
     scope: expense:read（P0-2 裁决——不新增 budget:read，预算/校验与报销同域）。
     """
-    from invoicing.models.expense import ExpenseClaim
-    claim = db.get(ExpenseClaim, claim_id)
-    if claim is None:
-        raise ValueError(f"报销单不存在或无权访问: {claim_id}")
+    # 数据范围收敛：员工只能校验自己的单（与 expense_list 同口径，防越权读明细）
+    from invoicing.mcp.identity import current_principal
+    from invoicing.workflow.expenses import get_scoped_claim
+
+    principal = current_principal()
+    if principal.user_id is None:
+        raise ValueError("当前令牌未绑定主体，无法读取报销单")
+    user = db.get(User, principal.user_id)
+    if user is None:
+        raise ValueError(f"令牌归属用户不存在: {principal.user_id}")
+    claim = get_scoped_claim(db, user, claim_id)
     result = validate_expense(db, claim)
     return {
         "outcome": result.outcome.value,

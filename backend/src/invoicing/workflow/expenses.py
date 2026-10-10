@@ -83,6 +83,20 @@ def _get_claim(db: Session, claim_id: int) -> ExpenseClaim:
     return claim
 
 
+def get_scoped_claim(db: Session, user: User, claim_id: int) -> ExpenseClaim:
+    """按用户数据范围取单（与 list_claims 同口径）：员工仅本人，财务/管理员全部。
+
+    无权与不存在**同一条报错**（不泄漏单据存在性）。
+    所有按 claim_id 出数的读路径都应经此收敛（MCP 读工具同样适用）。
+    """
+    claim = db.get(ExpenseClaim, claim_id)
+    if claim is None:
+        raise ValueError(f"报销单不存在或无权访问: {claim_id}")
+    if not _is_finance(user) and claim.applicant_id != user.id:
+        raise ValueError(f"报销单不存在或无权访问: {claim_id}")
+    return claim
+
+
 def _require_owner_draft(claim: ExpenseClaim, user: User) -> None:
     if claim.applicant_id != user.id:
         raise ValueError("无权操作他人的报销单")
@@ -110,7 +124,8 @@ def _trim(v: Decimal) -> str:
     return format(v.normalize(), "f")
 
 
-def _allowance_amount(entry_type: str, scene: dict) -> tuple[Decimal | None, str | None]:
+def _allowance_amount(entry_type: str, scene: dict, *,
+                      default_standard=None) -> tuple[Decimal | None, str | None]:
     """差旅-伙食补助 → (金额, 摘要)；非补助事项返回 (None, None)。
 
     补助没有发票（国税函〔2009〕3 号：差旅费津贴不属于工资薪金，凭内部凭证扣除），
@@ -121,11 +136,13 @@ def _allowance_amount(entry_type: str, scene: dict) -> tuple[Decimal | None, str
         return None, None
     days = _positive_decimal(scene.get("days"), "补助天数")
     raw_standard = str(scene.get("daily_standard") or "").strip()
-    standard = (
-        _positive_decimal(raw_standard, "日补助标准")
-        if raw_standard
-        else _money_q(settings.travel_allowance_daily_standard)
-    )
+    if raw_standard:
+        standard = _positive_decimal(raw_standard, "日补助标准")
+    elif default_standard is not None:
+        # 政策表优先（与 check_meal 判定同源）：改表即生效，无需重启
+        standard = _money_q(default_standard)
+    else:
+        standard = _money_q(settings.travel_allowance_daily_standard)
     return _money_q(days * standard), f"{_trim(days)} 天 × {_trim(standard)} 元/天"
 
 
@@ -135,7 +152,17 @@ def _sync_allowance_item(db: Session, entry: ExpenseEntry) -> None:
     改天数只更新同一条（不会重复累加）；事项改成非补助子类时撤销，
     否则会留下一笔与场景字段脱钩的钱。
     """
-    amount, note = _allowance_amount(entry.entry_type, entry.scene_fields or {})
+    # 标准同源：优先政策表（expense_policies），无配置回落 settings
+    from invoicing.workflow.policy_service import get_policy
+    from invoicing.workflow.validators import city_tier_of
+
+    scene = entry.scene_fields or {}
+    claim = _get_claim(db, entry.claim_id)
+    policy = get_policy(db, tenant_id=claim.tenant_id, category="travel",
+                        item_key="meal_allowance",
+                        city_tier=city_tier_of(scene.get("city")))
+    amount, note = _allowance_amount(entry.entry_type, scene,
+                                     default_standard=(policy.standard if policy else None))
     db.flush()
     existing = (
         db.query(ExpenseItem)

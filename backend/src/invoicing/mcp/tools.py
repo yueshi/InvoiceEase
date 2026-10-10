@@ -1587,21 +1587,18 @@ def suggest_claim_for_invoice(invoice_id: int) -> dict:
     返回 {"candidates": [{"claim_id","claim_no","score","reasons"}]}（≤3 条，按分降序）。
     仅推荐草稿单；日期门控 ±7 天，防误挂。
     """
-    from invoicing.models import (
-        ExpenseClaim,
-        ExpenseClaimStatus,
-        ExpenseEntry,
-        Invoice,
-    )
+    from invoicing.models import ExpenseEntry, Invoice
+    from invoicing.workflow import expenses as services_expenses
     from invoicing.workflow.validators import suggest_claims_for_invoice as _suggest
 
     with SessionLocal() as db:
-        inv = db.get(Invoice, invoice_id)
+        # 数据范围收敛（与 expense_list / scoped_invoices 同口径）：
+        # 员工只能看到本人上传的发票与本人草稿单，否则会借建议接口探测同事单据
+        user = _current_user(db)
+        inv = services.scoped_invoices(db, user).filter(Invoice.id == invoice_id).first()
         if inv is None:
-            raise ValueError(f"发票不存在: {invoice_id}")
-        drafts = (db.query(ExpenseClaim)
-                  .filter(ExpenseClaim.status == ExpenseClaimStatus.DRAFT.value)
-                  .all())
+            raise ValueError(f"发票不存在或无权访问: {invoice_id}")
+        drafts = services_expenses.list_claims(db, user, status="draft")
         # 事项日期（用于日期门控与打分）
         claim_ids = [c.id for c in drafts]
         dates_by_claim: dict[int, list] = {cid: [] for cid in claim_ids}
@@ -1629,25 +1626,24 @@ def suggest_claim_for_invoice(invoice_id: int) -> dict:
 
 
 def _claim_or_raise(db, claim_id: int):
-    from invoicing.models import ExpenseClaim
+    """按当前主体收敛的报销单读取（员工仅本人；与 expense_list 同口径）。"""
+    from invoicing.workflow import expenses as svc
 
-    claim = db.get(ExpenseClaim, claim_id)
-    if claim is None:
-        raise ValueError(f"报销单不存在: {claim_id}")
-    return claim
+    return svc.get_scoped_claim(db, _current_user(db), claim_id)
 
 
 def _issues_out(issues) -> dict:
     """统一的校验出参。
 
-    - `ok`      = 无 error（不阻断；warning 仍需人工确认）
-    - `outcome` = PASS / NEEDS_REVIEW / FAIL（与 validate_expense 同词表，便于 Skill 统一处理）
+    - `outcome` = PASS / NEEDS_REVIEW / FAIL（与 validate_expense 同词表）
+    - `ok`      = outcome == "PASS" —— **只读这一个字段的调用方也不会漏掉 warning**
+      （warning 是「转人工」，不等于「没事」；需要的是精确语义请读 outcome）
     """
     has_error = any(i.severity == "error" for i in issues)
     has_warning = any(i.severity == "warning" for i in issues)
     outcome = "FAIL" if has_error else ("NEEDS_REVIEW" if has_warning else "PASS")
     return {
-        "ok": not has_error,
+        "ok": outcome == "PASS",
         "outcome": outcome,
         "issues": [
             {"code": i.code, "message": i.message, "severity": i.severity,

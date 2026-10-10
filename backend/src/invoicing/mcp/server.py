@@ -336,7 +336,7 @@ def build_server() -> MCPServer:
         return mcp_tools.validate_meal_compliance(claim_id)
 
     @server.tool(
-        description="发票补录归属建议（只读）：该票最可能挂到哪张草稿报销单（按类型匹配 + 开票日在行程区间内打分，±7 天门控）。返回 {candidates:[{claim_id,claim_no,score,reasons}]}（≤3 条）。",
+        description="发票补录归属建议（只读）：该票最可能挂到哪张草稿报销单。按类型匹配 + 开票日在行程区间内打分；单据有事项日期时 ±7 天门控，无日期则仅按类型推荐（排名靠后）。返回 {candidates:[{claim_id,claim_no,score,reasons}]}（≤3 条）。",
     )
     def suggest_claim_for_invoice(invoice_id: int) -> dict:
         return mcp_tools.suggest_claim_for_invoice(invoice_id)

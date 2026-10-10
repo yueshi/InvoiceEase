@@ -53,8 +53,9 @@ def test_validate_trip_consistency_clean(db, mcp_admin_auth):
 def test_validate_trip_consistency_flags_missing_return(db, mcp_admin_auth):
     claim, _ = _claim_with_travel(db, mcp_admin_auth, add_return=False)
     out = mt.validate_trip_consistency(claim.id)
-    # 返程缺失是「转人工」而非阻断（spec §4.2）——ok 保持 True，靠 outcome/severity 表达
-    assert out["ok"] is True
+    # 返程缺失是「转人工」而非阻断（spec §4.2）：outcome=NEEDS_REVIEW；
+    # ok 取「完全干净」语义（False），只读一个字段的调用方也不会误判「没事」
+    assert out["ok"] is False
     assert out["outcome"] == "NEEDS_REVIEW"
     assert any(i["code"] == "NO_RETURN_TRIP" and i["severity"] == "warning"
                for i in out["issues"])
@@ -102,8 +103,8 @@ def test_validate_meal_compliance_without_policy_warns(db, mcp_admin_auth):
     """未播种政策 → 降级 warning，不阻断（不把"没配标准"当违规）。"""
     claim = _claim_with_allowance(db, mcp_admin_auth, daily="100")
     out = mt.validate_meal_compliance(claim.id)
-    assert out["ok"] is True  # warning 不算不通过
-    assert out["outcome"] == "NEEDS_REVIEW"
+    assert out["outcome"] == "NEEDS_REVIEW"  # 未配标准 → 需人工/配置，不阻断
+    assert out["ok"] is False  # 但也不算「完全干净」
     assert any(i["code"] == "NO_POLICY_CONFIGURED" for i in out["issues"])
 
 

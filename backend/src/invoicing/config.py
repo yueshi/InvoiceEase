@@ -104,5 +104,9 @@ class Settings(BaseSettings):
     tax_sum_tolerance: Decimal = Decimal("0.01")           # 价税合计容差
     amount_floor: Decimal = Decimal("0")                   # 单笔金额下限（必须 > 此值）
 
+    # P1 费用标准：城市档映射（JSON，如 {"杭州": "tier2"}）。
+    # 空 = 用内置默认（北上广深 = tier1）；非空 = 全量替换（spec §7.2 ✅5 可配置）
+    city_tiers: str = ""
+
 
 settings = Settings()

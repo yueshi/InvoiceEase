@@ -98,3 +98,64 @@ def test_issue_carries_entry_ids():
                   travel_date="2026-06-10")]
     issues = check_trip(entries)
     assert issues[0].entry_ids == [1]
+
+# ---- final review：排序必须用场景里的权威日期 ------------------------------
+
+def test_sort_uses_scene_travel_date_when_occurred_on_missing():
+    """occurred_on 常为空（Agent 流程不填）；行程顺序须按 scene.travel_date。
+
+    顺序敏感：若按输入序判定，第二段「上海→深圳」会紧跟「上海→深圳」之后的
+    「上海→北京」形成 深圳≠上海 的假不接续。
+    """
+    entries = [
+        (3, {"subtype": "transport", "from_city": "上海", "to_city": "深圳",
+             "travel_date": "2026-06-14"}, None),
+        (1, {"subtype": "transport", "from_city": "上海", "to_city": "北京",
+             "travel_date": "2026-06-10"}, None),
+        (2, {"subtype": "transport", "from_city": "北京", "to_city": "上海",
+             "travel_date": "2026-06-12"}, None),
+    ]
+    codes = {i.code for i in check_trip(entries)}
+    assert "ROUTE_DISCONTINUOUS" not in codes
+
+
+def test_four_leg_round_trip_with_revisit_is_clean():
+    """沪→京→沪→深的合法多段行程，不误报。"""
+    entries = [
+        (1, {"subtype": "transport", "from_city": "上海", "to_city": "北京",
+             "travel_date": "2026-06-10"}, None),
+        (4, {"subtype": "transport", "from_city": "上海", "to_city": "深圳",
+             "travel_date": "2026-06-14"}, None),
+        (3, {"subtype": "transport", "from_city": "北京", "to_city": "上海",
+             "travel_date": "2026-06-12"}, None),
+        (2, {"subtype": "transport", "from_city": "深圳", "to_city": "上海",
+             "travel_date": "2026-06-16"}, None),
+    ]
+    assert check_trip(entries) == []
+
+
+def test_accommodation_sorted_by_checkin_not_occurred_on():
+    entries = [
+        (2, {"subtype": "accommodation", "city": "北京", "checkin": "2026-06-12",
+             "checkout": "2026-06-13", "nights": "1"}, None),
+        (1, {"subtype": "transport", "from_city": "上海", "to_city": "北京",
+             "travel_date": "2026-06-12"}, None),
+    ]
+    check_trip(entries)  # 不抛即通过（排序含住宿 checkin）
+
+
+def test_slash_date_format_is_parsed():
+    """LLM 常输出 2026/6/10；不能静默降级为「无日期」（会放大排序/门控问题）。
+
+    同样用顺序敏感的三段行程：解析不了 → 顺序错 → 假不接续。
+    """
+    entries = [
+        (3, {"subtype": "transport", "from_city": "上海", "to_city": "深圳",
+             "travel_date": "2026/6/14"}, None),
+        (1, {"subtype": "transport", "from_city": "上海", "to_city": "北京",
+             "travel_date": "2026/6/10"}, None),
+        (2, {"subtype": "transport", "from_city": "北京", "to_city": "上海",
+             "travel_date": "2026/6/12"}, None),
+    ]
+    codes = {i.code for i in check_trip(entries)}
+    assert "ROUTE_DISCONTINUOUS" not in codes

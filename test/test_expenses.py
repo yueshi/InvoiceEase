@@ -966,3 +966,29 @@ def test_expense_config_exposes_petty_cash_threshold(client, users):
                       headers={"Authorization": f"Bearer {token.json()['access_token']}"})
     assert resp.status_code == 200
     assert resp.json()["petty_cash_threshold"] == 500
+
+
+def test_allowance_standard_reads_policy_table(db, users):
+    """补助金额的「标准」与合规判定的「标准」必须同源（政策表优先）。
+
+    final review 发现：金额用 settings（需重启），判定用 expense_policies（改表即生效）
+    —— 运营按表下调标准后，系统自算的补助仍按旧标准，产生稳定假 OVER_STANDARD。
+    """
+    from decimal import Decimal as _D
+    from invoicing.models.expense_policy import ExpensePolicy
+
+    db.add(ExpensePolicy(tenant_id="default", category="travel",
+                         item_key="meal_allowance", city_tier="default",
+                         standard=_D("150"), tolerance=_D("0"), unit="per_day"))
+    db.commit()
+
+    _, entry = _allowance_entry(db, users["emp"], days="2")  # 不传 daily_standard
+    assert entry.amount == _D("300.00")  # 2 × 150（政策表而非 settings 的 100）
+
+
+def test_allowance_falls_back_to_settings_without_policy(db, users):
+    from decimal import Decimal as _D
+    from invoicing.config import settings as _s
+
+    _, entry = _allowance_entry(db, users["emp"], days="2")
+    assert entry.amount == _D(str(_s.travel_allowance_daily_standard)) * 2

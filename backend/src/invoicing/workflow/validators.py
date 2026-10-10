@@ -27,27 +27,53 @@ class Issue:
 
 
 def _parse_date(raw) -> date | None:
+    """容错解析：接受 2026-06-10 / 2026/6/10 / 2026.6.10（LLM 输出常见）。
+
+    解析失败返回 None —— 调用方须把它当作「日期未知」，不要当作「无日期即无事」。
+    """
     if not raw:
         return None
+    text = str(raw).strip().replace("/", "-").replace(".", "-")
+    parts = text.split("-")
+    if len(parts) == 3:
+        try:
+            text = f"{int(parts[0]):04d}-{int(parts[1]):02d}-{int(parts[2]):02d}"
+        except (TypeError, ValueError):
+            return None
     try:
-        return date.fromisoformat(str(raw).strip())
+        return date.fromisoformat(text)
     except ValueError:
         return None
 
 
+# 场景里的权威日期字段（按子类）：排序与归属判定都用它，occurred_on 只是兜底
+_SCENE_DATE_KEYS = ("travel_date", "checkin", "checkout")
+
+
+def _entry_date(scene: dict, occurred) -> date | None:
+    """条目日期：优先场景权威字段（交通/住宿/市内交通各自必填），其次 occurred_on。
+
+    Agent 流程通常不填 occurred_on —— 只用它排序会让行程退化为插入序（final review 实测假告警）。
+    """
+    for key in _SCENE_DATE_KEYS:
+        d = _parse_date((scene or {}).get(key))
+        if d:
+            return d
+    return _parse_date(occurred)
+
+
 def _travel_entries(entries):
-    """筛出差旅项，按发生日期排序（无日期排末尾，保持稳定）。"""
+    """筛出差旅项，按**场景权威日期**排序（无日期排末尾，保持稳定）。"""
     travel = [
         (eid, scene or {}, occurred)
         for eid, scene, occurred in entries
         if str((scene or {}).get("subtype") or "").strip()
         in ("transport", "accommodation", "local_transport")
     ]
-    return sorted(
-        travel,
-        key=lambda item: (_parse_date(item[2]) is None,
-                          _parse_date(item[2]) or date.max),
-    )
+    def _key(item):
+        d = _entry_date(item[1], item[2])
+        return (d is None, d or date.max)
+    return sorted(travel, key=_key)
 
 
 def check_trip(entries: list[tuple[int, dict, str | None]]) -> list[Issue]:
@@ -117,15 +143,43 @@ def check_trip(entries: list[tuple[int, dict, str | None]]) -> list[Issue]:
 
 # ---- 餐补 / 招待合规 ---------------------------------------------------------
 
-# 城市档映射（P1 先内置常见一线；运营可改为政策表驱动，见 P2 规划）
-_CITY_TIER: dict[str, str] = {
+# 城市档内置默认（settings.city_tiers 非空时**全量替换**，见 config.py）
+_DEFAULT_CITY_TIERS: dict[str, str] = {
     "北京": "tier1", "上海": "tier1", "广州": "tier1", "深圳": "tier1",
 }
 
 
+def _city_tier_map() -> dict[str, str]:
+    """生效的城市档映射：settings.city_tiers（JSON）优先，非法则回落内置。"""
+    import json
+
+    from invoicing.config import settings
+
+    raw = (settings.city_tiers or "").strip()
+    if not raw:
+        return _DEFAULT_CITY_TIERS
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items()}
+    except (ValueError, TypeError):
+        pass
+    return _DEFAULT_CITY_TIERS
+
+
+def _normalize_city(city: str | None) -> str:
+    """去掉常见行政后缀与空白（「北京市」应命中「北京」）。"""
+    name = (city or "").strip()
+    for suffix in ("市", "省", "自治区", "特别行政区"):
+        if name.endswith(suffix) and len(name) > len(suffix):
+            name = name[: -len(suffix)]
+            break
+    return name.strip()
+
+
 def city_tier_of(city: str | None) -> str:
     """城市 → 档位；未收录一律 default（查不到具体档不判无标准）。"""
-    return _CITY_TIER.get((city or "").strip(), "default")
+    return _city_tier_map().get(_normalize_city(city), "default")
 
 
 def _severity_for(overage: Decimal, tolerance: Decimal) -> str | None:
@@ -174,6 +228,31 @@ def check_meal(entries, *, policy_lookup) -> list[Issue]:
                     severity=severity, entry_ids=[eid],
                 ))
 
+        elif entry_type == "travel" and subtype == "accommodation":
+            nights = _nights(scene)
+            if nights is None:
+                continue
+            policy = policy_lookup(category="travel", item_key="accommodation",
+                                   city_tier=tier)
+            if policy is None:
+                issues.append(Issue(
+                    code="NO_POLICY_CONFIGURED",
+                    message="未配置住宿标准，无法判定是否超标（建议补配置）",
+                    severity="warning", entry_ids=[eid],
+                ))
+                continue
+            per_night = (Decimal(amount) / nights).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP)
+            over = per_night - Decimal(policy.standard)
+            severity = _severity_for(over, Decimal(policy.tolerance))
+            if severity:
+                issues.append(Issue(
+                    code="PER_NIGHT_OVER_STANDARD",
+                    message=f"住宿 {per_night} 元/晚超公司标准 {policy.standard} 元"
+                            f"（{_trim_dec(nights)} 晚，超出 {over} 元）",
+                    severity=severity, entry_ids=[eid],
+                ))
+
         elif entry_type == "entertainment":
             policy = policy_lookup(category="entertainment", item_key="per_head",
                                    city_tier=tier)
@@ -203,7 +282,65 @@ def check_meal(entries, *, policy_lookup) -> list[Issue]:
                             f"{policy.standard} 元（{headcount} 人，超出 {over} 元）",
                     severity=severity, entry_ids=[eid],
                 ))
+    issues.extend(_check_local_transport_daily(entries, policy_lookup=policy_lookup))
     return issues
+
+
+def _check_local_transport_daily(entries, *, policy_lookup) -> list[Issue]:
+    """市内交通按 (城市, 日期) 合计与日标准比对（逐笔判定会放过"一天打十次车"）。"""
+    buckets: dict[tuple, dict] = {}
+    for eid, entry_type, scene, occurred, amount in entries:
+        scene = scene or {}
+        if entry_type != "travel" or str(scene.get("subtype") or "").strip() != "local_transport":
+            continue
+        d = _entry_date(scene, occurred)
+        key = (str(scene.get("city") or "").strip(), d)
+        b = buckets.setdefault(key, {"ids": [], "total": Decimal("0")})
+        b["ids"].append(eid)
+        b["total"] += Decimal(amount)
+
+    issues: list[Issue] = []
+    for (city, d), b in buckets.items():
+        tier = city_tier_of(city)
+        policy = policy_lookup(category="travel", item_key="local_transport_day",
+                               city_tier=tier)
+        if policy is None:
+            issues.append(Issue(
+                code="NO_POLICY_CONFIGURED",
+                message="未配置市内交通日标准，无法判定是否超标（建议补配置）",
+                severity="warning", entry_ids=list(b["ids"]),
+            ))
+            continue
+        over = b["total"] - Decimal(policy.standard)
+        severity = _severity_for(over, Decimal(policy.tolerance))
+        if severity:
+            when = str(d) if d else "（日期未知）"
+            issues.append(Issue(
+                code="DAILY_TRANSPORT_OVER_STANDARD",
+                message=f"{when} {city or ''} 市内交通合计 {b['total']} 元"
+                        f"超日标准 {policy.standard} 元（超出 {over} 元）",
+                severity=severity, entry_ids=list(b["ids"]),
+            ))
+    return issues
+
+
+def _nights(scene: dict) -> Decimal | None:
+    """住宿晚数：优先票据字段，缺失则用 入住/离店 日期差。"""
+    raw = str(scene.get("nights") or "").strip()
+    if raw:
+        try:
+            n = Decimal(raw)
+            return n if n > 0 else None
+        except Exception:  # noqa: BLE001
+            return None
+    checkin, checkout = _parse_date(scene.get("checkin")), _parse_date(scene.get("checkout"))
+    if checkin and checkout and checkout > checkin:
+        return Decimal((checkout - checkin).days)
+    return None
+
+
+def _trim_dec(v: Decimal) -> str:
+    return format(v.normalize(), "f")
 
 
 def _allowance_daily(scene: dict, amount) -> Decimal | None:
