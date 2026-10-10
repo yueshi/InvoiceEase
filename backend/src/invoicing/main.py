@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from invoicing.api import api_router
-from invoicing.bootstrap import ensure_admin_user
+from invoicing.bootstrap import ensure_admin_user, ensure_default_policies
 from invoicing.config import settings
 from invoicing.db import SessionLocal
 from invoicing.mcp.server import mcp
@@ -14,6 +14,7 @@ from invoicing.mcp.server import mcp
 async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         ensure_admin_user(db)
+        ensure_default_policies(db)
     from invoicing.ops.checks import run_startup_checks
 
     try:
