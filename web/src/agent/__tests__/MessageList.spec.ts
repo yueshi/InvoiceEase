@@ -2,6 +2,7 @@
 import { mount, type VueWrapper } from "@vue/test-utils";
 import { beforeAll, describe, expect, it } from "vitest";
 import MessageList from "../components/MessageList.vue";
+import MessageInput from "../components/MessageInput.vue";
 import type { AgentBlock } from "../types";
 
 beforeAll(() => {
@@ -192,5 +193,47 @@ describe("MessageList", () => {
       props: { messages: [], streamingBlocks: [], streaming: true },
     });
     expect(wrapper.text()).toContain("▍"); // 流式光标
+  });
+});
+
+// ---- P2：结构化卡片事件透传 ------------------------------------------------
+
+describe("MessageList 卡片事件透传", () => {
+  const withCard = (text: string) => ({
+    id: 9, role: "assistant" as const, content: "", tool_calls: null, created_at: "",
+    blocks: [{ type: "text" as const, text }],
+  });
+
+  it("异常卡按钮 → 冒泡 chat-action（交给上层注入消息）", async () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [withCard('```anomaly\n{"message":"m","options":[{"label":"特批","prompt":"帮我申请特批"}]}\n```')],
+        streamingBlocks: [], streaming: false,
+      },
+    });
+    await wrapper.find("button.ac-option").trigger("click");
+    expect(wrapper.emitted("chat-action")?.[0]).toEqual(["帮我申请特批"]);
+  });
+
+  it("草稿卡提交按钮 → 同样冒泡 chat-action", async () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [withCard('```expense-draft\n{"claim_no":"FY-7","entries":[]}\n```')],
+        streamingBlocks: [], streaming: false,
+      },
+    });
+    await wrapper.find("button.cdc-submit").trigger("click");
+    const [prompt] = wrapper.emitted("chat-action")![0] as [string];
+    expect(prompt).toContain("FY-7");
+  });
+});
+
+describe("MessageInput.fill（入口卡预填）", () => {
+  it("fill() 写入输入框但不发送", async () => {
+    const w = mount(MessageInput, { props: { streaming: false, canRetry: false } });
+    (w.vm as unknown as { fill: (t: string) => void }).fill("我要报出差费用");
+    await w.vm.$nextTick();
+    expect((w.find("textarea").element as HTMLTextAreaElement).value).toBe("我要报出差费用");
+    expect(w.emitted("send")).toBeFalsy(); // 只填不发
   });
 });

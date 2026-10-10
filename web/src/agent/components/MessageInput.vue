@@ -11,6 +11,12 @@ function onSend() {
   emit("send", t);
   text.value = "";
 }
+/** 供入口卡预填：写入输入框但**不发送**（用户通常还要补细节） */
+function fill(t: string) {
+  text.value = t;
+}
+defineExpose({ fill });
+
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();

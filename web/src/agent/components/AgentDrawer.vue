@@ -6,10 +6,18 @@ import { useRoute } from "vue-router";
 import { useAgentStore } from "../store";
 import MessageList from "./MessageList.vue";
 import MessageInput from "./MessageInput.vue";
+import EntryCards from "./EntryCards.vue";
 import type { ChatContext } from "../types";
 
 const store = useAgentStore();
 const route = useRoute();
+const inputRef = ref<InstanceType<typeof MessageInput> | null>(null);
+const showEntries = computed(() => !store.messages.length && !store.streaming);
+
+/** 入口卡：只预填输入框，不替用户发送（通常还要补细节） */
+function onEntryPick(prompt: string) {
+  inputRef.value?.fill(prompt);
+}
 
 // 每次打开面板刷新会话列表：ensureSession 只在无会话时创建，「首轮自动标题」需下次打开才可见
 watch(
@@ -119,11 +127,16 @@ function resetWidth() {
       :messages="store.messages"
       :streaming-blocks="store.streamingBlocks"
       :streaming="store.streaming"
+      @chat-action="onSend"
     />
+    <div v-if="showEntries" class="entries-slot">
+      <EntryCards @pick="onEntryPick" />
+    </div>
     <div v-if="store.error" class="err-banner">
       {{ store.error.message }}（{{ store.error.code }}）
     </div>
     <MessageInput
+      ref="inputRef"
       :streaming="store.streaming"
       :can-retry="!store.streaming && !!store.error"
       @send="onSend"
@@ -244,5 +257,8 @@ function resetWidth() {
   background: #fef2f2;
   color: #dc2626;
   font-size: 12px;
+}
+.entries-slot {
+  padding: 0 12px;
 }
 </style>

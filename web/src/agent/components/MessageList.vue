@@ -32,6 +32,8 @@ function isLastBlock(i: number): boolean {
   return i === props.streamingBlocks.length - 1;
 }
 /** 末块不是 text（如工具/思考）时，光标独立追加在列表尾 */
+const emit = defineEmits<{ (e: "chat-action", prompt: string): void }>();
+
 const trailingCursor = computed(() => props.streamingBlocks[props.streamingBlocks.length - 1]?.type !== "text");
 </script>
 
@@ -51,7 +53,7 @@ const trailingCursor = computed(() => props.streamingBlocks[props.streamingBlock
               {{ b.tool }} · {{ STATUS_TEXT[b.status] ?? b.status }}<template v-if="b.ms"> · {{ b.ms }}ms</template>
             </span>
           </div>
-          <AssistantMarkdown v-else :text="b.text" />
+          <AssistantMarkdown v-else :text="b.text" @chat-action="(p: string) => emit('chat-action', p)" />
         </template>
       </template>
       <template v-else>
