@@ -394,18 +394,10 @@ def company_info_list(kind: str | None = None) -> list[CompanyInfoOut]:
         return [CompanyInfoOut.model_validate(i, from_attributes=True) for i in q.order_by(CompanyInfo.id).all()]
 
 
-@requires("masterdata:write")
-def company_info_save(
-    name: str,
-    tax_id: str,
-    kind: str = CompanyKind.other.value,
-    is_default: bool = False,
-    remark: str | None = None,
-    bank_account: str | None = None,
-) -> CompanyInfoOut:
-    """保存常用公司（同税号更新；is_default 仅 kind=self，设默认清其他默认）。
+def _validate_company_info(name: str, tax_id: str, kind: str, is_default: bool) -> None:
+    """保存前校验（与 REST 对齐）：tax_id 18 位 / kind 枚举 / name 非空 / 默认联动。
 
-    校验与 REST 对齐（tax_id 18 位 / kind 枚举 / name 非空 / 默认联动），非法输入抛 ValueError。
+    提案阶段调用——非法输入不产生待确认提案（浪费一次人工确认）。
     """
     if not name or not name.strip():
         raise ValueError("公司名称不能为空")
@@ -415,28 +407,58 @@ def company_info_save(
         raise ValueError(f"非法类型: {kind}（可选 self/supplier/other）")
     if is_default and kind != CompanyKind.self.value:
         raise ValueError("is_default 仅适用于 kind=self")
-    with SessionLocal() as db:
-        info = db.query(CompanyInfo).filter(CompanyInfo.tax_id == tax_id).first()
-        if info is None:
-            info = CompanyInfo(tax_id=tax_id)
-            db.add(info)
-        # kind 改为非 self 时 is_default 强制 False，防脏数据（K1 修复轮教训）
-        if kind != CompanyKind.self.value:
-            is_default = False
-        if is_default:
-            db.query(CompanyInfo).filter(CompanyInfo.is_default.is_(True)).update({"is_default": False})
-        info.name = name.strip()
-        info.kind = kind
-        info.is_default = is_default
-        info.remark = remark
-        if bank_account is not None:
-            info.bank_account = bank_account.strip() or None
-        _audit(
-            db, action=AuditAction.CONFIG_CHANGE.value,
-            detail={"entity": "company_info", "tax_id": tax_id},
-        )
-        db.commit()
-        return CompanyInfoOut.model_validate(info, from_attributes=True)
+
+
+@requires("masterdata:write")
+def company_info_save_proposal(
+    name: str,
+    tax_id: str,
+    kind: str = CompanyKind.other.value,
+    is_default: bool = False,
+    remark: str | None = None,
+    bank_account: str | None = None,
+    idempotency_key: str | None = None,
+) -> dict:
+    """【两段握手第一步】保存常用公司——返回待确认提案，不落库（同税号更新）。"""
+    _validate_company_info(name, tax_id, kind, is_default)
+    return _make_proposal(
+        tool_name="company_info_save",
+        payload={"name": name, "tax_id": tax_id, "kind": kind,
+                 "is_default": is_default, "remark": remark,
+                 "bank_account": bank_account},
+        preview={"description": f"保存公司：{name}（税号 {tax_id}）",
+                 "kind": kind, "is_default": is_default},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("company_info_save")
+def company_info_save(db, *, name: str, tax_id: str,
+                      kind: str = CompanyKind.other.value,
+                      is_default: bool = False, remark: str | None = None,
+                      bank_account: str | None = None) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
+    info = db.query(CompanyInfo).filter(CompanyInfo.tax_id == tax_id).first()
+    if info is None:
+        info = CompanyInfo(tax_id=tax_id)
+        db.add(info)
+    # kind 改为非 self 时 is_default 强制 False，防脏数据（K1 修复轮教训）
+    if kind != CompanyKind.self.value:
+        is_default = False
+    if is_default:
+        db.query(CompanyInfo).filter(CompanyInfo.is_default.is_(True)).update({"is_default": False})
+    info.name = name.strip()
+    info.kind = kind
+    info.is_default = is_default
+    info.remark = remark
+    if bank_account is not None:
+        info.bank_account = bank_account.strip() or None
+    _audit(
+        db, action=AuditAction.CONFIG_CHANGE.value,
+        detail={"entity": "company_info", "tax_id": tax_id},
+    )
+    db.commit()
+    return CompanyInfoOut.model_validate(info, from_attributes=True).model_dump(mode="json")
 
 
 # ---- 报销（Agent 对话式报销，P0）------------------------------------------
@@ -798,7 +820,7 @@ def bank_account_list() -> list[dict]:
 
 
 @requires("masterdata:write")
-def bank_account_save(
+def bank_account_save_proposal(
     account_no: str,
     account_name: str | None = None,
     bank_name: str | None = None,
@@ -806,76 +828,120 @@ def bank_account_save(
     remark: str | None = None,
     is_default: bool = False,
     enabled: bool = True,
+    idempotency_key: str | None = None,
 ) -> dict:
-    """新增/更新本司银行账号（同账号更新）；账号规范化去空格连字符，须 6-32 位数字。"""
-    from invoicing.models import BankAccount
+    """【两段握手第一步】新增/更新本司银行账号——返回待确认提案，不落库。
 
+    账号规范化去空格连字符，须 6-32 位数字（提案阶段校验）。
+    """
     normalized = re.sub(r"[\s\-]", "", account_no or "")
     if not re.fullmatch(r"[0-9]{6,32}", normalized):
         raise ValueError("账号须为 6-32 位数字")
-    with SessionLocal() as db:
-        acc = db.query(BankAccount).filter(BankAccount.account_no == normalized).first()
-        created = acc is None
-        if acc is None:
-            acc = BankAccount(account_no=normalized)
-            db.add(acc)
-        if is_default:
-            db.query(BankAccount).filter(BankAccount.is_default.is_(True)).update({"is_default": False})
-        acc.account_name = (account_name or "").strip() or None
-        acc.bank_name = (bank_name or "").strip() or None
-        if bank_code:
-            acc.bank_code = bank_code
-        elif acc.bank_code is None and acc.bank_name:
-            from invoicing.parse.bank_templates import detect_bank_code
-
-            acc.bank_code = detect_bank_code(acc.bank_name)
-        acc.remark = remark
-        acc.is_default = is_default
-        acc.enabled = enabled
-        _audit(
-            db, action=AuditAction.CONFIG_CHANGE.value,
-            detail={"entity": "bank_account", "account_no": normalized, "created": created},
-        )
-        db.commit()
-        return {
-            "id": acc.id, "account_no": acc.account_no, "account_name": acc.account_name,
-            "bank_name": acc.bank_name, "remark": acc.remark,
-            "is_default": acc.is_default, "enabled": acc.enabled,
-        }
+    return _make_proposal(
+        tool_name="bank_account_save",
+        payload={"account_no": normalized, "account_name": account_name,
+                 "bank_name": bank_name, "bank_code": bank_code,
+                 "remark": remark, "is_default": is_default, "enabled": enabled},
+        preview={"description": f"保存银行账号：{normalized[-4:].rjust(len(normalized), '*')}"
+                                f"（{account_name or '未命名'}）",
+                 "bank_name": bank_name, "is_default": is_default},
+        idempotency_key=idempotency_key,
+    )
 
 
-@requires("masterdata:write")
-def bank_account_delete(id: int) -> dict:
-    """删除本司银行账号；不存在抛 ValueError。"""
+@register_proposal("bank_account_save")
+def bank_account_save(db, *, account_no: str, account_name: str | None = None,
+                      bank_name: str | None = None, bank_code: str | None = None,
+                      remark: str | None = None, is_default: bool = False,
+                      enabled: bool = True) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
     from invoicing.models import BankAccount
 
-    with SessionLocal() as db:
-        acc = db.get(BankAccount, id)
-        if acc is None:
-            raise ValueError(f"账号不存在: {id}")
-        db.delete(acc)
-        _audit(
-            db, action=AuditAction.CONFIG_CHANGE.value,
-            detail={"entity": "bank_account", "id": id, "deleted": True},
-        )
-        db.commit()
-        return {"ok": True}
+    normalized = account_no
+    acc = db.query(BankAccount).filter(BankAccount.account_no == normalized).first()
+    created = acc is None
+    if acc is None:
+        acc = BankAccount(account_no=normalized)
+        db.add(acc)
+    if is_default:
+        db.query(BankAccount).filter(BankAccount.is_default.is_(True)).update({"is_default": False})
+    acc.account_name = (account_name or "").strip() or None
+    acc.bank_name = (bank_name or "").strip() or None
+    if bank_code:
+        acc.bank_code = bank_code
+    elif acc.bank_code is None and acc.bank_name:
+        from invoicing.parse.bank_templates import detect_bank_code
+
+        acc.bank_code = detect_bank_code(acc.bank_name)
+    acc.remark = remark
+    acc.is_default = is_default
+    acc.enabled = enabled
+    _audit(
+        db, action=AuditAction.CONFIG_CHANGE.value,
+        detail={"entity": "bank_account", "account_no": normalized, "created": created},
+    )
+    db.commit()
+    return {
+        "id": acc.id, "account_no": acc.account_no, "account_name": acc.account_name,
+        "bank_name": acc.bank_name, "remark": acc.remark,
+        "is_default": acc.is_default, "enabled": acc.enabled,
+    }
 
 
 @requires("masterdata:write")
-def company_info_delete(id: int) -> dict:
-    """删除常用公司；不存在抛 ValueError。"""
-    with SessionLocal() as db:
-        info = db.get(CompanyInfo, id)
-        if info is None:
-            raise ValueError(f"记录不存在: {id}")
-        db.delete(info)
-        _audit(
-            db, action=AuditAction.CONFIG_CHANGE.value,
-            detail={"entity": "company_info", "id": id, "deleted": True},
-        )
-        db.commit()
-        return {"ok": True}
+def bank_account_delete_proposal(id: int,
+                                 idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】删除本司银行账号——返回待确认提案，不落库。"""
+    return _make_proposal(
+        tool_name="bank_account_delete",
+        payload={"id": id},
+        preview={"description": f"删除银行账号 id={id}（不可撤销）"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("bank_account_delete")
+def bank_account_delete(db, *, id: int) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
+    from invoicing.models import BankAccount
+
+    acc = db.get(BankAccount, id)
+    if acc is None:
+        raise ValueError(f"账号不存在: {id}")
+    db.delete(acc)
+    _audit(
+        db, action=AuditAction.CONFIG_CHANGE.value,
+        detail={"entity": "bank_account", "id": id, "deleted": True},
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@requires("masterdata:write")
+def company_info_delete_proposal(id: int,
+                                 idempotency_key: str | None = None) -> dict:
+    """【两段握手第一步】删除常用公司——返回待确认提案，不落库。"""
+    return _make_proposal(
+        tool_name="company_info_delete",
+        payload={"id": id},
+        preview={"description": f"删除常用公司 id={id}（不可撤销）"},
+        idempotency_key=idempotency_key,
+    )
+
+
+@register_proposal("company_info_delete")
+def company_info_delete(db, *, id: int) -> dict:
+    """两段握手第二步执行体（confirm_execute 专用）。"""
+    info = db.get(CompanyInfo, id)
+    if info is None:
+        raise ValueError(f"记录不存在: {id}")
+    db.delete(info)
+    _audit(
+        db, action=AuditAction.CONFIG_CHANGE.value,
+        detail={"entity": "company_info", "id": id, "deleted": True},
+    )
+    db.commit()
+    return {"ok": True}
 
 
 def _http_to_value_error(fn, *args, **kwargs):

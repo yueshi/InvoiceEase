@@ -88,11 +88,13 @@ def build_server() -> MCPServer:
     def company_info_list(kind: str | None = None) -> list[CompanyInfoOut]:
         return mcp_tools.company_info_list(kind)
 
-    @server.tool(description="保存常用税号及公司信息（同税号更新；kind=self 可设默认）。")
-    def company_info_save(
-        name: str, tax_id: str, kind: str = "other", is_default: bool = False, remark: str | None = None
-    ) -> CompanyInfoOut:
-        return mcp_tools.company_info_save(name, tax_id, kind, is_default, remark)
+    @server.tool(description="【两段握手第一步】保存常用税号及公司信息——返回待确认提案，不落库（同税号更新；kind=self 可设默认）。确认后调 confirm_execute(token, 'company_info_save', human_ack=true)。")
+    def company_info_save_proposal(
+        name: str, tax_id: str, kind: str = "other", is_default: bool = False,
+        remark: str | None = None, idempotency_key: str | None = None,
+    ) -> dict:
+        return mcp_tools.company_info_save_proposal(
+            name, tax_id, kind, is_default, remark, idempotency_key=idempotency_key)
 
     @server.tool(description="【两段握手第一步】创建报销单（草稿）——返回待确认提案（proposal_token），不落库。claim_type 选单据类型（travel 差旅/procurement 采购/entertainment 招待/office 办公/welfare 福利/other 其他）。用户确认后调 confirm_execute(token, 'expense_create', human_ack=true) 才真正建单。")
     def expense_create_proposal(title: str, remark: str | None = None, claim_type: str | None = None,
@@ -153,26 +155,30 @@ def build_server() -> MCPServer:
     def bank_account_list() -> list[dict]:
         return mcp_tools.bank_account_list()
 
-    @server.tool(description="保存本司银行账号（同账号更新；账号 6-32 位数字，自动去空格/连字符；is_default 设默认清其他默认）。")
-    def bank_account_save(
+    @server.tool(description="【两段握手第一步】保存本司银行账号——返回待确认提案，不落库（同账号更新；账号 6-32 位数字，自动去空格/连字符；is_default 设默认清其他默认）。确认后调 confirm_execute(token, 'bank_account_save', human_ack=true)。")
+    def bank_account_save_proposal(
         account_no: str,
         account_name: str | None = None,
         bank_name: str | None = None,
         remark: str | None = None,
         is_default: bool = False,
         enabled: bool = True,
+        idempotency_key: str | None = None,
     ) -> dict:
-        return mcp_tools.bank_account_save(
-            account_no, account_name, bank_name, remark, is_default, enabled
+        return mcp_tools.bank_account_save_proposal(
+            account_no, account_name, bank_name, remark, is_default, enabled,
+            idempotency_key,
         )
 
-    @server.tool(description="删除本司银行账号。")
-    def bank_account_delete(id: int) -> dict:
-        return mcp_tools.bank_account_delete(id)
+    @server.tool(description="【两段握手第一步】删除本司银行账号——返回待确认提案，不落库。确认后调 confirm_execute(token, 'bank_account_delete', human_ack=true)。")
+    def bank_account_delete_proposal(id: int,
+                                     idempotency_key: str | None = None) -> dict:
+        return mcp_tools.bank_account_delete_proposal(id, idempotency_key)
 
-    @server.tool(description="删除常用税号及公司信息。")
-    def company_info_delete(id: int) -> dict:
-        return mcp_tools.company_info_delete(id)
+    @server.tool(description="【两段握手第一步】删除常用税号及公司信息——返回待确认提案，不落库。确认后调 confirm_execute(token, 'company_info_delete', human_ack=true)。")
+    def company_info_delete_proposal(id: int,
+                                     idempotency_key: str | None = None) -> dict:
+        return mcp_tools.company_info_delete_proposal(id, idempotency_key)
 
     @server.tool(description="【两段握手第一步】更新发票业务字段（人工复核纠正）——返回待确认提案，不落库。仅传入字段生效，状态变更走 review/verify。确认后调 confirm_execute(token, 'invoice_update', human_ack=true)。")
     def invoice_update_proposal(
