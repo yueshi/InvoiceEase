@@ -231,3 +231,63 @@ def _headcount(scene: dict) -> Decimal | None:
     except Exception:  # noqa: BLE001
         return None
     return n if n > 0 else None
+
+
+# ---- 补录归属建议 ------------------------------------------------------------
+
+@dataclass
+class Suggestion:
+    claim_id: int
+    claim_no: str
+    score: int
+    reasons: list[str] = field(default_factory=list)
+
+
+_WINDOW_DAYS = 7
+
+
+def suggest_claims_for_invoice(invoice, claims_with_entries, *,
+                               window_days: int = _WINDOW_DAYS) -> list[Suggestion]:
+    """发票补录：建议该票最可能归属的草稿单（spec §5.3 发票补录 Skill）。
+
+    门控：单据有事项日期时，发票开票日必须落在 [最早, 最晚] ± window_days 内，
+    否则排除（防误挂到无关单据）。
+    打分：类型匹配 +3 / 开票日落在事项区间内 +3 / 仅落在窗口内 +1。
+    返回：按分降序的前 3 条（同分保持输入顺序）。
+
+    claims_with_entries 元素需有：id / claim_no / claim_type / entry_dates(list[date])。
+    """
+    issue_date = getattr(invoice, "issue_date", None)
+    if issue_date is None:
+        return []
+    inv_type = getattr(invoice, "expense_type", None)
+
+    out: list[Suggestion] = []
+    for c in claims_with_entries:
+        dates = [d for d in (getattr(c, "entry_dates", None) or []) if d]
+        score = 0
+        reasons: list[str] = []
+
+        if dates:
+            lo, hi = min(dates), max(dates)
+            if lo <= issue_date <= hi:
+                score += 3
+                reasons.append("开票日在单据事项日期区间内")
+            else:
+                gap = (lo - issue_date).days if issue_date < lo else (issue_date - hi).days
+                if gap > window_days:
+                    continue  # 门控：离太远，不推荐
+                score += 1
+                reasons.append(f"开票日距单据行程 {gap} 天（窗口 {window_days} 天内）")
+
+        ctype = getattr(c, "claim_type", None)
+        if inv_type and ctype and inv_type == ctype:
+            score += 3
+            reasons.append(f"类型匹配（{inv_type}）")
+
+        if score > 0:
+            out.append(Suggestion(claim_id=c.id, claim_no=c.claim_no,
+                                  score=score, reasons=reasons))
+
+    out.sort(key=lambda s: -s.score)  # 稳定排序：同分保持输入顺序
+    return out[:3]
