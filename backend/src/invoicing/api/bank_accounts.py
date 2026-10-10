@@ -12,6 +12,11 @@ from invoicing.security import require_role
 
 router = APIRouter(prefix="/bank-accounts", tags=["bank-accounts"])
 
+
+class ConfirmNoteBody(BaseModel):
+    """Web 高风险二次确认理由（v1.1 §7.2 ✅4，落审计 detail.note）。"""
+    note: str | None = Field(default=None, max_length=512)
+
 _FINANCE = ("finance_staff", "finance_manager", "admin")
 _ACCOUNT_NO_RE = re.compile(r"^[0-9]{6,32}$")
 
@@ -140,11 +145,20 @@ def update_bank_account(
 
 @router.delete("/{account_id}")
 def delete_bank_account(
-    account_id: int, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))
+    account_id: int, body: ConfirmNoteBody | None = None,
+    db: Session = Depends(get_db), user: User = Depends(require_role("admin")),
 ):
     acc = db.get(BankAccount, account_id)
     if acc is None:
         raise HTTPException(404, "账号不存在")
+    from invoicing.audit import write_audit
+
+    snapshot = {"account_no": acc.account_no, "account_name": acc.account_name}
     db.delete(acc)
+    write_audit(
+        db, action="CONFIG_CHANGE", user_id=user.id, channel="web",
+        detail={"entity": "bank_account", "id": account_id, "deleted": True,
+                "snapshot": snapshot, "note": (body.note if body else None)},
+    )
     db.commit()
     return {"ok": True}

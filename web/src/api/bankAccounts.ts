@@ -14,6 +14,7 @@ export async function updateBankAccount(id: number, body: BankAccountUpdate): Pr
   const { data } = await api.put<BankAccountOut>(`/bank-accounts/${id}`, body);
   return data;
 }
-export async function deleteBankAccount(id: number): Promise<void> {
-  await api.delete(`/bank-accounts/${id}`);
+export async function deleteBankAccount(id: number, note?: string): Promise<void> {
+  // note：高风险二次确认理由（v1.1 §7.2 ✅4，落审计 detail.note）
+  await api.delete(`/bank-accounts/${id}`, { data: { note: note ?? null } });
 }

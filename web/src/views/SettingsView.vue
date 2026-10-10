@@ -146,9 +146,9 @@ function onDeleteBankAccount(record: BankAccountOut) {
       户名: record.account_name ?? "—",
       开户行: record.bank_name ?? "—",
     },
-    run: async () => {
+    run: async (reason: string) => {
       try {
-        await deleteBankAccount(record.id);
+        await deleteBankAccount(record.id, reason);
         message.success("已删除");
         loadAll();
       } catch (e) {

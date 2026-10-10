@@ -93,8 +93,10 @@ def build_server() -> MCPServer:
         name: str, tax_id: str, kind: str = "other", is_default: bool = False,
         remark: str | None = None, idempotency_key: str | None = None,
     ) -> dict:
+        # 关键字转发（同上：实现函数多一个未暴露的 bank_account）
         return mcp_tools.company_info_save_proposal(
-            name, tax_id, kind, is_default, remark, idempotency_key=idempotency_key)
+            name=name, tax_id=tax_id, kind=kind, is_default=is_default,
+            remark=remark, idempotency_key=idempotency_key)
 
     @server.tool(description="【两段握手第一步】创建报销单（草稿）——返回待确认提案（proposal_token），不落库。claim_type 选单据类型（travel 差旅/procurement 采购/entertainment 招待/office 办公/welfare 福利/other 其他）。用户确认后调 confirm_execute(token, 'expense_create', human_ack=true) 才真正建单。")
     def expense_create_proposal(title: str, remark: str | None = None, claim_type: str | None = None,
@@ -165,9 +167,12 @@ def build_server() -> MCPServer:
         enabled: bool = True,
         idempotency_key: str | None = None,
     ) -> dict:
+        # 关键字转发：实现函数比本包装层多一个 bank_code（未对外暴露），
+        # 按位置转发会让后续参数整体错位（final review 抓到的真 bug）
         return mcp_tools.bank_account_save_proposal(
-            account_no, account_name, bank_name, remark, is_default, enabled,
-            idempotency_key,
+            account_no=account_no, account_name=account_name,
+            bank_name=bank_name, remark=remark, is_default=is_default,
+            enabled=enabled, idempotency_key=idempotency_key,
         )
 
     @server.tool(description="【两段握手第一步】删除本司银行账号——返回待确认提案，不落库。确认后调 confirm_execute(token, 'bank_account_delete', human_ack=true)。")

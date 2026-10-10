@@ -617,7 +617,8 @@ def remove_item(db: Session, user: User, item_id: int) -> None:
 # ---- 状态流转 ------------------------------------------------------------
 
 
-def submit_claim(db: Session, user: User, claim_id: int) -> ExpenseClaim:
+def submit_claim(db: Session, user: User, claim_id: int, *,
+                 note: str | None = None) -> ExpenseClaim:
     claim = _get_claim(db, claim_id)
     _require_owner_draft(claim, user)
     entries = db.query(ExpenseEntry).filter(ExpenseEntry.claim_id == claim.id).all()
@@ -654,13 +655,16 @@ def submit_claim(db: Session, user: User, claim_id: int) -> ExpenseClaim:
     claim.submitted_at = utcnow()
     write_audit(
         db, action="EXPENSE_SUBMIT", user_id=user.id, channel="web",
-        detail={"claim_no": claim.claim_no, "items": items, "total": str(claim.total_amount)},
+        # note：高风险二次确认时用户填写的理由（v1.1 §7.2 ✅4「为什么」）
+        detail={"claim_no": claim.claim_no, "items": items,
+                "total": str(claim.total_amount), "note": note},
     )
     db.commit()
     return claim
 
 
-def approve_claim(db: Session, user: User, claim_id: int) -> ExpenseClaim:
+def approve_claim(db: Session, user: User, claim_id: int, *,
+                  note: str | None = None) -> ExpenseClaim:
     claim = _get_claim(db, claim_id)
     if claim.status != ExpenseClaimStatus.PENDING:
         raise ValueError(f"仅待审批的报销单可审批（当前 {claim.status}）")
@@ -680,7 +684,8 @@ def approve_claim(db: Session, user: User, claim_id: int) -> ExpenseClaim:
     claim.decided_at = utcnow()
     write_audit(
         db, action="EXPENSE_APPROVE", user_id=user.id, invoice_id=None, channel="web",
-        detail={"claim_no": claim.claim_no, "total": str(claim.total_amount), "result": "approved"},
+        detail={"claim_no": claim.claim_no, "total": str(claim.total_amount),
+                "result": "approved", "note": note},
     )
     db.commit()
     return claim

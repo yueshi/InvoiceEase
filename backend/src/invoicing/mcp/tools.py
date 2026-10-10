@@ -198,10 +198,12 @@ def _make_proposal(*, tool_name: str, payload: dict, preview: dict,
                 "next_step": "用户确认后调 confirm_execute(token=..., tool_name=..., human_ack=true)",
             }
 
-        # 幂等命名空间与 confirm 阶段隔离：否则 confirm 会命中 proposal 的缓存、
-        # 直接返回提案结果而不执行（P0-2 e2e 实测踩到）
-        return idempotent_run(db, key=idempotency_key,
-                              tool_name=f"{tool_name}:proposal", fn=_build)
+        # 幂等命名空间 = 工具 + 主体 + 阶段：
+        # - 阶段隔离：否则 confirm 会命中 proposal 的缓存、直接返回提案而不执行
+        # - 主体隔离：否则跨用户同 key 会互相命中（泄漏 token / 静默假成功）
+        return idempotent_run(db, key=idempotency_key, tool_name=tool_name,
+                              actor_id=principal.user_id, phase="proposal",
+                              fn=_build)
 
 
 @requires_role("admin")
@@ -418,8 +420,9 @@ def company_info_save_proposal(
     kind: str = CompanyKind.other.value,
     is_default: bool = False,
     remark: str | None = None,
-    bank_account: str | None = None,
     idempotency_key: str | None = None,
+    *,
+    bank_account: str | None = None,  # 未对 MCP 暴露；放末尾防包装层位置转发错位
 ) -> dict:
     """【两段握手第一步】保存常用公司——返回待确认提案，不落库（同税号更新）。"""
     _validate_company_info(name, tax_id, kind, is_default)
@@ -826,11 +829,12 @@ def bank_account_save_proposal(
     account_no: str,
     account_name: str | None = None,
     bank_name: str | None = None,
-    bank_code: str | None = None,
     remark: str | None = None,
     is_default: bool = False,
     enabled: bool = True,
     idempotency_key: str | None = None,
+    *,
+    bank_code: str | None = None,  # 未对 MCP 暴露；放末尾防包装层位置转发错位
 ) -> dict:
     """【两段握手第一步】新增/更新本司银行账号——返回待确认提案，不落库。
 
@@ -1487,11 +1491,30 @@ def confirm_execute(token: str, tool_name: str, human_ack: bool,
 
     proposal_fn = get_proposal(tool_name)  # KeyError：非两段工具
     principal = current_principal()
+    if principal.user_id is None:
+        # fail-closed（与 _current_user 同口径）：无主体不得确认任何提案
+        raise ValueError("当前令牌未绑定主体，无法确认写操作")
 
     with SessionLocal() as db:
         def _execute():
-            proposal = consume_proposal(db, token=token, human_ack=human_ack)
-            if principal.user_id is not None and proposal.actor_id != principal.user_id:
+            try:
+                proposal = consume_proposal(db, token=token, human_ack=human_ack)
+            except ValueError as e:
+                # 执行体上次失败时 token 已烧；重试只会撞 already consumed，
+                # 真实错误（如 validate FAIL）已被吞。给出可行动指引而非干巴巴报错。
+                if "already consumed" in str(e):
+                    raise ValueError(
+                        f"{e}（若上次确认在执行中途失败，该 token 已失效且原错误见上次返回——"
+                        "请重新调用 *_proposal 发起新提案后再确认）"
+                    ) from None
+                raise
+            if proposal.tool_name != tool_name:
+                # 防张冠李戴：执行哪个函数必须与用户预览过的提案一致
+                raise ValueError(
+                    f"proposal tool_name 不符：提案为 {proposal.tool_name}，"
+                    f"请求为 {tool_name}"
+                )
+            if proposal.actor_id != principal.user_id:
                 raise ValueError(
                     f"proposal 归属主体不符：发起 {proposal.actor_id} / 确认 {principal.user_id}"
                 )
@@ -1502,4 +1525,4 @@ def confirm_execute(token: str, tool_name: str, human_ack: bool,
             return result
 
         return idempotent_run(db, key=idempotency_key, tool_name=tool_name,
-                              fn=_execute)
+                              actor_id=principal.user_id, fn=_execute)

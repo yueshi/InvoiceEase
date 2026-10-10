@@ -344,7 +344,8 @@ describe("ExpensesView 大额二次确认（v1.1 §7.5.1）", () => {
     await wrapper.find("button.cm-confirm").trigger("click");
     await flushPromises();
 
-    expect(api.submitClaim).toHaveBeenCalledWith(7);
+    // 理由必须随提交传下去（v1.1 §7.2 ✅4「为什么」落审计）
+    expect(api.submitClaim).toHaveBeenCalledWith(7, "董事会已批准");
   });
 
   it("金额 < 阈值：不弹确认，直接提交", async () => {
@@ -363,6 +364,6 @@ describe("ExpensesView 大额二次确认（v1.1 §7.5.1）", () => {
     await flushPromises();
 
     expect(wrapper.find(".cm-mask").exists()).toBe(false);
-    expect(api.submitClaim).toHaveBeenCalledWith(7);
+    expect(api.submitClaim).toHaveBeenCalledWith(7, undefined);
   });
 });

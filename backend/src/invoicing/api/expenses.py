@@ -80,6 +80,11 @@ class RejectBody(BaseModel):
     reason: str = Field(min_length=1, max_length=512)
 
 
+class ConfirmNoteBody(BaseModel):
+    """Web 高风险二次确认时用户填写的理由（v1.1 §7.2 ✅4「为什么」，落审计 detail.note）。"""
+    note: str | None = Field(default=None, max_length=512)
+
+
 class ClaimOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -340,18 +345,22 @@ def delete_claim(claim_id: int, db: Session = Depends(get_db), user: User = Depe
 
 
 @router.post("/{claim_id}/submit", response_model=ClaimOut)
-def submit_claim(claim_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def submit_claim(claim_id: int, body: ConfirmNoteBody | None = None,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     try:
-        claim = svc.submit_claim(db, user, claim_id)
+        claim = svc.submit_claim(db, user, claim_id,
+                                 note=(body.note if body else None))
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     return _claim_out(db, claim)
 
 
 @router.post("/{claim_id}/approve", response_model=ClaimOut)
-def approve_claim(claim_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def approve_claim(claim_id: int, body: ConfirmNoteBody | None = None,
+                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     try:
-        claim = svc.approve_claim(db, user, claim_id)
+        claim = svc.approve_claim(db, user, claim_id,
+                                  note=(body.note if body else None))
     except ValueError as e:
         raise HTTPException(403 if "财务" in str(e) else 422, str(e)) from None
     return _claim_out(db, claim)

@@ -44,10 +44,13 @@
 | 项 | 说明 |
 |---|---|
 | **回滚机制** | 无运行时开关。回滚 = `git revert` 本批提交后重启（旧直调路径已删除，开关切不动，故不设死开关） |
+| **scope 校验时机** | scope/role 在**提案阶段**把关；确认阶段只校验「token 有效 + 主体一致 + 工具一致」。**令牌被撤权后 15 分钟内已签发的提案仍可确认** —— 撤权需配合吊销令牌（verifier 每次请求重查，令牌吊销即时生效） |
+| **幂等键归属** | 幂等命名空间 = 工具 + **主体** + 阶段；跨用户同 key 不互相命中 |
 | `invoice_ingest` / `invoice_fetch` / `extract_invoice` | **豁免**：属收取管线入口（与邮件自动采集耦合），不在 20 个两段式工具内（plan 裁决，见 ledger） |
-| 文件类工具 | `receipt_ingest` / `sales_invoice_import` 的 payload 只存路径，确认时才读文件 —— 提案与确认间隔内文件须可读，否则确认报错 |
-| Web 通道 | 走前端 ConfirmModal（§7.5.1），不消费 `proposal_token`（spec 明示避免双重确认） |
+| 文件类工具 | `receipt_ingest` / `sales_invoice_import` 的 payload 只存路径，确认时才读文件 —— 提案与确认间隔内文件须可读，否则确认报错（路径内容未绑定哈希，属已知 TOCTOU，见 ledger） |
+| Web 通道 | 走前端 ConfirmModal（§7.5.1），不消费 `proposal_token`（spec 明示避免双重确认）；弹窗必填的**理由**随 REST 请求落审计 `detail.note`（v1.1 §7.2 ✅4） |
 | `budget:read` scope | 未新增；预算/校验工具复用 `expense:read` |
+| 提案堆积 | `proposals` 表暂无清理任务（过期行保留）；如需清理按 `expires_at < now() - 7d` 定期删除 |
 
 ## 5. 排障
 

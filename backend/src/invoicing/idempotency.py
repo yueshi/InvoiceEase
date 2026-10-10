@@ -23,14 +23,29 @@ def generate_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def idempotent_run(db, *, key: str | None, tool_name: str, fn: Callable[[], dict]) -> dict:
-    """有 key 走缓存（24h 内同 (key, tool_name) 返回首次结果）；无 key 每次都调 fn。"""
+def namespace_of(tool_name: str, actor_id: int | None, phase: str = "") -> str:
+    """幂等命名空间 = 工具 + 主体（+阶段）。
+
+    主体维度是必须的：否则两个用户用同一 idempotency_key 会互相命中缓存——
+    B 的写操作会**拿到 A 的结果且不执行**（静默假成功），proposal 阶段还会
+    泄漏 A 的 token 与预览（final review 实测）。
+    ponytail: 命名空间编进 tool_name 列；如需按主体查询，再拆独立列。
+    """
+    ns = f"{tool_name}:u{actor_id if actor_id is not None else 0}"
+    return f"{ns}:{phase}" if phase else ns
+
+
+def idempotent_run(db, *, key: str | None, tool_name: str,
+                   actor_id: int | None = None, phase: str = "",
+                   fn: Callable[[], dict]) -> dict:
+    """有 key 走缓存（24h 内同 (key, 命名空间) 返回首次结果）；无 key 每次都调 fn。"""
     if not key:
         return fn()
+    ns = namespace_of(tool_name, actor_id, phase)
     existing = db.execute(
         select(IdempotencyKey).where(
             IdempotencyKey.key == key,
-            IdempotencyKey.tool_name == tool_name,
+            IdempotencyKey.tool_name == ns,
         )
     ).scalar_one_or_none()
     if existing is not None and _as_utc(existing.expires_at) > _now():
@@ -42,7 +57,7 @@ def idempotent_run(db, *, key: str | None, tool_name: str, fn: Callable[[], dict
         existing.expires_at = _now() + timedelta(hours=IDEMPOTENCY_TTL_HOURS)
     else:
         db.add(IdempotencyKey(
-            key=key, tool_name=tool_name, response=result,
+            key=key, tool_name=ns, response=result,
             expires_at=_now() + timedelta(hours=IDEMPOTENCY_TTL_HOURS),
         ))
     db.commit()

@@ -410,9 +410,9 @@ function isLargeAmount(amount: string | null | undefined): boolean {
   return Number.isFinite(n) && Number.isFinite(t) && n >= t;
 }
 
-async function doSubmit(claimId: number) {
+async function doSubmit(claimId: number, note?: string) {
   try {
-    await submitClaim(claimId);
+    await submitClaim(claimId, note);
     message.success("已提交审批");
     if (detail.value) await openDetail(detail.value.claim);
     await load();
@@ -431,7 +431,7 @@ async function onSubmit() {
         单号: claim.claim_no, 事由: claim.title,
         金额: formatMoney(claim.total_amount), 阈值: formatMoney(largeAmountThreshold.value),
       },
-      run: () => doSubmit(claim.id),
+      run: (reason: string) => doSubmit(claim.id, reason),
     });
     return;
   }
@@ -461,9 +461,9 @@ async function onWithdraw(claim: ClaimOut) {
   }
 }
 
-async function doApprove(claimId: number, claim: ClaimOut) {
+async function doApprove(claimId: number, claim: ClaimOut, note?: string) {
   try {
-    await approveClaim(claimId);
+    await approveClaim(claimId, note);
     message.success("已通过，发票标记为已报销");
     await load();
     if (detailOpen.value && detail.value?.claim.id === claimId) await openDetail(claim);
@@ -480,7 +480,7 @@ async function onApprove(claim: ClaimOut) {
         单号: claim.claim_no, 事由: claim.title,
         金额: formatMoney(claim.total_amount), 阈值: formatMoney(largeAmountThreshold.value),
       },
-      run: () => doApprove(claim.id, claim),
+      run: (reason: string) => doApprove(claim.id, claim, reason),
     });
     return;
   }

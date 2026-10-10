@@ -73,7 +73,8 @@ describe("SettingsView × ConfirmModal（v1.1 §7.5.1）", () => {
     await w.find("button.cm-confirm").trigger("click");
     await flushPromises();
 
-    expect(mocks.deleteBankAccount).toHaveBeenCalledWith(9);
+    // 理由必须随删除传下去（v1.1 §7.2 ✅4）
+    expect(mocks.deleteBankAccount).toHaveBeenCalledWith(9, "账户已销户");
   });
 
   it("取消确认：不调 API", async () => {

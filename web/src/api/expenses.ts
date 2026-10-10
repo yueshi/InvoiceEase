@@ -90,13 +90,14 @@ export async function removeItem(itemId: number): Promise<void> {
   await api.delete(`/expenses/items/${itemId}`);
 }
 
-export async function submitClaim(id: number): Promise<ClaimOut> {
-  const { data } = await api.post<ClaimOut>(`/expenses/${id}/submit`);
+export async function submitClaim(id: number, note?: string): Promise<ClaimOut> {
+  // note：高风险二次确认理由（v1.1 §7.2 ✅4，落审计 detail.note）
+  const { data } = await api.post<ClaimOut>(`/expenses/${id}/submit`, { note: note ?? null });
   return data;
 }
 
-export async function approveClaim(id: number): Promise<ClaimOut> {
-  const { data } = await api.post<ClaimOut>(`/expenses/${id}/approve`);
+export async function approveClaim(id: number, note?: string): Promise<ClaimOut> {
+  const { data } = await api.post<ClaimOut>(`/expenses/${id}/approve`, { note: note ?? null });
   return data;
 }
 
