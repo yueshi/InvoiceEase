@@ -14,7 +14,10 @@ vi.mock("../../api/expenses", () => ({
       status: "draft", applicant_id: 1, item_count: 1, submitted_at: null, decided_at: null,
       approver_id: null, rejected_reason: null, remark: null, created_at: "2026-09-13T00:00:00" },
   ]),
-  getExpenseConfig: vi.fn().mockResolvedValue({ travel_allowance_daily_standard: 120, petty_cash_threshold: 500 }),
+  getExpenseConfig: vi.fn().mockResolvedValue({
+    travel_allowance_daily_standard: 120, petty_cash_threshold: 500,
+    large_amount_threshold: "5000",
+  }),
   createClaim: vi.fn(),
   getClaim: vi.fn(),
   eligibleInvoices: vi.fn().mockResolvedValue([]),
@@ -293,5 +296,73 @@ describe("报销入口补齐（无票凭证 / 引用回单）", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(api.addReceiptToClaim).toHaveBeenCalledWith(1, 11, { receipt_id: 7 });
+  });
+});
+
+// ---- P0-2 / v1.1 §7.5.1：大额提交需二次确认（必填理由）--------------------
+
+describe("ExpensesView 大额二次确认（v1.1 §7.5.1）", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    // 抽屉/弹窗 teleport 到 body 且不随 wrapper.unmount 清除；清掉防跨用例串target
+    document.body.innerHTML = "";
+  });
+
+  function mockClaim(totalAmount: string) {
+    const claim = {
+      id: 7, claim_no: "FY-202610-0007", title: "大额差旅", total_amount: totalAmount,
+      status: "draft", applicant_id: 1, item_count: 1, submitted_at: null,
+      decided_at: null, approver_id: null, rejected_reason: null, remark: null,
+      created_at: "2026-10-01T00:00:00", claim_type: "travel",
+    };
+    return { claim, entries: [], items: [] };
+  }
+
+  it("金额 ≥ 阈值：先弹确认（必填理由），确认后才提交", async () => {
+    const api = await import("../../api/expenses");
+    vi.mocked(api.getClaim).mockResolvedValue(mockClaim("8000.00") as never);
+    vi.mocked(api.submitClaim).mockClear().mockResolvedValue(undefined as never);
+
+    const wrapper = await mountWithAntd();
+    await flushPromises();
+
+    const detailLink = wrapper.findAll("a").find((a) => a.text() === "详情");
+    await detailLink!.trigger("click");
+    await flushPromises();
+
+    clickInBody("button", "提交审批");
+    await flushPromises();
+
+    // ConfirmModal 未经 teleport，直接在组件树里查
+    expect(wrapper.find(".cm-mask").exists()).toBe(true);
+    expect(wrapper.find(".cm-title").text()).toContain("大额");
+    expect(api.submitClaim).not.toHaveBeenCalled(); // 未确认不提交
+
+    // 未填理由不可确认
+    expect(wrapper.find("button.cm-confirm").attributes("disabled")).toBeDefined();
+    await wrapper.find("textarea.cm-reason").setValue("董事会已批准");
+    await wrapper.find("button.cm-confirm").trigger("click");
+    await flushPromises();
+
+    expect(api.submitClaim).toHaveBeenCalledWith(7);
+  });
+
+  it("金额 < 阈值：不弹确认，直接提交", async () => {
+    const api = await import("../../api/expenses");
+    vi.mocked(api.getClaim).mockResolvedValue(mockClaim("800.00") as never);
+    vi.mocked(api.submitClaim).mockClear().mockResolvedValue(undefined as never);
+
+    const wrapper = await mountWithAntd();
+    await flushPromises();
+
+    const detailLink = wrapper.findAll("a").find((a) => a.text() === "详情");
+    await detailLink!.trigger("click");
+    await flushPromises();
+
+    clickInBody("button", "提交审批");
+    await flushPromises();
+
+    expect(wrapper.find(".cm-mask").exists()).toBe(false);
+    expect(api.submitClaim).toHaveBeenCalledWith(7);
   });
 });

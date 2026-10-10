@@ -185,6 +185,8 @@ def expense_config(user: User = Depends(get_current_user)):
     return {
         "travel_allowance_daily_standard": settings.travel_allowance_daily_standard,
         "petty_cash_threshold": settings.expense_petty_cash_threshold,
+        # v1.1 §7.5.1：大额提交/审批的前端二次确认阈值（spec §7.2 ✅5 不得硬编码）
+        "large_amount_threshold": str(settings.large_amount_threshold),
     }
 
 

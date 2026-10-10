@@ -24,14 +24,17 @@ export async function eligibleInvoices(): Promise<EligibleInvoiceOut[]> {
   return data;
 }
 
-/** 报销相关配置：差旅伙食补助公司标准（表单预填 + 金额实时预览用）、小额零星税前扣除阈值 */
+/** 报销相关配置：差旅伙食补助公司标准（表单预填 + 金额实时预览用）、
+ *  小额零星税前扣除阈值、大额二次确认阈值（v1.1 §7.5.1） */
 export async function getExpenseConfig(): Promise<{
   travel_allowance_daily_standard: number;
   petty_cash_threshold: number;
+  large_amount_threshold: string;
 }> {
   const { data } = await api.get<{
     travel_allowance_daily_standard: number;
     petty_cash_threshold: number;
+    large_amount_threshold: string;
   }>("/expenses/config");
   return data;
 }

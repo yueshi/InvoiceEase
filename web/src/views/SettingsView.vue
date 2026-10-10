@@ -9,6 +9,7 @@ import { createMailbox, listMailboxes, pollMailbox, testMailbox, updateMailbox }
 import { createUser, listUsers, resetUserPassword, resumeUser, suspendUser, updateUser } from "../api/users";
 import { BANK_LABELS, COMPANY_KIND_LABELS, ROLE_LABELS, USER_STATUS_LABELS, type BankAccountCreate, type BankAccountOut, type CompanyInfoCreate, type CompanyInfoOut, type MailboxCreate, type MailboxOut, type MailboxUpdate, type Role, type UserCreate, type UserOut, type UserStatus } from "../types";
 import PageHeader from "../components/PageHeader.vue";
+import ConfirmModal from "../components/ConfirmModal.vue";
 
 const TAX_ID_RE = /^[0-9A-Z]{18}$/;
 
@@ -65,39 +66,96 @@ function openBankModal(record: BankAccountOut | null) {
   bankModalOpen.value = true;
 }
 
-async function saveBankAccount() {
+// ---- v1.1 §7.5.1 高风险确认（银行账号变更）--------------------------------
+const confirmState = ref<{
+  open: boolean;
+  title: string;
+  preview: Record<string, unknown>;
+  riskLevel: "low" | "medium" | "high";
+  requireReason: boolean;
+  run: (reason: string) => Promise<void>;
+}>({ open: false, title: "", preview: {}, riskLevel: "high", requireReason: true,
+     run: async () => {} });
+
+function askConfirm(opts: {
+  title: string;
+  preview: Record<string, unknown>;
+  riskLevel?: "low" | "medium" | "high";
+  requireReason?: boolean;
+  run: (reason: string) => Promise<void>;
+}) {
+  confirmState.value = {
+    open: true,
+    title: opts.title,
+    preview: opts.preview,
+    riskLevel: opts.riskLevel ?? "high",
+    requireReason: opts.requireReason ?? true,
+    run: opts.run,
+  };
+}
+
+async function onConfirmRun(reason: string) {
+  const run = confirmState.value.run;
+  confirmState.value.open = false;
+  await run(reason);
+}
+
+function saveBankAccount() {
   if (!/^[0-9\s\-]{6,40}$/.test(bankForm.account_no.trim())) {
     message.warning("账号须为 6-32 位数字（可含空格/连字符）");
     return;
   }
-  try {
-    const body: BankAccountCreate = {
-      account_no: bankForm.account_no.trim(),
-      account_name: bankForm.account_name.trim() || null,
-      bank_name: bankForm.bank_name.trim() || null,
-      bank_code: bankForm.bank_code || null, // 留空 → 后端按开户行自动识别
-      remark: bankForm.remark.trim() || null,
-      is_default: bankForm.is_default,
-      enabled: bankForm.enabled,
-    };
-    if (editingBankId.value) await updateBankAccount(editingBankId.value, body);
-    else await createBankAccount(body);
-    message.success("已保存");
-    bankModalOpen.value = false;
-    loadAll();
-  } catch (e) {
-    errorMessage(e, "银行账号保存失败");
-  }
+  const body: BankAccountCreate = {
+    account_no: bankForm.account_no.trim(),
+    account_name: bankForm.account_name.trim() || null,
+    bank_name: bankForm.bank_name.trim() || null,
+    bank_code: bankForm.bank_code || null, // 留空 → 后端按开户行自动识别
+    remark: bankForm.remark.trim() || null,
+    is_default: bankForm.is_default,
+    enabled: bankForm.enabled,
+  };
+  const editingId = editingBankId.value;
+  askConfirm({
+    title: editingId ? "确认修改银行账号？" : "确认新增银行账号？",
+    preview: {
+      账号: body.account_no,
+      户名: body.account_name ?? "—",
+      开户行: body.bank_name ?? "—",
+      设为默认: body.is_default ? "是" : "否",
+      状态: body.enabled ? "启用" : "停用",
+    },
+    run: async () => {
+      try {
+        if (editingId) await updateBankAccount(editingId, body);
+        else await createBankAccount(body);
+        message.success("已保存");
+        bankModalOpen.value = false;
+        loadAll();
+      } catch (e) {
+        errorMessage(e, "银行账号保存失败");
+      }
+    },
+  });
 }
 
-async function onDeleteBankAccount(record: BankAccountOut) {
-  try {
-    await deleteBankAccount(record.id);
-    message.success("已删除");
-    loadAll();
-  } catch (e) {
-    errorMessage(e, "删除失败");
-  }
+function onDeleteBankAccount(record: BankAccountOut) {
+  askConfirm({
+    title: "确认删除银行账号？",
+    preview: {
+      账号: record.account_no,
+      户名: record.account_name ?? "—",
+      开户行: record.bank_name ?? "—",
+    },
+    run: async () => {
+      try {
+        await deleteBankAccount(record.id);
+        message.success("已删除");
+        loadAll();
+      } catch (e) {
+        errorMessage(e, "删除失败");
+      }
+    },
+  });
 }
 
 async function loadAll() {
@@ -428,6 +486,17 @@ const companyColumns = [
         </div>
       </a-tab-pane>
     </a-tabs>
+
+    <!-- v1.1 §7.5.1：银行账号变更需二次确认（高风险，必填理由入审计） -->
+    <ConfirmModal
+      :open="confirmState.open"
+      :title="confirmState.title"
+      :preview="confirmState.preview"
+      :risk-level="confirmState.riskLevel"
+      :require-reason="confirmState.requireReason"
+      @confirm="onConfirmRun"
+      @update:open="(v: boolean) => (confirmState.open = v)"
+    />
 
     <a-modal v-model:open="mailboxModalOpen" :title="editingMailbox ? '编辑邮箱' : '新建邮箱'" @ok="saveMailbox">
       <a-form layout="vertical">

@@ -25,6 +25,7 @@ import {
 import { listReceipts } from "../api/receipts";
 import { useAuthStore } from "../stores/auth";
 import PageHeader from "../components/PageHeader.vue";
+import ConfirmModal from "../components/ConfirmModal.vue";
 import { formatMoney } from "../utils/format";
 import {
   CLAIM_STATUS_LABELS,
@@ -71,11 +72,14 @@ const sceneDefs = computed(() => {
 const allowanceStandard = ref(100);
 // 小额零星税前扣除阈值（收款凭证超此金额需取得发票；表单提示用，判定仍以后端为准）
 const pettyCashThreshold = ref(500);
+// v1.1 §7.5.1 大额二次确认阈值（后端下发，spec §7.2 ✅5 不硬编码）
+const largeAmountThreshold = ref("5000");
 async function loadExpenseConfig() {
   try {
     const cfg = await getExpenseConfig();
     allowanceStandard.value = cfg.travel_allowance_daily_standard;
     pettyCashThreshold.value = cfg.petty_cash_threshold;
+    largeAmountThreshold.value = cfg.large_amount_threshold ?? "5000";
   } catch {
     /* 配置拉取失败不阻断：保留默认值，后端仍会按公司标准计算 */
   }
@@ -370,16 +374,68 @@ async function onPickReceipt() {
   }
 }
 
-async function onSubmit() {
-  if (!detail.value) return;
+// ---- v1.1 §7.5.1 大额二次确认（提交/审批 ≥ 阈值强制填理由）----------------
+const confirmState = ref<{
+  open: boolean;
+  title: string;
+  preview: Record<string, unknown>;
+  riskLevel: "low" | "medium" | "high";
+  requireReason: boolean;
+  run: (reason: string) => Promise<void>;
+}>({ open: false, title: "", preview: {}, riskLevel: "high", requireReason: true,
+     run: async () => {} });
+
+function askConfirm(opts: {
+  title: string;
+  preview: Record<string, unknown>;
+  requireReason?: boolean;
+  run: (reason: string) => Promise<void>;
+}) {
+  confirmState.value = {
+    open: true, title: opts.title, preview: opts.preview,
+    riskLevel: "high", requireReason: opts.requireReason ?? true, run: opts.run,
+  };
+}
+
+async function onConfirmRun(reason: string) {
+  const run = confirmState.value.run;
+  confirmState.value.open = false;
+  await run(reason);
+}
+
+/** 金额 ≥ 大额阈值（字符串比较转数字；解析失败按未超处理，判定仍以后端为准） */
+function isLargeAmount(amount: string | null | undefined): boolean {
+  const n = Number(amount ?? 0);
+  const t = Number(largeAmountThreshold.value);
+  return Number.isFinite(n) && Number.isFinite(t) && n >= t;
+}
+
+async function doSubmit(claimId: number) {
   try {
-    await submitClaim(detail.value.claim.id);
+    await submitClaim(claimId);
     message.success("已提交审批");
-    await openDetail(detail.value.claim);
+    if (detail.value) await openDetail(detail.value.claim);
     await load();
   } catch (e) {
     errorMessage(e, "提交失败");
   }
+}
+
+async function onSubmit() {
+  if (!detail.value) return;
+  const claim = detail.value.claim;
+  if (isLargeAmount(claim.total_amount)) {
+    askConfirm({
+      title: "确认提交大额报销？",
+      preview: {
+        单号: claim.claim_no, 事由: claim.title,
+        金额: formatMoney(claim.total_amount), 阈值: formatMoney(largeAmountThreshold.value),
+      },
+      run: () => doSubmit(claim.id),
+    });
+    return;
+  }
+  await doSubmit(claim.id);
 }
 
 async function onDelete(claim: ClaimOut) {
@@ -405,15 +461,30 @@ async function onWithdraw(claim: ClaimOut) {
   }
 }
 
-async function onApprove(claim: ClaimOut) {
+async function doApprove(claimId: number, claim: ClaimOut) {
   try {
-    await approveClaim(claim.id);
+    await approveClaim(claimId);
     message.success("已通过，发票标记为已报销");
     await load();
-    if (detailOpen.value && detail.value?.claim.id === claim.id) await openDetail(claim);
+    if (detailOpen.value && detail.value?.claim.id === claimId) await openDetail(claim);
   } catch (e) {
     errorMessage(e, "审批失败");
   }
+}
+
+async function onApprove(claim: ClaimOut) {
+  if (isLargeAmount(claim.total_amount)) {
+    askConfirm({
+      title: "确认通过大额报销？",
+      preview: {
+        单号: claim.claim_no, 事由: claim.title,
+        金额: formatMoney(claim.total_amount), 阈值: formatMoney(largeAmountThreshold.value),
+      },
+      run: () => doApprove(claim.id, claim),
+    });
+    return;
+  }
+  await doApprove(claim.id, claim);
 }
 
 async function onReject(claim: ClaimOut) {
@@ -788,6 +859,17 @@ onMounted(async () => {
         暂无未配对回单：回单在「银行回单」页上传解析后即可引用；凭证类型由交易性质自动建议。
       </p>
     </a-modal>
+
+    <!-- v1.1 §7.5.1：大额提交/审批需二次确认（必填理由入审计） -->
+    <ConfirmModal
+      :open="confirmState.open"
+      :title="confirmState.title"
+      :preview="confirmState.preview"
+      :risk-level="confirmState.riskLevel"
+      :require-reason="confirmState.requireReason"
+      @confirm="onConfirmRun"
+      @update:open="(v: boolean) => (confirmState.open = v)"
+    />
   </div>
 </template>
 
