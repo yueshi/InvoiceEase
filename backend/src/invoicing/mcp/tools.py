@@ -198,8 +198,10 @@ def _make_proposal(*, tool_name: str, payload: dict, preview: dict,
                 "next_step": "用户确认后调 confirm_execute(token=..., tool_name=..., human_ack=true)",
             }
 
-        return idempotent_run(db, key=idempotency_key, tool_name=tool_name,
-                              fn=_build)
+        # 幂等命名空间与 confirm 阶段隔离：否则 confirm 会命中 proposal 的缓存、
+        # 直接返回提案结果而不执行（P0-2 e2e 实测踩到）
+        return idempotent_run(db, key=idempotency_key,
+                              tool_name=f"{tool_name}:proposal", fn=_build)
 
 
 @requires_role("admin")
