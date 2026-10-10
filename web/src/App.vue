@@ -13,6 +13,8 @@ import {
   SettingOutlined,
   SyncOutlined,
   ToolOutlined,
+,
+  CommentOutlined,
 } from "@ant-design/icons-vue";
 import { useAuthStore } from "./stores/auth";
 import FloatingButton from "./agent/components/FloatingButton.vue";
@@ -87,6 +89,7 @@ const menuItems = computed(() => [
   { key: "/", label: "工作台", icon: () => h(DashboardOutlined) },
   { key: "/invoices", label: "发票列表", icon: () => h(ProfileOutlined) },
   { key: "/expenses", label: "报销管理", icon: () => h(AccountBookOutlined) },
+  { key: "/expenses/chat", label: "报销助手", icon: () => h(CommentOutlined) },
   ...(isFinance() ? [{ key: "/receipts", label: "银行回单", icon: () => h(BankOutlined) }] : []),
   ...(isFinance() ? [{ key: "/tasks", label: "异步任务", icon: () => h(SyncOutlined) }] : []),
   ...(auth.isAdmin

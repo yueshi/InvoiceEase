@@ -3,7 +3,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import { TOKEN_KEY } from "../api/client";
 import { useAuthStore } from "../stores/auth";
 
-const routes = [
+export const routes = [
   { path: "/login", component: () => import("../views/LoginView.vue") },
   { path: "/", component: () => import("../views/DashboardView.vue"), meta: { title: "工作台" } },
   { path: "/invoices", component: () => import("../views/InvoiceListView.vue"), meta: { title: "发票列表" } },
@@ -11,6 +11,8 @@ const routes = [
   { path: "/tasks", component: () => import("../views/AsyncTasksView.vue"), meta: { title: "异步任务", financeOnly: true } },
   // 报销：员工与财务共用（员工看本人，财务看全部并审批）
   { path: "/expenses", component: () => import("../views/ExpensesView.vue"), meta: { title: "报销管理" } },
+  // 对话式报销（P2 §6.2）：5 入口 + 多轮补齐 + 草稿预览卡；与右侧抽屉共用同一会话
+  { path: "/expenses/chat", component: () => import("../views/ChatExpenseView.vue"), meta: { title: "报销助手" } },
   // 修改密码：顶栏自愿改密 + 管理员重置后的强制改密（同一页）
   { path: "/change-password", component: () => import("../views/ChangePasswordView.vue"), meta: { title: "修改密码" } },
   // 令牌管理：自助签发（所有角色可见——平台侧按用户配令牌是主路径）
