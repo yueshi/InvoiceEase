@@ -4,7 +4,10 @@
 import { computed, defineAsyncComponent } from "vue";
 import { flushablePrefix, splitSegments, type Segment } from "../streamFlusher";
 import { parseChartSpec, type ChartKind, type ChartSpec } from "../chartSpec";
+import { parseAnomalyCard, parseDraftCard, type AnomalyCard, type DraftCard } from "../claimCardSpec";
 import { renderMarkdown } from "../markdown";
+import ClaimDraftCard from "./ClaimDraftCard.vue";
+import AnomalyCardView from "./AnomalyCard.vue";
 // echarts 体积大（gzip ~184KB），异步分块：仅真出图时才拉取，不进首屏主 chunk
 const AgentChart = defineAsyncComponent(() => import("./AgentChart.vue"));
 
@@ -17,7 +20,11 @@ interface RenderSeg extends Segment {
   html?: string;
   tail?: string;
   chart?: { kind: ChartKind; spec: ChartSpec } | null;
+  draft?: DraftCard | null;
+  anomaly?: AnomalyCard | null;
 }
+
+const emit = defineEmits<{ (e: "chat-action", prompt: string): void }>();
 
 const CHART_KINDS: ChartKind[] = ["pie", "bar", "grouped-bar", "radar"];
 /** 骨架用：从 lang 推 kind，认不出时按柱图占位 */
@@ -35,7 +42,12 @@ const segments = computed<RenderSeg[]>(() => {
       const body = isTail ? flushablePrefix(seg.content) : seg.content;
       return { ...seg, html: renderMarkdown(body), tail: isTail ? seg.content.slice(body.length) : "" };
     }
-    return { ...seg, chart: isChartFence(seg.lang) ? parseChartSpec(seg.lang, seg.content) : null };
+    return {
+      ...seg,
+      chart: isChartFence(seg.lang) ? parseChartSpec(seg.lang, seg.content) : null,
+      draft: parseDraftCard(seg.lang, seg.content),
+      anomaly: parseAnomalyCard(seg.lang, seg.content),
+    };
   });
 });
 </script>
@@ -58,6 +70,16 @@ const segments = computed<RenderSeg[]>(() => {
         <div class="chart-fallback">图表数据不完整</div>
         <pre class="code-block"><code>{{ seg.content }}</code></pre>
       </template>
+      <ClaimDraftCard
+        v-else-if="seg.draft"
+        :card="seg.draft"
+        @submit="(p: string) => emit('chat-action', p)"
+      />
+      <AnomalyCardView
+        v-else-if="seg.anomaly"
+        :card="seg.anomaly"
+        @choose="(p: string) => emit('chat-action', p)"
+      />
       <pre v-else class="code-block"><code>{{ seg.content }}</code></pre>
     </template>
     <span v-if="streaming" class="cursor">▍</span>

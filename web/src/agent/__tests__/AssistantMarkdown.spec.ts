@@ -55,3 +55,46 @@ describe("AssistantMarkdown 表格/图表前后渲染", () => {
     w.unmount();
   });
 });
+
+// ---- P2：结构化卡片（expense-draft / anomaly）----------------------------
+
+describe("AssistantMarkdown 卡片接线", () => {
+  it("expense-draft fence 渲染草稿卡而非代码块", () => {
+    const w = mount(AssistantMarkdown, {
+      props: { text: '```expense-draft\n{"claim_no": "FY-1", "entries": []}\n```' },
+    });
+    expect(w.find(".cdc-card").exists()).toBe(true);
+    expect(w.find("pre.code-block").exists()).toBe(false);
+  });
+
+  it("anomaly fence 渲染异常卡", () => {
+    const w = mount(AssistantMarkdown, {
+      props: { text: '```anomaly\n{"message": "缺返程票"}\n```' },
+    });
+    expect(w.find(".ac-card").exists()).toBe(true);
+  });
+
+  it("半截 expense-draft JSON 退回代码块（不渲染半成品卡）", () => {
+    const w = mount(AssistantMarkdown, {
+      props: { text: '```expense-draft\n{"claim_no": "FY-1"' },
+    });
+    expect(w.find(".cdc-card").exists()).toBe(false);
+  });
+
+  it("卡片按钮事件冒泡为 chat-action（交给上层注入消息）", async () => {
+    const w = mount(AssistantMarkdown, {
+      props: { text: '```anomaly\n{"message":"m","options":[{"label":"A","prompt":"pa"}]}\n```' },
+    });
+    await w.find("button.ac-option").trigger("click");
+    expect(w.emitted("chat-action")?.[0]).toEqual(["pa"]);
+  });
+
+  it("草稿卡提交按钮同样冒泡 chat-action", async () => {
+    const w = mount(AssistantMarkdown, {
+      props: { text: '```expense-draft\n{"claim_no":"FY-9","entries":[]}\n```' },
+    });
+    await w.find("button.cdc-submit").trigger("click");
+    const [prompt] = w.emitted("chat-action")![0] as [string];
+    expect(prompt).toContain("FY-9");
+  });
+});
